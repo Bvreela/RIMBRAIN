@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#111a1b">
+  <title>Northstar — Colony control · UI prototype</title>
+  <link rel="stylesheet" href="./styles.css">
+  <script type="module" src="./app.mjs"></script>
+</head>
+<body>
+  <svg class="symbols" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></symbol>
+    <symbol id="i-plan" viewBox="0 0 24 24"><path d="M7 4h14M7 12h14M7 20h14M2 4h1M2 12h1M2 20h1"/></symbol>
+    <symbol id="i-matrix" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 3v18M15 9v12M9 15h12"/></symbol>
+    <symbol id="i-book" viewBox="0 0 24 24"><path d="M12 5v16M12 5C9 2 5 2 2 3v16c3-1 7-1 10 2 3-3 7-3 10-2V3c-3-1-7-1-10 2Z"/></symbol>
+    <symbol id="i-runtime" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="13" rx="2"/><path d="M8 21h8M12 16v5M6 8l3 3 4-5 4 5"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><path d="M4 3v18M12 3v18M20 3v18M1 8h6M9 16h6M17 8h6"/></symbol>
+    <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M4 12h16M14 6l6 6-6 6"/></symbol>
+  </svg>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <aside class="sidebar">
+    <a class="brand" href="#overview" aria-label="Northstar overview">
+      <span class="brand-mark">N<span>·</span></span>
+      <span>NORTHSTAR<small>COLONY CONTROL</small></span>
+    </a>
+    <div class="workspace"><span class="workspace-icon">N</span><div>Northstar colony<small>Temperate forest · Mountain</small></div></div>
+    <p class="nav-label">COMMAND</p>
+    <nav aria-label="Main navigation">
+      <a href="#overview" class="nav-link active"><svg><use href="#i-grid"/></svg><span>Overview</span><span class="nav-dot"></span></a>
+      <a href="#plans" class="nav-link"><svg><use href="#i-plan"/></svg><span>Plans & tasks</span><span class="nav-count">5</span></a>
+      <a href="#matrices" class="nav-link"><svg><use href="#i-matrix"/></svg><span>Decision matrix</span></a>
+      <a href="#lessons" class="nav-link"><svg><use href="#i-book"/></svg><span>Lessons learned</span><span class="nav-count">3</span></a>
+      <a href="#runtime" class="nav-link"><svg><use href="#i-runtime"/></svg><span>Game & agent</span></a>
+      <a href="#settings" class="nav-link"><svg><use href="#i-settings"/></svg><span>Settings</span></a>
+    </nav>
+    <div class="sidebar-bottom">
+      <div class="connection"><span class="dot"></span><span>Prototype environment</span></div>
+      <p>No game connected.<br>All colony data is illustrative.</p>
+      <a href="../rimworld-jev-plan.html" target="_blank" rel="noreferrer">Framework specification ↗</a>
+      <div class="operator"><span class="avatar">BV</span><div>Ben Vreeland<small>Human operator</small></div></div>
+    </div>
+  </aside>
+
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="breadcrumb">Workspace <span>/</span> Northstar <span>/</span> <strong id="breadcrumb-view">Overview</strong></div>
+      <span class="demo-badge">INTERACTIVE MOCKUP</span>
+    </header>
+    <div class="demo-notice">Explore a proposed interface. Actions change this demo only; nothing is sent to RimWorld or an AI endpoint.</div>
+    <main id="main" tabindex="-1">
+      <section class="page-heading">
+        <div><p class="eyebrow">COLONY OPERATIONS <span> / </span> SAMPLE RUN R-024</p><h1 id="page-title">A clear view of every decision.</h1><p id="page-subtitle">Your colony, its next move, and the reasoning behind it.</p></div>
+        <button class="button secondary" id="takeover">Take control <svg><use href="#i-arrow"/></svg></button>
+      </section>
+      <section class="control-bar" aria-label="Simulated game and agent controls">
+        <div class="game-controls"><span class="control-label"><span class="dot" id="game-dot"></span>GAME <b id="game-status">Running</b></span><button id="pause-game" class="button compact" aria-pressed="false">Pause game</button>
+          <div class="speed-buttons" role="group" aria-label="Requested game speed">
+            <button data-speed="1" title="Normal: target 60 ticks per second">1</button>
+            <button data-speed="2" title="Fast: target 180 ticks per second">2</button>
+            <button data-speed="3" title="Superfast: target 360 ticks per second" class="selected">3</button>
+            <button data-speed="4" title="Developer ultrafast: target 900 ticks per second">4 <small>DEV</small></button>
+          </div>
+          <span class="speed-caption" id="speed-caption">Superfast · target 6×</span>
+        </div>
+        <div class="agent-controls"><span class="control-label"><span class="dot" id="agent-dot"></span>AGENT <b id="agent-status">Ready</b></span><button class="button compact" id="pause-agent" aria-pressed="false">Pause agent</button><label class="sr-only" for="mode">Agent operation mode</label><select id="mode"><option value="supervised">Supervised</option><option value="shadow">Shadow</option><option value="autonomous">Autonomous</option><option value="manual">Manual</option></select></div>
+      </section>
+
+      <section class="view" id="view-overview">
+        <div class="stats-grid">
+          <article class="stat"><span class="stat-label">Food reserve <span class="status-text green">Stable</span></span><div><strong>4.2</strong><span>days</span></div><div class="sparkline"><i style="height:35%"></i><i style="height:48%"></i><i style="height:45%"></i><i style="height:70%"></i><i style="height:66%"></i><i style="height:84%"></i><i style="height:100%"></i></div><small>Target: 3 days of meals</small></article>
+          <article class="stat"><span class="stat-label">Usable shelter <span class="status-text amber" id="shelter-status">Attention</span></span><div><strong><span id="shelter-count">3</span><span class="muted"> / 6</span></strong><span>pawns</span></div><div class="mini-bar"><span id="shelter-bar" style="width:50%"></span></div><small id="shelter-summary">3 additional sleeping places needed</small></article>
+          <article class="stat"><span class="stat-label">Colony mood <span class="status-text green">Steady</span></span><div><strong>67</strong><span>/ 100</span></div><div class="mini-bar green-bar"><span style="width:67%"></span></div><small>Next review after shelter is usable</small></article>
+          <article class="stat"><span class="stat-label">Research <span class="status-text">Waiting</span></span><div><strong class="stat-word">Batteries</strong></div><div class="mini-bar"><span style="width:28%"></span></div><small>Labor reserved for food and shelter</small></article>
+        </div>
+        <div class="overview-grid">
+          <div class="left-column">
+            <article class="panel map-panel">
+              <div class="panel-heading"><div><p class="eyebrow">SPATIAL PLANNING</p><h2 id="map-heading">A home before nightfall</h2></div><label class="switch-label"><input type="checkbox" id="map-overlay" checked> Plan overlay</label></div>
+              <div class="map-toolbar"><span><span class="dot"></span> SCHEMATIC MAP <span class="muted">· Not a game screenshot</span></span><span>250 × 250 cells</span></div>
+              <div class="map-wrap">
+                <svg id="colony-map" viewBox="0 0 900 480" role="img" aria-labelledby="map-title map-desc">
+                  <title id="map-title">Illustrative colony map and shelter alternatives</title>
+                  <desc id="map-desc">Rock lies northwest, an existing room and crop field lie south, and open ground lies east. Select a shelter candidate below to highlight its footprint.</desc>
+                  <defs>
+                    <pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse"><path d="M24 0H0V24" fill="none" stroke="#647655" stroke-width=".7" opacity=".22"/></pattern>
+                    <pattern id="rock-grid" width="24" height="24" patternUnits="userSpaceOnUse"><rect width="24" height="24" fill="#454d48"/><path d="M24 0H0V24" stroke="#68736a" stroke-width=".8" fill="none" opacity=".5"/></pattern>
+                    <pattern id="crops" width="14" height="14" patternUnits="userSpaceOnUse"><rect width="14" height="14" fill="#485437"/><path d="M7 4v6M4 5l3 3 3-3" stroke="#a1a06b" fill="none" stroke-width="1.4"/></pattern>
+                    <pattern id="blueprint" width="12" height="12" patternUnits="userSpaceOnUse"><path d="M0 12L12 0" stroke="#91dfc4" stroke-width="1" opacity=".2"/></pattern>
+                    <g id="tree"><path d="M0 12V-4" stroke="#62694c" stroke-width="3"/><path d="M-10 4L0-17 11 4ZM-8-4L0-23 9-4Z" fill="#344c3d" stroke="#5d7255" stroke-width="1.5"/></g>
+                  </defs>
+                  <rect width="900" height="480" fill="#687355"/>
+                  <path d="M0 0H520L480 58 465 135 381 172 352 247 291 291 184 304 156 375 0 405Z" fill="url(#rock-grid)" stroke="#87917b" stroke-width="3"/>
+                  <path d="M0 0H407L372 42 403 78 334 141 293 190 206 213 200 253 127 283 76 301 0 291Z" fill="#3a4440" opacity=".65"/>
+                  <path d="M734-20C810 40 758 125 805 191S769 318 833 405L889 500H949V0Z" fill="#476c70"/>
+                  <path d="M734-20C810 40 758 125 805 191S769 318 833 405L889 500" fill="none" stroke="#9ea280" stroke-width="11" opacity=".6"/>
+                  <path d="M345 420Q469 364 527 280T623 86" fill="none" stroke="#9c9471" stroke-width="29" opacity=".55"/>
+                  <rect width="900" height="480" fill="url(#grid)"/>
+                  <g opacity=".85"><use href="#tree" x="556" y="62"/><use href="#tree" x="589" y="93"/><use href="#tree" x="675" y="64"/><use href="#tree" x="710" y="164"/><use href="#tree" x="621" y="170"/><use href="#tree" x="733" y="282"/><use href="#tree" x="666" y="372"/><use href="#tree" x="705" y="401"/><use href="#tree" x="597" y="430"/><use href="#tree" x="484" y="444"/><use href="#tree" x="276" y="388"/><use href="#tree" x="135" y="441"/><use href="#tree" x="51" y="421"/></g>
+                  <rect x="344" y="330" width="102" height="95" fill="url(#crops)" stroke="#b0a773" stroke-width="2"/>
+                  <g fill="#a49c7f" stroke="#c5b89d" stroke-width="5"><path d="M451 326h106v81h-106Z"/><path d="M451 361h50v46"/></g>
+                  <g fill="#737e76" stroke="#c9c7af" stroke-width="2"><rect x="460" y="337" width="13" height="24"/><rect x="480" y="337" width="13" height="24"/><rect x="500" y="337" width="13" height="24"/></g>
+                  <path d="M529 407h17" stroke="#687355" stroke-width="6"/>
+                  <g id="temporary-shelter" style="display:none"><rect x="564" y="211" width="132" height="96" fill="#a49c7f" stroke="#c5b89d" stroke-width="5"/><path d="M583 230h18v30h-18ZM612 230h18v30h-18ZM641 230h18v30h-18Z" fill="#737e76" stroke="#c9c7af" stroke-width="2"/></g>
+                  <g class="site-overlay" id="overlay-reuse"><path d="M451 326h106v81H451Z" fill="url(#blueprint)" stroke="#91dfc4" stroke-width="3" stroke-dasharray="8 5"/><text x="464" y="390">A · REUSE</text></g>
+                  <g class="site-overlay" id="overlay-open"><rect x="564" y="211" width="132" height="96" fill="url(#blueprint)" stroke="#91dfc4" stroke-width="3" stroke-dasharray="8 5"/><path d="M564 259h132M630 211v96" stroke="#91dfc4" opacity=".7"/><text x="569" y="195">B · SURFACE SHELTER</text></g>
+                  <g class="site-overlay" id="overlay-excavation"><path d="M265 150h120v76H265ZM324 226v56h42" fill="url(#blueprint)" stroke="#91dfc4" stroke-width="3" stroke-dasharray="8 5"/><path d="M325 150v76" stroke="#91dfc4" opacity=".7"/><text x="237" y="134">C · STAGED EXCAVATION</text></g>
+                  <g class="site-overlay" id="overlay-hybrid"><rect x="564" y="211" width="132" height="96" fill="url(#blueprint)" stroke="#91dfc4" stroke-width="3"/><path d="M265 150h120v76H265ZM324 226v56h42" fill="url(#blueprint)" stroke="#dfc897" stroke-width="3" stroke-dasharray="8 5"/><path d="M563 252C501 189 454 256 385 225" fill="none" stroke="#dfc897" stroke-width="2" stroke-dasharray="6 6"/><text x="571" y="195">01 · SHELTER NOW</text><text x="243" y="134" class="later-label">02 · UPGRADE LATER</text></g>
+                  <g class="map-pawn"><circle cx="532" cy="288" r="9"/><text x="547" y="293">Iris</text><circle cx="490" cy="383" r="9"/><text x="505" y="388">Sol</text><circle cx="367" cy="292" r="9"/><text x="382" y="297">Mara</text></g>
+                  <g class="map-label"><rect x="27" y="26" width="193" height="31" rx="5"/><text id="map-roof-label" x="40" y="46">GRANITE · ROOF UNSURVEYED</text><rect x="337" y="437" width="114" height="25" rx="5"/><text x="350" y="454">GROWING ZONE</text></g>
+                  <g class="compass"><path d="M851 37v38M842 51l9-14 9 14" stroke="#dce5d3" stroke-width="2" fill="none"/><text x="846" y="28">N</text></g>
+                </svg>
+                <div class="map-legend"><span><i class="legend-solid"></i> Current phase</span><span><i class="legend-dashed"></i> Conditional future work</span><span><i class="legend-pawn"></i> Pawn</span></div>
+              </div>
+              <div class="map-footer"><span>Illustrative estimates · no survey or gameplay performed</span><a href="#runtime">How does this connect to the game? ↗</a></div>
+            </article>
+            <article class="panel candidates-panel">
+              <div class="panel-heading"><div><p class="eyebrow">BOUNDED CHOICES</p><h2>Four paths. One next decision.</h2></div><span class="pill">4 options maximum</span></div>
+              <div id="candidate-grid" class="candidate-grid" role="group" aria-label="Shelter candidates"></div>
+              <div class="scenario-control"><label for="pawn-profile">Try a different pawn situation</label><select id="pawn-profile"><option value="balanced">Skilled miner, shelter needed tonight</option><option value="low">Low available mining capacity</option><option value="high">Skilled miner, temporary shelter ready</option><option value="reserved">Skilled miner is the only cook</option></select></div>
+            </article>
+          </div>
+          <aside class="inspector">
+            <article class="panel focus-panel">
+              <div class="panel-heading"><p class="eyebrow">ATTENTION CYCLER</p><span class="pill amber-pill">Shelter</span></div>
+              <div class="focus-symbol">02<span>/ 05</span></div><h2 id="focus-title">Secure sleeping space</h2><p id="focus-description">Three pawns need usable shelter before nightfall. Keep food production staffed.</p>
+              <div class="attention-track"><span>Food</span><strong>Shelter</strong><span>Mood</span><span>Research</span><span>Combat</span></div>
+              <div class="key-value"><span>Why now</span><strong id="attention-reason">Deadline approaching</strong></div><div class="key-value"><span>Next check</span><strong>After phase completion</strong></div>
+              <a class="text-link" href="#plans">See task dependencies <span>→</span></a>
+            </article>
+            <article class="panel decision-panel">
+              <div class="panel-heading"><p class="eyebrow">DECISION INSPECTOR</p><span class="tiny-id">D-018 · SAMPLE</span></div>
+              <span class="status-text green" id="candidate-label">Selected for review</span><h2 id="candidate-title">Shelter now, stone later</h2><p id="candidate-reason"></p>
+              <div class="estimate-grid"><div><span>Usable shelter</span><strong id="candidate-time"></strong></div><div><span>Mining demand</span><strong id="candidate-mining"></strong></div></div>
+              <div class="callout" id="candidate-gate"></div>
+              <div class="pawn-row"><span class="avatar mint">M</span><div><strong>Mara <span id="pawn-skill">Mining 14</span></strong><small id="pawn-availability"></small></div></div>
+              <div class="source-line"><span class="small-square"></span><span id="candidate-lesson"></span></div>
+              <button class="button primary full-width" id="confirm-plan">Approve demo plan <span>→</span></button>
+              <button class="button ghost full-width" id="view-trace">Inspect decision trace</button>
+            </article>
+            <div class="review-note"><span class="dot amber-dot"></span><p><strong>You remain in the loop.</strong><br>Selections are proposals until validated and approved under the chosen mode.</p></div>
+          </aside>
+        </div>
+      </section>
+
+      <section class="view" id="view-plans" hidden>
+        <div class="section-intro"><p class="eyebrow">LONG-TERM PLAN → CURRENT GOALS → READY TASKS</p><h2>Survive first. Build for the next season.</h2><p>A ready task enters the attention cycle only when its dependencies and resource reservations permit it.</p></div>
+        <div class="plan-columns">
+          <article class="panel plan-card"><span class="pill">01 · Maintain</span><h2>Food security</h2><p>Keep at least three days of meals. Reserve Sol for cooking and hauling ingredients.</p><div class="task-item complete"><span>01</span><div>Inspect food stores<small>Example outcome: reserve sufficient</small></div></div><div class="task-item"><span>02</span><div>Maintain meal production<small>Ongoing · protect assigned labor</small></div></div></article>
+          <article class="panel plan-card active-plan"><span class="pill amber-pill">02 · Current focus</span><h2>Usable shelter</h2><p>Six reachable sleeping places with enclosure and suitable temperature.</p><div class="task-item complete"><span>01</span><div>Observe map and pawn capacity<small>Demonstration observations only</small></div></div><div class="task-item current"><span>02</span><div>Select a feasible site<small id="plan-selection">Hybrid candidate under review</small></div></div><div class="task-item"><span>03</span><div>Execute one bounded phase<small>Blocked by site validation and approval</small></div></div><div class="task-item"><span>04</span><div>Verify actual usability<small>Enclosure, access, beds, temperature</small></div></div><a class="text-link" href="#overview">Review site options →</a></article>
+          <article class="panel plan-card"><span class="pill">03–05 · Upcoming</span><h2>Mood, then progress</h2><p>Maintain basic needs before allocating labor to research and planned combat improvements.</p><div class="task-item"><span>03</span><div>Mood maintenance<small>Inspect recreation and sleeping conditions</small></div></div><div class="task-item"><span>04</span><div>Research: Batteries<small>Example priority · survival labor gate</small></div></div><div class="task-item"><span>05</span><div>Combat readiness<small>Emergency defense can interrupt any domain</small></div></div></article>
+        </div>
+        <article class="panel wide-note"><h3>Later milestone: durable stone shelter</h3><p>Re-evaluate available mining capacity after immediate shelter is usable. Validate roof support and escape routes, excavate in phases, and retain the old shelter until the replacement is verified. A skill change or lost worker triggers replanning.</p></article>
+      </section>
+
+      <section class="view" id="view-matrices" hidden>
+        <div class="section-intro"><p class="eyebrow">MATRIX.SHELTER_SITE · REVISION 2</p><h2>The selector chooses an option, not coordinates.</h2><p>Deterministic planning generates the footprint. The selector can return only an offered ID. This table demonstrates the proposed contract.</p></div>
+        <article class="panel">
+          <div class="panel-heading"><h2>Shelter site selection</h2><span class="pill">Human-reviewable policy</span></div>
+          <div class="table-scroll"><table><thead><tr><th>Option ID</th><th>When it is useful</th><th>Required validation</th><th>Review</th></tr></thead><tbody>
+            <tr><td><code>REUSE_EXISTING</code></td><td>Existing rooms can meet the goal quickly</td><td>Capacity, enclosure, access, repairs</td><td><button class="button compact" data-inspect="reuse">Inspect</button></td></tr>
+            <tr><td><code>OPEN_CONSTRUCTION</code></td><td>Low mining capacity or a near deadline</td><td>Buildable ground, materials, builder hours</td><td><button class="button compact" data-inspect="open">Inspect</button></td></tr>
+            <tr><td><code>EXCAVATION</code></td><td>Available skilled miners and enough time</td><td>Roof, access, rescue, hazards, finishing work</td><td><button class="button compact" data-inspect="excavation">Inspect</button></td></tr>
+            <tr><td><code>HYBRID</code></td><td>Immediate shelter plus a later durable upgrade</td><td>Temporary shelter first; upgrade separately gated</td><td><button class="button compact" data-inspect="hybrid">Inspect</button></td></tr>
+          </tbody></table></div>
+          <div class="wide-note"><strong>Always available: CONTINUE · ESCALATE</strong><p>Reject stale evidence and unknown option IDs. Excluded candidates keep their rejection reasons. No model choice bypasses legal placement, reservations, or safety gates.</p></div>
+        </article>
+      </section>
+
+      <section class="view" id="view-lessons" hidden>
+        <div class="section-intro"><p class="eyebrow">MEMORY WITH PROVENANCE</p><h2>A lesson is only as strong as its evidence.</h2><p>These are untested priors and a synthetic hypothesis. There are no real colony outcomes in this mockup.</p></div>
+        <div class="lesson-toolbar"><label for="lesson-filter">Show</label><select id="lesson-filter"><option value="all">All records</option><option value="prior">Untested priors</option><option value="hypothesis">Synthetic hypotheses</option></select><span class="muted">Frozen lesson snapshot · example revision 1</span></div>
+        <div class="lesson-grid">
+          <article class="panel lesson-card" data-lesson-status="prior"><span class="pill">User prior · Untested</span><p class="tiny-id">L-001 · SHELTER</p><h2>Low mining capacity favors open construction.</h2><p>Apply when surface construction or reuse can meet the deadline and mining would delay usable shelter.</p><dl><dt>Exceptions</dt><dd>No feasible open space; unsuitable surface terrain; sufficient existing excavated space.</dd><dt>Real gameplay evidence</dt><dd>0 runs · no observed outcome</dd></dl><button class="button secondary" data-lesson="low">Review applicability →</button></article>
+          <article class="panel lesson-card" data-lesson-status="prior"><span class="pill">User prior · Untested</span><p class="tiny-id">L-002 · SHELTER</p><h2>Skilled miners can unlock durable shelter.</h2><p>Protected excavated space may justify its labor when mining capacity is available and the full project is feasible.</p><dl><dt>Exceptions</dt><dd>Unsafe roofs, infestation conditions, trapped exits, survival labor displaced.</dd><dt>Real gameplay evidence</dt><dd>0 runs · fire and security benefits unmeasured</dd></dl><button class="button secondary" data-lesson="high">Review applicability →</button></article>
+          <article class="panel lesson-card" data-lesson-status="hypothesis"><span class="pill amber-pill">Synthetic hypothesis</span><p class="tiny-id">L-003 · FORECASTING</p><h2>Skill is not the same as availability.</h2><p>A miner who is also the only cook may contribute no unreserved mining hours.</p><dl><dt>Proposed fixture</dt><dd>High-skill miner is the only cook.</dd><dt>Real gameplay evidence</dt><dd>0 runs · test not executed</dd></dl><button class="button secondary" data-lesson="reserved">Review hypothesis →</button></article>
+        </div>
+        <div class="wide-note"><h3>Observe → record → compare → review → promote</h3><p>New lessons do not rewrite active policy. Preserve counterevidence, compare matching starting saves, run regression cases, and approve a versioned change. Held-out outcomes stay evaluator-only until that test set is retired.</p></div>
+      </section>
+
+      <section class="view" id="view-runtime" hidden>
+        <div class="section-intro"><p class="eyebrow">ONE MACHINE · SEPARATE PROCESSES</p><h2>The game keeps running. The agent stays alongside it.</h2><p>This dashboard is a browser application. RimWorld remains a separate game window; it is not embedded inside this prototype.</p></div>
+        <div class="runtime-flow">
+          <article class="panel runtime-card"><span class="runtime-number">01</span><h2>RimWorld</h2><p>Simulates pawns, jobs, weather, combat, and time.</p><div class="runtime-inner">RimBridge + optional Steward<small>Mods inside the game process</small></div><span class="pill">Existing upstream</span></article>
+          <span class="flow-arrow">↔</span>
+          <article class="panel runtime-card"><span class="runtime-number">02</span><h2>RimAgent</h2><p>Reads state and events, calls model endpoints, and dispatches validated actions.</p><div class="runtime-inner">Planner ↔ Decision Selector<small>Two configurable API roles · proposed</small></div><span class="pill">Python process</span></article>
+          <span class="flow-arrow">↔</span>
+          <article class="panel runtime-card"><span class="runtime-number">03</span><h2>This dashboard</h2><p>Shows plans, map overlays, decisions, evidence, and operator controls.</p><div class="runtime-inner">Human review + control<small>Browser window or second monitor</small></div><span class="pill amber-pill">New UI · mockup only</span></article>
+        </div>
+        <div class="runtime-columns">
+          <article class="panel detail-card"><h2>Faster simulated time</h2><p>RimBridge already accepts <code>game.speed</code> values 0–4. A speed number is an enum, not its multiplier.</p><table class="speed-table"><thead><tr><th>Setting</th><th>Typical target</th><th>Real time / game day</th></tr></thead><tbody><tr><td>1 · Normal</td><td>60 TPS · 1×</td><td>16m 40s</td></tr><tr><td>2 · Fast</td><td>180 TPS · 3×</td><td>5m 33s</td></tr><tr><td>3 · Superfast</td><td>360 TPS · 6×</td><td>2m 47s</td></tr><tr><td>4 · Dev ultrafast</td><td>900 TPS · 15×</td><td>1m 7s</td></tr></tbody></table><p class="caption">Targets, not measurements. CPU load, colony size, mods, forced slowdowns, and pauses limit actual throughput. Some game states change these rates.</p><p>Enable Development mode in RimWorld options, then press <kbd>4</kbd> for the developer speed. The inspected RPC assigns speed 4 directly; exact in-game behavior still needs verification on the installed version.</p></article>
+          <article class="panel detail-card"><h2>Two independent pause controls</h2><ul class="clean-list"><li><strong>Pause game</strong><span>Stops simulation ticks. Observation and planning can still happen.</span></li><li><strong>Pause agent</strong><span>Stops new agent turns. The game and in-game Steward can continue.</span></li><li><strong>Take control</strong><span>Proposed combined handoff: pause game and agent, drain pending writes, then give ownership to the human.</span></li></ul><div class="callout">The upstream runner restores speed after a thinking turn. A durable operator pause needs shared pause ownership; a single pause RPC is insufficient.</div></article>
+        </div>
+        <article class="panel wide-note"><h3>Recommended operating policy</h3><p>Use superfast for routine work, slow or pause for danger and uncertain decisions, and try ultrafast for measured evaluation runs after verifying event latency. Model API latency does not accelerate with the game. Enable the game’s “Run in background” option when using the browser alongside it. This is windowed background play; headless support has not been established.</p><p>Time acceleration preserves ordinary job simulation. Instant building, spawning resources, and finishing research are different debug tools and change the experiment; RimBridge marks its assisted dev actions accordingly.</p><div class="source-links"><a href="https://rimworldwiki.com/wiki/Time" target="_blank" rel="noreferrer">RimWorld time reference ↗</a><a href="https://rimworldwiki.com/wiki/Development_mode" target="_blank" rel="noreferrer">Development mode ↗</a><a href="https://github.com/zorrobyte/rimbridge/blob/3c1e4c7cee151104b85bf9c8372e113f91c5f08d/Source/Game/GameControl.cs" target="_blank" rel="noreferrer">RimBridge controls ↗</a></div></article>
+      </section>
+
+      <section class="view" id="view-settings" hidden>
+        <div class="section-intro"><p class="eyebrow">PROVIDER-NEUTRAL CONFIGURATION</p><h2>Your models. Inspectable rules.</h2><p>These fields demonstrate a settings editor. Saving downloads a local demo proposal; it never contacts either endpoint or activates a policy.</p></div>
+        <form id="settings-form" class="panel settings-form">
+          <div class="settings-columns"><fieldset><legend>Planner endpoint</legend><label>Adapter<select name="plannerAdapter"><option>OpenAI-compatible</option><option>Anthropic</option><option>Custom adapter</option></select></label><label>Base URL<input name="plannerUrl" type="url" value="https://planner.example.invalid/v1" required></label><label>Model ID<input name="plannerModel" value="your-planner-model" required maxlength="120"></label></fieldset><fieldset><legend>Decision Selector endpoint</legend><label>Adapter<select name="selectorAdapter"><option>TypeSafe System One</option><option>OpenAI-compatible</option><option>Custom adapter</option></select></label><label>Base URL<input name="selectorUrl" type="url" value="https://selector.example.invalid/v1" required></label><label>Model ID<input name="selectorModel" value="your-selector-model" required maxlength="120"></label></fieldset></div>
+          <div class="callout">No API keys belong in this browser mockup. A real backend resolves secret references and validates each endpoint’s capabilities.</div>
+          <div class="settings-footer"><span class="muted">Proposal only · activation disabled</span><button class="button primary" type="submit">Download demo proposal</button></div>
+        </form>
+      </section>
+      <footer class="page-footer"><span>NORTHSTAR / RIMWORLD AGENT FRAMEWORK</span><span>Design prototype · local state resets on refresh <button id="reset-demo">Reset demo</button></span></footer>
+    </main>
+  </div>
+  <dialog id="detail-dialog" aria-labelledby="dialog-title"><div class="dialog-header"><p class="eyebrow" id="dialog-eyebrow">DECISION TRACE</p><button class="icon-button" id="close-dialog" aria-label="Close dialog">×</button></div><h2 id="dialog-title"></h2><div id="dialog-body"></div></dialog>
+  <div class="toast" role="status" aria-live="polite" id="toast" hidden></div>
+</body>
+</html>

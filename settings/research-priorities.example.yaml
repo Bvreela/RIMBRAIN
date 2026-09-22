@@ -1,0 +1,101 @@
+# Editable design example; not loaded by RimAgent.
+# Registered by settings/registry.example.yaml.
+# Predicate/capability IDs below describe proposed framework registry entries.
+# Resolve project defNames and prerequisites against the actual game/mod catalog.
+schema_version: 1
+id: colony.research_priorities
+revision: 1
+status: draft
+activate_in_stage: research
+
+human_controls:
+  pinned_next_project_def: null
+  excluded_project_defs: []
+  ai_changes: proposal_only
+  ai_may_change_pins_or_exclusions: false
+
+scheduling:
+  start_when_all:
+    - no_active_emergency
+    - food_maintenance_satisfied
+    - shelter_maintenance_satisfied
+    - mood_maintenance_satisfied
+    - research_bench_usable
+    - research_labor_and_materials_unreserved
+  unknown_condition: defer_and_request_observation
+  resource_budget_ref: colony.maintenance_surplus
+  review_every_game_hours: 6
+  review_on:
+    - project_completed
+    - maintenance_changed
+    - threat_changed
+    - research_stalled
+    - human_priority_changed
+  max_productive_candidates: 4
+  fallback_options: [CONTINUE, ESCALATE]
+  allow_lower_tier_when_higher_blocked: true
+  blocked_pin: wait_for_human_review
+
+project_policy:
+  prerequisite_source: validated_game_catalog
+  prerequisite_priority: inherit_parent_goal
+  missing_project_or_catalog: block_affected_goal_and_report
+  excluded_prerequisite: block_dependent_goal
+  completed_project: skip
+  already_usable_capability: satisfy_goal
+  unlocked_but_unusable_capability: create_implementation_tasks
+  preserve_current_project: true
+  switch_only_for:
+    - explicit_human_change
+    - validated_need_or_feasibility_change
+  dispatch: one_project_when_idle
+  steward_pending_backlog_limit: 0
+  human_queue_conflict: suspend_writes_and_request_review
+  emergency: pause_research_via_validated_control
+  maintenance_failure: pause_research_via_validated_control
+  unverified_pause_control: pause_game_and_request_review
+
+priorities:
+  - id: food_and_power
+    rank: 1
+    desired_capabilities: [food_security, reliable_power]
+    rationale: Resolve verified food and power constraints with usable unlocks.
+    preferred_project_defs: [Batteries, SolarPanels]
+    consider_only_when: addresses_verified_bottleneck_and_has_implementation_budget
+
+  - id: shelter_and_mood
+    rank: 2
+    desired_capabilities: [suitable_shelter, appropriate_clothing, basic_amenities]
+    rationale: Enable a needed remedy that existing capabilities cannot provide.
+    preferred_project_defs: []
+    consider_only_when: missing_capability_requires_research
+
+  - id: production_efficiency
+    rank: 3
+    desired_capabilities: [labor_saving_production, useful_research_infrastructure]
+    rationale: Relieve measured labor or production limits.
+    preferred_project_defs: []
+    consider_only_when: measured_constraint_and_feasible_follow_up
+
+  - id: health_and_defense
+    rank: 4
+    desired_capabilities: [medical_supply, protective_equipment, defensive_readiness]
+    rationale: Address observed readiness gaps without activating combat autonomy.
+    preferred_project_defs: []
+    consider_only_when: observed_readiness_gap_and_feasible_follow_up
+
+  - id: long_term_advancement
+    rank: 5
+    desired_capabilities: [human_selected_advanced_unlock]
+    rationale: Advance an explicit longer-term objective after nearer needs.
+    preferred_project_defs: []
+    consider_only_when: human_objective_selected_and_maintenance_covered
+
+verification:
+  project_completion: observed_in_finished_project_set
+  capability_goal_completion: intended_capability_observed_in_use
+  metrics:
+    - time_to_useful_capability
+    - research_stalled_hours
+    - unnecessary_project_switches
+    - displaced_maintenance_work

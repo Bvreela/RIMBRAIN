@@ -1,0 +1,14 @@
+schema_version: 1
+id: objectives.first_winter
+revision: 1
+status: proposed
+
+objectives:
+  - id: objective.first_winter_readiness
+    stage: shelter
+    priority: 85
+    type: achieve_and_maintain
+    desired_outcome: colonists_food_heating_clothing_ready_for_forecast_cold
+    horizon: before_first_freeze
+    resource_budget_ref: budget.maintenance
+    success_predicate: first_winter_readiness_satisfied

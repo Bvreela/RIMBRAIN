@@ -1,0 +1,16 @@
+schema_version: 1
+id: tasks.first_winter
+revision: 1
+status: proposed
+
+templates:
+  - id: task.close_winter_readiness_gap
+    domain: shelter
+    required_observations: [weather_forecast, rooms, heating, clothing, fuel, power]
+    preconditions: [first_winter_readiness_failed, no_higher_priority_emergency]
+    matrix_id: matrix.winter_preparation
+    allowed_action_templates: [make_cold_weather_clothing, fuel_existing_heat, build_available_heat, improve_insulation]
+    verification: first_winter_readiness_improved
+    retry_limit: 2
+    timeout_game_hours: 24
+    stop_when: first_winter_readiness_satisfied

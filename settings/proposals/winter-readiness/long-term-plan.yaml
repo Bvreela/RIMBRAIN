@@ -1,0 +1,33 @@
+schema_version: 1
+id: plans.first_winter
+revision: 1
+status: proposed
+
+plans:
+  - id: plan.first_winter_readiness
+    objective_ids: [objective.first_winter_readiness]
+    horizon_game_days: 30
+    strategy: Close verified food, shelter, heating, and clothing gaps before the first freeze.
+    assumptions: [forecast_window_is_sufficient]
+    constraints:
+      - preserve_food_shelter_and_mood_maintenance
+      - do_not_assume_a_specific_research_unlock
+    milestones:
+      - id: milestone.winter_food
+        goal: food_maintenance_satisfied
+        workflow_id: workflow.secure_food
+        depends_on: []
+      - id: milestone.winter_shelter
+        goal: shelter_maintenance_satisfied
+        workflow_id: workflow.secure_shelter
+        depends_on: []
+      - id: milestone.winter_specific_gaps
+        goal: first_winter_readiness_satisfied
+        workflow_id: workflow.prepare_first_winter
+        depends_on: [milestone.winter_food, milestone.winter_shelter]
+    replan_triggers:
+      - forecast_changed
+      - winter_material_unavailable
+      - maintenance_state_changed
+      - human_objective_changed
+    completion: first_winter_readiness_satisfied
