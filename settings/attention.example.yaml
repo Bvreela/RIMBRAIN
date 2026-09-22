@@ -1,0 +1,44 @@
+# Deterministic attention policy; the selector does not choose the next task.
+schema_version: 1
+id: attention.default
+revision: 1
+status: draft
+
+score:
+  urgency_weight: 0.40
+  deadline_weight: 0.25
+  dependency_unblock_weight: 0.20
+  expected_value_weight: 0.10
+  staleness_weight: 0.05
+
+interrupts:
+  immediate:
+    - active_fire
+    - active_hostile_threat
+    - pawn_bleeding_out
+    - starvation_imminent
+  review:
+    - action_failed
+    - task_deadline_missed
+    - maintenance_state_changed
+    - project_completed
+    - human_settings_changed
+
+cadence:
+  routine_review_game_hours: 6
+  maintenance_review_game_hours: 2
+  long_term_plan_review_game_days: 1
+  max_task_age_without_review_game_hours: 12
+
+turn_budget:
+  max_observation_calls: 8
+  max_planner_calls: 1
+  max_selector_calls: 1
+  max_game_writes: 3
+  max_wall_seconds: 180
+
+selection:
+  require_fresh_preconditions: true
+  one_active_task_per_resource_lock: true
+  tie_breakers: [earliest_deadline, oldest_last_attention, task_id]
+  no_eligible_task: observe_or_wait

@@ -1,0 +1,85 @@
+# Rules for the proposed propose_settings_package application tool.
+schema_version: 1
+id: settings_generation.default
+revision: 2
+status: draft
+
+workspace:
+  proposal_root: proposals
+  active_settings_writable_by_agent: false
+  one_package_per_directory: true
+  path_pattern: "proposals/{proposal_id}/{file_name}"
+
+allowed_new_instances:
+  - objectives
+  - task_templates
+  - decision_matrices
+  - long_term_plans
+  - action_workflows
+
+protected_kinds:
+  - endpoint_config
+  - attention_policy
+  - planner_guidance
+  - reviewer_guidance
+  - evaluation
+  - research_priorities
+  - building_strategy
+  - lessons_policy
+  - settings_generation
+
+limits:
+  max_files_per_package: 8
+  max_new_objectives: 12
+  max_new_task_templates: 20
+  max_new_matrix_rows: 30
+  max_new_workflow_nodes: 60
+  max_plan_horizon_game_days: 120
+  max_workflow_depth: 6
+  max_productive_matrix_options: 4
+  required_fallback_options: [CONTINUE, ESCALATE]
+
+proposal_contract:
+  required_metadata:
+    - proposal_id
+    - created_by_role
+    - source_request_ids
+    - parent_plan_ids
+    - evidence_refs
+    - assumptions
+    - affected_domains
+    - expected_benefit
+    - rejection_conditions
+    - regression_fixtures
+  required_file_fields:
+    - schema_version
+    - id
+    - revision
+    - status
+  forced_status: proposed
+  created_by_role: planner
+  unknown_reference: reject
+  unknown_action_or_predicate: reject
+  workflow_cycle: reject
+  unresolved_dependency: reject
+  overlapping_matrix_rows: reject
+
+validation_pipeline:
+  - parse_files
+  - validate_kind_schemas
+  - enforce_path_and_size_limits
+  - enforce_unique_ids
+  - resolve_registered_references
+  - check_workflow_dags
+  - check_matrix_bounds
+  - run_declared_regression_fixtures
+  - render_diff_and_impact_report
+
+promotion:
+  default: human_approval
+  agent_can_activate: false
+  trial_required: true
+  matched_save_comparison_required: true
+  rollback_revision_required: true
+  activation_boundary: between_attention_turns
+  stale_in_flight_results: discard

@@ -1,0 +1,126 @@
+# Proposed settings, not a RimAgent loader. Estimates and preferences require game trials.
+schema_version: 1
+id: building.colony
+revision: 1
+status: draft
+
+scope:
+  domain: shelter
+  strategy_task_id: task.select_shelter_site
+  execution_task_id: task.advance_shelter_site
+  workflow_id: workflow.secure_shelter
+  lessons_policy_id: learning.lessons
+  horizon_game_days: 60
+
+observations:
+  pawn_fields:
+    - mining_and_construction_skill
+    - passions_and_disabled_work
+    - health_capacities_and_effective_work_rates
+    - work_priorities_schedule_and_current_job
+    - travel_time_and_allowed_area
+    - labor_reserved_for_food_medical_and_emergencies
+  map_fields:
+    - existing_rooms_and_open_footprints
+    - known_rock_terrain_roof_and_support
+    - reachable_entrances_work_faces_and_escape_routes
+    - material_stocks_and_production_cost
+    - weather_deadlines_and_temperature_requirements
+    - threat_approaches_and_infestation_conditions
+  missing_critical_fact: block_affected_candidate_and_request_observation
+  unknown_effective_rate: use_labeled_conservative_estimate_or_block
+
+capacity_model:
+  calculation_owner: deterministic_adapter
+  unit: productive_work_per_game_hour
+  basis: effective_work_rate_times_unreserved_available_fraction
+  account_for: [travel, hauling, rest, treatment, interruptions, limited_work_faces]
+  cap_parallelism_by: reachable_work_faces_and_task_dependencies
+  avoid_double_counting: shared_pawn_and_material_reservations
+  passion_role: future_training_potential_not_current_skill_substitute
+  completion_estimate: critical_path_with_uncertainty_and_finishing_work
+  forecast_must_include: [excavation, debris_removal, construction, furnishing, temperature_control]
+  update_from: measured_progress_on_comparable_completed_phases
+  skill_level_cutoffs: none
+
+candidate_generation:
+  owner: deterministic_spatial_planner
+  families: [reuse_existing, open_construction, excavation, hybrid]
+  max_offered: 4
+  shortlist: best_feasible_candidate_per_family
+  footprint_variants: [rotate, resize, irregular_room, staged_expansion]
+  no_open_rect_result: widen_or_change_search_then_consider_excavation
+  fogged_cells: unknown_until_revealed
+  selector_returns: offered_option_id_only
+  option_binding: immutable_candidate_id_from_validated_shortlist
+  preserve_rejected_candidates_and_reasons: true
+  required_candidate_fields:
+    - candidate_id
+    - family
+    - map_observation_revision
+    - footprint_and_access_cells
+    - phase_graph_and_completion_predicate
+    - pawn_and_material_reservations
+    - completion_time_range
+    - maintenance_opportunity_cost
+    - roof_fire_and_threat_assessment
+    - evidence_and_applicable_lesson_ids
+
+hard_gates:
+  - legal_placement_and_terrain_support
+  - safe_roof_support_at_every_excavation_stage
+  - reachable_work_faces_and_usable_final_access
+  - escape_and_rescue_access_preserved
+  - protected_food_and_medical_capacity_preserved
+  - material_and_labor_reservations_available
+  - immediate_shelter_deadline_met_or_temporary_shelter_verified
+
+preferences:
+  evaluation_order: [hard_gates, immediate_shelter_deadline, lifecycle_value]
+  low_available_mining_capacity: prefer_reuse_or_open_construction_when_feasible
+  high_available_mining_capacity: increase_excavation_value_when_completion_and_safety_pass
+  high_skill_but_unavailable_miner: do_not_count_as_available_capacity
+  lifecycle_benefits:
+    - usable_secure_floor_area
+    - verified_control_of_threat_approaches
+    - lower_structural_flammability
+    - thermal_suitability_and_expansion_capacity
+  lifecycle_costs:
+    - excavation_construction_and_hauling_labor
+    - displaced_food_and_medical_work
+    - finishing_materials_and_maintenance
+    - collapse_infestation_heat_and_escape_risk
+  fire_comparison: actual_wall_door_furniture_and_fuel_definitions
+  security_comparison: current_and_expected_threat_routes_including_breachers_and_internal_threats
+  forbid_assumptions: [mountain_is_invulnerable, stone_room_is_fireproof, more_wealth_means_more_utility]
+  explain_tradeoffs_with: measured_units_estimate_ranges_and_policy_revision
+  opaque_model_score_is_evidence: false
+
+phased_strategy:
+  urgent_shelter: choose_feasible_reuse_or_fast_surface_option
+  hybrid_current_site_plan: temporary_shelter_only
+  hybrid_upgrade: separate_later_goal_after_temporary_shelter_and_maintenance_verified
+  later_excavation: propose_only_when_capacity_and_expected_value_justify_it
+  retain_temporary_shelter_until: replacement_verified_usable
+  do_not_demolish_for: an_unverified_future_room
+  new_obstacle_or_revealed_threat: suspend_affected_phase_and_replan
+  phase_sequence: [survey, reserve, clear_or_mine, inspect, construct, furnish, verify_use]
+  blueprint_timing: only_after_access_and_prerequisites_are_verified
+  steward_coordination:
+    stock_mining: distinguish_resource_targets_from_owned_excavation
+    work_control: prefer_timed_posture_and_record_ownership
+    manual_pawn_override: reconcile_combat_responsibility_before_applying
+
+replan_triggers:
+  - miner_or_builder_unavailable
+  - effective_work_rate_or_reserved_hours_changed
+  - excavation_reveals_new_terrain_roof_or_threat
+  - completion_forecast_misses_deadline
+  - weather_or_threat_profile_changed
+  - relevant_lesson_or_policy_revision_approved
+
+verification:
+  success: usable_shelter_for_each_required_pawn
+  inspect_at: [each_phase_completion, next_sleep_period, relevant_weather_or_threat_event]
+  record: [planned_vs_actual_hours, labor_and_material_cost, exposure_hours, structural_losses, route_failures]
+  strategic_value_is: utility_for_colony_goals_not_game_market_wealth

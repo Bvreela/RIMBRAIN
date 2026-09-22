@@ -1,0 +1,39 @@
+# Example output from propose_settings_package; not active.
+schema_version: 1
+id: proposal.winter_readiness
+revision: 2
+status: proposed
+
+proposal_id: winter-readiness
+created_by_role: planner
+source_request_ids: [request.example.first_winter]
+parent_plan_ids: [plan.first_year_survival]
+evidence_refs:
+  - observation.example.season_approaching
+  - observation.example.insulation_gap
+assumptions:
+  - winter_temperature_forecast_is_fresh
+  - registered_winter_action_templates_exist
+affected_domains: [food, shelter, mood, research]
+expected_benefit: Reduce first-winter food, temperature, and clothing failures.
+rejection_conditions:
+  - maintenance_degrades_in_matched_trials
+  - any_generated_reference_is_unknown
+  - required_materials_or_labor_are_unavailable
+regression_fixtures:
+  - already_winter_ready
+  - winter_arrives_early
+  - heating_capability_unavailable
+  - only_cook_is_candidate_researcher
+
+files:
+  - {kind: objectives, id: objectives.first_winter, revision: 1, path: objective.yaml}
+  - {kind: task_templates, id: tasks.first_winter, revision: 1, path: task-template.yaml}
+  - {kind: decision_matrices, id: matrices.first_winter, revision: 1, path: decision-matrix.yaml}
+  - {kind: long_term_plans, id: plans.first_winter, revision: 1, path: long-term-plan.yaml}
+  - {kind: action_workflows, id: workflows.first_winter, revision: 1, path: action-workflow.yaml}
+
+promotion_request:
+  requested_activation: false
+  trial_scenarios: [crashlanded_cold_shelter_pressure]
+  compare_against_registry_revision: 2

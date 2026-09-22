@@ -1,0 +1,107 @@
+# Illustrative ledger records, not registry settings or measured gameplay results.
+schema_version: 1
+id: examples.building_lessons
+revision: 1
+status: illustrative
+lessons_policy_id: learning.lessons
+load_into_active_registry: false
+
+records:
+  - lesson_id: lesson.low_mining_open_shelter
+    revision: 1
+    status: prior
+    provenance:
+      kind: user_prior
+      source: user_requirement_for_pawn_aware_building_strategy
+      example_only: true
+    statement: Low available mining capacity should favor reuse or open construction when feasible.
+    applies_when: [low_unreserved_mining_throughput, legal_surface_or_reuse_candidate, urgent_shelter_need]
+    exceptions: [no_usable_surface_space, excavation_has_lower_total_completion_time, dangerous_surface_site]
+    context:
+      required_at_use: [pawn_capacity, map_candidates, materials, deadline, game_and_mod_manifest]
+      observed_context: null
+    trace_refs: []
+    expected_vs_observed:
+      expected: Lower time to usable shelter and less displaced survival work than excavation.
+      observed: null
+      missing_reason: No gameplay trial has been run.
+    evidence:
+      supporting_refs: []
+      contradicting_refs: []
+      independent_start_count: 0
+      metrics: [time_to_suitable_shelter, displaced_survival_labor_hours]
+      observation_windows: [shelter_completion, next_sleep_period]
+    failure_class: null
+    confidence: {evidence_grade: untested, generalization: unknown, reason: user_prior_only}
+    alternative_explanations: [material_shortage, builder_unavailability, different_room_size]
+    proposed_change:
+      target_settings_id: building.colony
+      hypothesis: Prefer feasible surface/reuse candidates when excavation would miss the deadline.
+      activation_requested: false
+    review: {state: untested_prior, reviewer: null, accepted_policy_revision: null}
+
+  - lesson_id: lesson.skilled_miner_durable_shelter
+    revision: 1
+    status: prior
+    provenance:
+      kind: user_prior
+      source: user_requirement_for_secure_fire_resistant_excavated_space
+      example_only: true
+    statement: Available skilled miners can make excavated shelter more useful over time than a wooden surface building.
+    applies_when: [high_available_mining_throughput, suitable_rock, safe_access_and_roof, maintenance_protected]
+    exceptions: [unavailable_miner, unacceptable_infestation_or_breach_risk, missed_deadline, unsafe_escape]
+    context:
+      required_at_use: [pawn_capacity, rock_and_roof, threat_routes, material_flammability, horizon, game_and_mod_manifest]
+      observed_context: null
+    trace_refs: []
+    expected_vs_observed:
+      expected: Useful protected floor area and lower structural fire losses justify excavation labor.
+      observed: null
+      missing_reason: No matched surface-versus-excavation trial has been run.
+    evidence:
+      supporting_refs: []
+      contradicting_refs: []
+      independent_start_count: 0
+      metrics: [time_to_suitable_shelter, shelter_labor_hours, structural_fire_losses, shelter_breach_losses]
+      observation_windows: [shelter_completion, next_sleep_period, matched_threat_trials]
+    failure_class: null
+    confidence: {evidence_grade: untested, generalization: unknown, reason: user_prior_only}
+    alternative_explanations: [different_furniture_or_materials, different_incidents, favorable_map_geometry]
+    proposed_change:
+      target_settings_id: building.colony
+      hypothesis: Increase excavation preference when measured capacity and lifecycle value support it.
+      activation_requested: false
+    review: {state: untested_prior, reviewer: null, accepted_policy_revision: null}
+
+  - lesson_id: lesson.miner_unavailable_forecast
+    revision: 1
+    status: hypothesis
+    provenance:
+      kind: synthetic_example
+      source: fixture.high_skill_miner_is_only_cook
+      example_only: true
+    statement: A skill-only excavation forecast can fail when the best miner is reserved for cooking.
+    applies_when: [mining_and_food_work_compete_for_same_pawn]
+    exceptions: [another_cook_available, surplus_food_and_released_labor_reservation]
+    context:
+      required_at_use: [pawn_capacity, labor_reservations, food_deadline, game_and_mod_manifest]
+      observed_context: null
+    trace_refs: []
+    expected_vs_observed:
+      expected: Excavation completion estimate grows when reserved cooking hours are excluded.
+      observed: null
+      missing_reason: Synthetic failure hypothesis for a planned regression fixture.
+    evidence:
+      supporting_refs: []
+      contradicting_refs: []
+      independent_start_count: 0
+      metrics: [shelter_completion_forecast_error, displaced_survival_labor_hours]
+      observation_windows: [phase_review, shelter_completion]
+    failure_class: planning
+    confidence: {evidence_grade: untested, generalization: unknown, reason: synthetic_hypothesis_only}
+    alternative_explanations: [blocked_work_face, injuries, hauling_delay]
+    proposed_change:
+      target_settings_id: building.colony
+      hypothesis: Recompute the critical path from effective available labor after each reservation change.
+      activation_requested: false
+    review: {state: needs_fixture_and_gameplay_evidence, reviewer: null, accepted_policy_revision: null}

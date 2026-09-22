@@ -1,0 +1,125 @@
+# Each row offers at most four productive choices plus CONTINUE and ESCALATE.
+schema_version: 1
+id: matrices.core
+revision: 2
+status: draft
+
+matrices:
+  - id: matrix.food_recovery
+    domain: food
+    rows:
+      - id: food.immediate_shortage
+        priority: 100
+        when_all: [food_maintenance_failed, no_higher_priority_emergency]
+        productive_options:
+          - {id: COOK_EXISTING, action_template: cook_existing}
+          - {id: FORAGE_SAFE, action_template: forage_safe}
+          - {id: PLANT_FAST_CROP, action_template: plant_emergency_crop}
+          - {id: ADJUST_POLICY, action_template: adjust_food_policy}
+        fallback_options: [CONTINUE, ESCALATE]
+        verify: food_inventory_improved
+
+  - id: matrix.shelter_site
+    domain: shelter
+    rows:
+      - id: shelter.select_site
+        priority: 100
+        when_all: [shelter_site_plan_needed, shelter_candidates_ready]
+        productive_options:
+          - {id: REUSE_EXISTING, action_template: select_reuse_site}
+          - {id: OPEN_CONSTRUCTION, action_template: select_open_site}
+          - {id: EXCAVATION, action_template: select_excavation_site}
+          - {id: HYBRID, action_template: select_hybrid_site}
+        candidate_binding: one_validated_candidate_per_offered_family
+        criteria_source: building.colony
+        fallback_options: [CONTINUE, ESCALATE]
+        verify: selected_site_plan_validated_and_reserved
+
+  - id: matrix.shelter_phase
+    domain: shelter
+    rows:
+      - id: shelter.advance_site
+        priority: 100
+        when_all: [selected_site_plan_validated_and_reserved, next_site_phase_ready]
+        productive_options:
+          - {id: CLEAR_PHASE, action_template: clear_validated_phase}
+          - {id: MINE_PHASE, action_template: mine_validated_phase}
+          - {id: BUILD_PHASE, action_template: construct_validated_phase}
+          - {id: INSPECT_PHASE, action_template: inspect_site_phase}
+        candidate_binding: one_validated_ready_phase_per_offered_action_kind
+        fallback_options: [CONTINUE, ESCALATE]
+        verify: selected_phase_outcome_observed
+
+  - id: matrix.shelter_recovery
+    domain: shelter
+    rows:
+      - id: shelter.missing_sleep_space
+        priority: 100
+        when_all: [shelter_maintenance_failed, construction_area_safe]
+        productive_options:
+          - {id: ASSIGN_BED, action_template: assign_existing_bed}
+          - {id: PLACE_SLEEPING_SPOT, action_template: build_sleeping_spot}
+          - {id: BUILD_BASIC_BED, action_template: build_basic_bed}
+          - {id: REPAIR_SHELTER, action_template: repair_shelter}
+        fallback_options: [CONTINUE, ESCALATE]
+        verify: every_colonist_has_legal_sleep_assignment
+
+  - id: matrix.mood_recovery
+    domain: mood
+    rows:
+      - id: mood.avoidable_risk
+        priority: 100
+        when_all: [mood_maintenance_failed, no_immediate_physical_emergency]
+        productive_options:
+          - {id: RECREATION, action_template: schedule_recreation}
+          - {id: URGENT_NEED, action_template: address_urgent_need}
+          - {id: POLICY, action_template: adjust_allowed_policy}
+          - {id: ROOM, action_template: improve_room}
+        fallback_options: [CONTINUE, ESCALATE]
+        verify: targeted_mood_driver_improved
+
+  - id: matrix.research_next
+    domain: research
+    rows:
+      - id: research.eligible
+        priority: 100
+        when_all: [research_maintenance_gates_pass, research_catalog_valid]
+        productive_options:
+          - {id: CONTINUE_PROJECT, action_template: continue_current_research}
+          - {id: SELECT_TIER_CANDIDATE, action_template: select_validated_project}
+          - {id: STAFF_BENCH, action_template: staff_research_bench}
+        fallback_options: [CONTINUE, ESCALATE]
+        verify: research_progress_or_capability_use_observed
+
+  - id: matrix.combat_response
+    domain: combat
+    rows:
+      - id: combat.active_threat
+        priority: 100
+        when_all: [active_threat, combat_stage_enabled]
+        productive_options:
+          - {id: STEWARD_COMBAT, action_template: activate_steward_combat}
+          - {id: RETREAT, action_template: retreat_to_safe_area}
+          - {id: RESCUE, action_template: rescue_down_pawn}
+          - {id: HOLD, action_template: hold_current_defense}
+        fallback_options: [CONTINUE, ESCALATE]
+        verify: threat_state_reobserved
+
+  - id: matrix.defense_preparation
+    domain: combat
+    rows:
+      - id: defense.observed_gap
+        priority: 90
+        when_all: [defensive_readiness_failed, no_active_threat, maintenance_gates_pass]
+        productive_options:
+          - {id: EQUIP_PROTECTION, action_template: equip_available_protection}
+          - {id: PREPARE_POSITION, action_template: prepare_safe_position}
+          - {id: SET_RALLY, action_template: set_rally_area}
+          - {id: REQUEST_RESEARCH, action_template: request_defense_research}
+        fallback_options: [CONTINUE, ESCALATE]
+        verify: defensive_readiness_satisfied
+
+resolution:
+  zero_matching_rows: offer_continue_and_escalate
+  multiple_matching_rows: highest_priority_then_reject_tie
+  selector_may_return_only_offered_option_id: true
