@@ -185,6 +185,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--fair", action="store_true",
                    help="fair run: refuse dev.* and save/load dispatches "
                         "(no debug cheating, UR-CTL-009)")
+    p.add_argument("--live-brain", action="store_true",
+                   help="honor brain-reset requests: reload the pack + "
+                        "re-plan mid-run (FR-1107; never for scored runs)")
     args = p.parse_args(argv)
     if args.mode in ("start", "combat", "cycle") \
             and args.pack == "core-survival-v0":
@@ -245,8 +248,9 @@ def main(argv: list[str] | None = None) -> int:
             result = run_start(
                 dispatcher, game, ledger, dispatcher.pack["pack"],
                 iterations=args.iterations,
-                sink=sink, speed=3)  # unpause so work actually lands;
+                sink=sink, speed=3,  # unpause so work actually lands;
                                      # prior speed/pause restored on exit
+                live_brain=args.live_brain)
         elif args.mode == "combat":
             game = BridgeClient(args.bridge)
             if args.fair:

@@ -18,6 +18,15 @@ from pathlib import Path
 from tkinter import ttk
 
 ACTION_ROWS = 60
+RESET_REQUEST = "brain_reset.request"
+BRAIN_STATUS = "brain_status.json"
+
+
+def write_reset_request(state_dir: Path) -> Path:
+    """Post a brain-reset request for a --live-brain runtime (FR-1107)."""
+    p = state_dir / RESET_REQUEST
+    p.write_text("{}\n", encoding="utf-8")
+    return p
 
 
 def load_view(state_dir: Path) -> tuple[dict, list[dict]]:
@@ -66,14 +75,25 @@ def epoch_window(rows: list[dict]) -> list[dict]:
 
 class Overlay(tk.Tk):
     def __init__(self, state_dir: Path, interval_ms: int = 1000,
-                 topmost: bool = True, alpha: float = 0.92):
+                 topmost: bool = True, alpha: float = 0.92,
+                 pack_file: Path | None = None):
         super().__init__()
         self.state_dir = state_dir
         self.interval = interval_ms
+        self.pack_file = pack_file
         self.title("RimBrain agent")
         self.attributes("-topmost", topmost)
         self.attributes("-alpha", alpha)
         self.minsize(340, 240)
+
+        bar = ttk.Frame(self)
+        bar.pack(fill="x", padx=6, pady=(4, 0))
+        ttk.Button(bar, text="Brain Reset",
+                   command=self._brain_reset).pack(side="left")
+        ttk.Button(bar, text="Edit Brain",
+                   command=self._edit_brain).pack(side="left", padx=(4, 0))
+        self.brain_lbl = ttk.Label(bar, font=("Consolas", 9))
+        self.brain_lbl.pack(side="left", padx=(8, 0))
 
         self.header = ttk.Label(self, font=("Consolas", 10, "bold"))
         self.header.pack(fill="x", padx=6, pady=(4, 0))
@@ -114,6 +134,8 @@ class Overlay(tk.Tk):
         self._render_planning(planning)
         if self._changed("decisions.jsonl"):
             self._render_actions(decisions)
+        if self._changed(BRAIN_STATUS):
+            self._render_brain_status()
         self.after(self.interval, self._refresh)
 
     def _render_planning(self, p: dict):
@@ -143,17 +165,71 @@ class Overlay(tk.Tk):
         self.actions.see("end")
         self.actions.config(state="disabled")
 
+    def _brain_reset(self):
+        try:
+            write_reset_request(self.state_dir)
+            self.brain_lbl.config(text="reset requested...")
+        except OSError as e:
+            self.brain_lbl.config(text=f"reset failed: {e}")
+
+    def _edit_brain(self):
+        if self.pack_file is None or not self.pack_file.is_file():
+            self.brain_lbl.config(text="no --pack-file")
+            return
+        win = tk.Toplevel(self)
+        win.title(f"Brain pack — {self.pack_file.name}")
+        win.geometry("760x560")
+        txt = tk.Text(win, font=("Consolas", 9), wrap="none",
+                      undo=True)
+        txt.pack(fill="both", expand=True)
+        txt.insert("1.0", self.pack_file.read_text(encoding="utf-8"))
+        row = ttk.Frame(win)
+        row.pack(fill="x")
+
+        def save_and_reset():
+            try:
+                self.pack_file.write_text(txt.get("1.0", "end-1c"),
+                                          encoding="utf-8")
+                write_reset_request(self.state_dir)
+            except OSError as e:
+                self.brain_lbl.config(text=f"save failed: {e}")
+                return
+            win.destroy()
+            self.brain_lbl.config(text="saved — reset requested...")
+
+        ttk.Button(row, text="Save & Reset",
+                   command=save_and_reset).pack(side="left", padx=4, pady=4)
+        ttk.Button(row, text="Cancel",
+                   command=win.destroy).pack(side="left", padx=4)
+
+    def _render_brain_status(self):
+        try:
+            s = json.loads((self.state_dir / BRAIN_STATUS)
+                           .read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return
+        if s.get("ok"):
+            self.brain_lbl.config(
+                text=f"brain ok {str(s.get('pack_revision', ''))[:8]}")
+        else:
+            self.brain_lbl.config(
+                text=f"brain FAIL: {s.get('error', '?')[:60]}")
+
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--state-dir", default="state")
     ap.add_argument("--interval", type=int, default=1000,
                     help="poll interval ms")
+    ap.add_argument("--pack-file", default=None,
+                    help="active pack YAML path for Edit Brain")
     ap.add_argument("--no-topmost", action="store_true")
     ap.add_argument("--alpha", type=float, default=0.92)
     a = ap.parse_args(argv)
     Overlay(Path(a.state_dir), a.interval,
-            topmost=not a.no_topmost, alpha=a.alpha).mainloop()
+            topmost=not a.no_topmost, alpha=a.alpha,
+            pack_file=Path(a.pack_file) if a.pack_file else None
+            ).mainloop()
     return 0
 
 
