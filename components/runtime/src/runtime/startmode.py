@@ -19,7 +19,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from . import brain, policy, views
+from . import brain, policy, views, vitals
 from .planloop import observe
 from .store import write_atomic
 
@@ -439,6 +439,8 @@ def _run_start(dispatcher, game, ledger, pack: dict, *,
     if sink is not None:
         ledger._sink = getattr(dispatcher, "_sink", sink)
     seq = max(ledger._events, getattr(dispatcher, "_events", 0))
+    vstate: dict = {}  # vitals hediff-diff state across samples (FR-811)
+    vitals_every = int((pack.get("vitals") or {}).get("every") or 50)
     for i in range(iterations):
         # pause-on-load / event letters can re-pause mid-run — re-assert
         # speed periodically so construction actually advances
@@ -477,6 +479,13 @@ def _run_start(dispatcher, game, ledger, pack: dict, *,
             dispatcher._emit("brain.reset", {
                 "ok": err is None, "pack_id": dispatcher._pack_file,
                 "pack_revision": dispatcher._pack["hash"], "error": err})
+        # FR-811: periodic colony-health vitals -> canonical events so the
+        # improve loop can diagnose mood/sickness/downed/death defects.
+        if vitals_every and i % vitals_every == 0:
+            v, sick = vitals.sample(game, vstate, pack.get("vitals") or {})
+            dispatcher._emit("colony.vitals", v)
+            for s in sick:
+                dispatcher._emit("colony.sickness", s)
         ledger.reconcile(obs, tick)
         dispatcher.reflex(obs)
         # pack-declared universal rules run every poll, after reflexes

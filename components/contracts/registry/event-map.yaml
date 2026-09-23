@@ -91,6 +91,10 @@ native:
     notes: one save-reset iteration finished {iteration, checkpoint, phases} - per-phase verdicts for cross-cycle trends (feature 010)
   brain.reset:
     notes: "live brain-reset request handled {ok, pack_id, pack_revision, error?} - --live-brain runs only, never scored episodes (feature 013)"
+  colony.vitals:
+    notes: "periodic colony-health snapshot {colonists, mood_avg, mood_min, downed, dead, sick_now} - improvement-loop diagnosis input (feature 009/FR-811)"
+  colony.sickness:
+    notes: "new illness hediff onset on a colonist {pawn, hediff} - one per onset, diffed across vitals samples (FR-811)"
 strict_execution:
   reject:
     - legacy.unmapped

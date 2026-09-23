@@ -40,6 +40,52 @@ improve:
       match_to_state: [failed, expired]
       min_count: 2
       remediation: retune_lease_or_effect
+    # Colony-health failure classes (FR-812) — outcome defects, not
+    # dispatch failures. `where` predicates run over event fields;
+    # `window_ticks` bounds the count window (3.6M ticks = 1 game year);
+    # dict remediation declares the mutation ops applied to a candidate.
+    - id: poor_mood
+      event_type: colony.vitals
+      where: {field: payload.mood_min, op: lt, value: 30}
+      group_by: event_type            # colony-wide signal, one group
+      min_count: 3                    # sustained across >=3 samples
+      remediation:
+        ops:
+          # more meal buffer + a second joy source relieve mood pressure
+          - {op: set_cfg, path: start.cooking.buffer, value: 6}
+          - {op: append, path: start.recreation.defs, value: Telescope}
+    - id: repeat_sickness
+      event_type: colony.sickness
+      group_by: payload.pawn          # per-pawn illness frequency
+      window_ticks: 3600000           # RimWorld game year (4x15 days)
+      min_count: 2                    # >1 sickness in a year = hygiene fail
+      remediation:
+        ops:
+          # prefer built stoves over campfires — cleaner kitchens,
+          # less food poisoning
+          - {op: set_cfg, path: start.cooking.station_defs,
+             value: [ElectricStove, FueledStove, Campfire]}
+    - id: multiple_downed
+      event_type: colony.vitals
+      where: {field: payload.downed, op: gte, value: 2}
+      group_by: event_type
+      min_count: 1                    # any single sample is a failure
+      remediation:
+        ops:
+          # stop chasing routers — retreat posture until defenses improve
+          - {op: drop_rule, ids: [chase-fleeing]}
+    - id: colonist_death
+      event_type: colony.vitals
+      where: {field: payload.dead, op: gte, value: 1}
+      group_by: event_type
+      min_count: 1                    # one death is one too many
+      remediation:
+        ops:
+          - {op: drop_rule, ids: [chase-fleeing]}
+          # heavier armor preference on the front-line pawn
+          - {op: set_cfg, path: start.arm.armor_defs,
+             value: [Apparel_PlateArmor, Apparel_FlakJacket,
+                     Apparel_FlakVest, Apparel_Duster, Apparel_Jacket]}
   metrics:
     refusal_rate: 0.4            # weights for candidate scoring
     verify_failure_rate: 0.3
