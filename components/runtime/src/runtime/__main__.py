@@ -24,13 +24,16 @@ def main(argv: list[str] | None = None) -> int:
     sp.add_argument("role"); sp.add_argument("--live", action="store_true")
     sp = sub.add_parser("loop", help="dispatcher poll loop (sim deterministic)")
     sp.add_argument("--pack", default="core-survival-v0")
-    sp.add_argument("--mode", choices=["sim", "live", "start"], default="sim")
+    sp.add_argument("--mode", choices=["sim", "live", "start", "improve"],
+                    default="sim")
     sp.add_argument("--iterations", type=int, default=5)
     sp.add_argument("--bridge", default="http://127.0.0.1:8765")
     sp.add_argument("--live-flag", action="store_true",
                     help="confirm live mode (operator smoke only)")
     sp.add_argument("--ledger", action="store_true",
                     help="reconcile the task ledger before attend each poll")
+    sp.add_argument("--feed", action="store_true",
+                    help="narrate every emitted event into state/feed.md")
     sp = sub.add_parser("plan", help="planner/review loop (sim deterministic)")
     sp.add_argument("--pack", default="core-survival-v0")
     sp.add_argument("--mode", choices=["sim", "live"], default="sim")
@@ -60,7 +63,8 @@ def main(argv: list[str] | None = None) -> int:
                            "--iterations", str(args.iterations),
                            "--bridge", args.bridge]
                           + (["--live"] if args.live_flag else [])
-                          + (["--ledger"] if args.ledger else []))
+                          + (["--ledger"] if args.ledger else [])
+                          + (["--feed"] if args.feed else []))
     elif args.cmd == "plan":
         from . import planloop as _pl
         return _pl.main(["--pack", args.pack, "--mode", args.mode,

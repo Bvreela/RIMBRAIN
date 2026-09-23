@@ -67,6 +67,18 @@ All documents created in this preparation pass are `READY` for review, not imple
 - [006 — Canonical event and state stores (durable JSONL, torn-tail recovery, projection)](006-event-state-stores/spec.md) (implemented 2026-09-23; FR-501..507, SC-501..505)
 - [007 — Objective/task/lock model (lifecycle, verifier-only success, expiring locks, restart reconcile)](007-objective-task-model/spec.md) (implemented 2026-09-23; FR-601..608, SC-601..605)
 - [008 — Fresh-start mode (deterministic bootstrap graph, per-colonist exit contract, established-colony skip)](008-fresh-start-mode/spec.md) (implemented 2026-09-23; FR-701..709, SC-701..705)
+- [009 — Self-improvement loop (evidence diagnosis, audit gates, bounded promotion, thought feed, learning metrics)](009-self-improvement-loop/spec.md) (implemented 2026-09-23; FR-801..810, SC-801..805)
+
+## Implemented artifacts (feature 009)
+
+- `components/runtime/src/runtime/improve.py` — bounded cycle: `diagnose` (pack-declared defect patterns over canonical events) → `propose` (rules-only candidate pack — quarantine chronically-refused templates) → `audit_policy` gate → evidence-floor defer → weighted-score metrics validation → promote at episode boundary only
+- `components/runtime/src/runtime/audit.py` — `audit_code` (pytest + corpus, fail-closed), `audit_policy` (schema + inventory + no model executors), `audit_ux` (feed coverage + readable refusals); all emit `audit.verdict`
+- `components/runtime/src/runtime/feed.py` — `render_event` deterministic narratives per type (structured echo fallback) + `FeedWriter` → `state/feed.md` keyed by event_id; `--feed` CLI flag composes with any mode
+- `components/runtime/src/runtime/metrics.py` — pure `episode_metrics` fold (refusal/verify-failure/completion rates, ticks, span) + `episode.metrics` envelope
+- `components/rimbrain/packs/improve-v0.yaml` — defect patterns, metric weights, audit gates, cadence (reviewable data)
+- `components/rimbrain/CUSTOMIZE.md` — user-facing brain-customization guide
+- Contracts: `selfcheck.diagnosed`, `audit.verdict`, `improvement.promoted`, `improvement.rejected`, `episode.metrics` schemas + event-map + corpus (50/50)
+- `loop.py` — `--mode improve` (read-only over evidence; no `--live` needed) + `--feed`
 
 ## Implemented artifacts (feature 008)
 

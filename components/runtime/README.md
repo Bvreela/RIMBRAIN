@@ -47,3 +47,7 @@ One round: state -> `rimbrain.plan` proposal (schema-validated JSON) -> determin
 ## Start mode (feature 008)
 
 `startmode.py` drives the fresh-start bootstrap as ledger tasks: `site -> zone -> unforbid -> shelter -> roof -> haul -> beds/food/recreation -> start.completed`. Every phase's effect is verified against observed state; an already-established colony skips with zero designations. Site choice is deterministic scoring of `map.open_rects` by pack-declared weights, persisted via `anchor.set` + `startmode.json` (restart-safe). Beds dispatch one build per poll until `beds >= colonists`. Engage via `python -m runtime loop --mode start --live` (live-gated — sims need the start rpc surface). `start.completed` emits only when `exit_eval` verifies shelter + per-colonist beds + food source + recreation.
+
+## Self-improvement + thought feed (feature 009)
+
+`improve.py` runs bounded improvement cycles over canonical evidence (`python -m runtime loop --mode improve` — read-only, no `--live` needed): diagnose pack-declared defect patterns → propose a rules-only candidate pack → audit gates (`audit.py`: code/policy/ux, each a canonical `audit.verdict`) → weighted-score metrics validation (`metrics.py`) → promote at episode boundary only, else reject/defer with reasons. `--feed` composes with any mode to narrate every emitted event into `state/feed.md` (deterministic templates; feed failure never fatal). Brain customization is documented in `components/rimbrain/CUSTOMIZE.md`.

@@ -75,6 +75,16 @@ native:
     notes: ledger lifecycle transition {task_id, from_state, to_state, reason, attempts} - authoritative task record (feature 007)
   start.completed:
     notes: start-mode exit contract held for all colonists {mode, colonists, conditions} - mode disengages (feature 008)
+  selfcheck.diagnosed:
+    notes: self-check finding from replayed evidence {defect_class, span, remediation} or noop - never invents work (feature 009)
+  audit.verdict:
+    notes: dedicated audit pass result {check_id, domain, verdict, reasons} - fail blocks promotion (feature 009)
+  improvement.promoted:
+    notes: candidate pack promoted at episode boundary {candidate_id, pack_hash, metrics} - never mid-episode (feature 009)
+  improvement.rejected:
+    notes: "candidate refused at a gate {candidate_id, gate: metrics|audit|defer, reasons} (feature 009)"
+  episode.metrics:
+    notes: learning metrics folded from canonical evidence {refusal_rate, verify_failure_rate, task_completion_rate, event_span} (feature 009)
 strict_execution:
   reject:
     - legacy.unmapped

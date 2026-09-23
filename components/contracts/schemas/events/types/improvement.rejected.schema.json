@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rimbrainagent.dev/schemas/events/types/improvement.rejected.schema.json",
+  "title": "events/types/improvement.rejected",
+  "description": "Payload for event_type 'improvement.rejected' (native type, feature 009; FR-803): a candidate failed a gate — metrics, audit, or deferred for thin evidence. Reasons are recorded; the candidate never activates.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["candidate_id", "gate", "reasons"],
+  "properties": {
+    "candidate_id": { "type": "string", "minLength": 1 },
+    "gate": {
+      "type": "string",
+      "enum": ["metrics", "audit", "defer"],
+      "description": "metrics = worse on replayed evidence; audit = invariant/quality failure; defer = insufficient evidence."
+    },
+    "reasons": {
+      "type": "array",
+      "items": { "type": "string" },
+      "minItems": 1,
+      "description": "Plain-language rejection reasons."
+    },
+    "metrics": {
+      "type": ["object", "null"],
+      "additionalProperties": true,
+      "description": "Metric comparison when gate=metrics."
+    },
+    "source_cycle": {
+      "type": ["string", "null"],
+      "description": "selfcheck cycle that produced the candidate."
+    }
+  }
+}
