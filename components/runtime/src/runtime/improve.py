@@ -156,11 +156,16 @@ def _apply_ops(doc: dict, ops: list[dict] | None) -> bool:
             doc["templates"] = tpls
         elif kind == "drop_rule":
             bad = set(op.get("ids") or [])
-            uni = doc.setdefault("universal", {})
-            keep = [r for r in (uni.get("rules") or [])
-                    if r.get("id") not in bad]
-            changed |= len(keep) != len(uni.get("rules") or [])
-            uni["rules"] = keep
+            # rules can live at universal.rules, top-level emergency,
+            # or combat.<phase>.rules — all are remediable
+            lists = [doc.setdefault("universal", {}).setdefault("rules", []),
+                     doc.setdefault("emergency", [])]
+            lists += [v["rules"] for v in (doc.get("combat") or {}).values()
+                      if isinstance(v, dict) and isinstance(v.get("rules"), list)]
+            for i, rules in enumerate(lists):
+                keep = [r for r in rules if r.get("id") not in bad]
+                changed |= len(keep) != len(rules)
+                lists[i][:] = keep
     return changed
 
 
@@ -292,12 +297,18 @@ def run_improve(store, cfg: dict, *, active_pack: dict,
                 "source_cycle": cycle_id}, seq, clock))
             outcomes.append({"cycle": cycle_id, "verdict": "defer"})
             continue
-        # metrics validation: candidate must beat incumbent
+        # metrics validation: candidate must beat incumbent; ops-mutation
+        # candidates (colony-health defects) can't move dispatch metrics —
+        # a tie is enough for them (FR-813; promotion gate still applies)
         weights = cfg.get("metrics") or {}
         inc = score(episode_metrics(evs), weights)
         quarantined = {a for f in findings for a in f["affected"]}
         cand = score(predict_metrics(evs, quarantined), weights)
-        if cand < inc:
+        cls = cand_path.stem[len("cand-"):].split("-")[0]
+        ops_rem = next((isinstance(f.get("remediation"), dict)
+                        for f in findings if f["defect_class"] == cls),
+                       False)
+        if cand < inc or (ops_rem and cand <= inc):
             promoted = Path(packs_dir) / cand_path.name
             shutil.copyfile(cand_path, promoted)
             seq += 1
