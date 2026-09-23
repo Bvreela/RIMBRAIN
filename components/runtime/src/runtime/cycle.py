@@ -77,7 +77,8 @@ def run_cycle(dispatcher, game, pack: dict, store, *,
             res = run_start(dispatcher, game, ledger, pack,
                             iterations=int(cycle_cfg.get(
                                 "start_iterations", 400)),
-                            sink=sink, clock=clock, speed=speed)
+                            sink=sink, clock=clock, speed=speed,
+                            hold=False)  # bounded phase: hand off to combat
             phases["start"] = ("completed" if res.get("completed")
                                else "incomplete")
         if "combat" in order:

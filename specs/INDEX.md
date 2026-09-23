@@ -73,6 +73,19 @@ All documents created in this preparation pass are `READY` for review, not imple
 - [012 — Brain policy engine (all gameplay policy in packs; generic resolver/predicate/step-rule engine; ADR-015)](012-brain-policy-engine/spec.md) (implemented + live-verified; full start mode completed on a real colony)
 - [013 — Agent transparency views (Planning & Goals + Quick-Action Matrix, per-poll decision records)](013-agent-transparency-views/spec.md) (implemented; live-verified renders)
 - [014 — Capability catalog (audited mechanic coverage over the bridge surface; wiki-cited gap inventory)](014-capability-catalog/spec.md) (implemented; audit 115/115 mapped)
+- [015 — Post-start governance (held runs + govern.goals), fair/dev pack classes, colony-goals option catalog](015-post-start-governance/spec.md) (implemented; UR-RUN-009, UR-BRN-018)
+
+## Implemented artifacts (feature 015)
+
+- `components/runtime/src/runtime/startmode.py` — `_govern_step` + shared `_drive`: pack `govern.goals` evaluated in order past `start.completed` on held runs (`run_start(hold=)`; `--no-hold` opt-out; `cycle` bounded start passes `hold=False`); terminal goals re-arm on lapsed effect
+- `components/runtime/src/runtime/dispatch.py` — fair-class load gate: packs declaring `dev.*` methods refused at load (`pack.not_fair`, UR-BRN-018)
+- `components/runtime/src/runtime/policy.py` — `research()`/`research_current()`/`research_available()`/`quests()`/`letters(choice_only)` fns + `govern.goals` pack validation
+- `components/runtime/src/runtime/views.py` — `govern.*` goal rows after start phases in `state/planning.{json,md}`
+- `components/rimbrain/packs/dev-lab-v0.yaml` — new `class: dev` pack (spawn/heal + combat/cycle scripting); `start-mode-v0`/`core-survival-v0`/`improve-v0` → `class: fair`; `--mode combat`/`cycle` load dev-lab
+- `components/rimbrain/packs/colony-goals-v0.yaml` + `.notes.md` — 19 overarching strategy options {survival_benefit, investment, wealth_impact, raid_threat_impact, phase, prerequisites, sources} over the wiki raid-points baseline; embedded as `goal_options` in the three gameplay packs
+- `components/contracts/schemas/runtime/pack.schema.json` — `class`, `govern`, `goal_options` properties
+- `components/rimbrain/capability-catalog.yaml` — research/quests/letters surface (`state.research`, `state.quests`, `state.letters`, `ui.set_research`, `steward.research`, `ui.letter`) flipped gap → implemented
+- Tests: `test_hold_governs_after_completed` (govern dispatch/verify/re-arm), `test_fair_mode_denies_debug` (`pack.not_fair` + unknown dev actions), `test_views` govern ordering, combat/cycle suites on dev-lab; StartSim research/letters stubs
 
 ## Implemented artifacts (feature 009)
 
@@ -161,6 +174,8 @@ All documents created in this preparation pass are `READY` for review, not imple
 - [ADR-013 — Bridge layer](90-decisions/ADR-013-bridge-layer.md) (zorrobyte HTTP primary, GABP diagnostics sidecar)
 - [ADR-014 — Model serving stack](90-decisions/ADR-014-model-serving-stack.md) (Laya/OpenRouter/LM Studio bindings)
 - [ADR-015 — Brain policy boundary](90-decisions/ADR-015-brain-policy-boundary.md) (gameplay policy in packs; engine exposes capability primitives only)
+- [ADR-016 — Agent transparency views and capability catalog](90-decisions/ADR-016-agent-transparency-and-capability-catalog.md)
+- [ADR-017 — Fair/dev pack classes and post-start governance boundary](90-decisions/ADR-017-fair-dev-pack-classes.md)
 - [Feature specification template](templates/FEATURE-SPEC-TEMPLATE.md)
 - [Contract template](templates/CONTRACT-TEMPLATE.md)
 - [ADR template](templates/ADR-TEMPLATE.md)

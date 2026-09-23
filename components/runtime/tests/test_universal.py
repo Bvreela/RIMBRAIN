@@ -104,6 +104,8 @@ def test_downed_hostiles_never_targeted(rig):
     """FR-903/SC-902: downed hostiles are excluded from attack orders."""
     d, game, ledger, pack, events, tmp = rig
     _mark_completed(tmp / "state")
+    d.load_pack("dev-lab-v0")  # combat scripting is dev-class
+    pack = d.pack["pack"]
     game.hostiles = [{"id": "h-down", "downed": True},
                      {"id": "h-live"}]
     res = run_combat(d, game, ledger,
@@ -132,7 +134,7 @@ def test_strip_sweep_after_round(rig):
     g2 = DownedSim()
     d2 = Dispatcher(g2, sink=events.append,
                     clock=lambda: "2026-01-01T00:00:00Z")
-    d2.load_pack("start-mode-v0")
+    d2.load_pack("dev-lab-v0")  # combat scripting is dev-class
     res = run_combat(d2, g2, ledger,
                      _pack_with(d2.pack["pack"], rounds=1,
                                 tick_budget=10),
@@ -159,7 +161,7 @@ def test_no_strip_step_means_no_strip(rig):
     g2 = DownedSim()
     d2 = Dispatcher(g2, sink=events.append,
                     clock=lambda: "2026-01-01T00:00:00Z")
-    d2.load_pack("start-mode-v0")
+    d2.load_pack("dev-lab-v0")  # combat scripting is dev-class
     pack2 = _pack_with(d2.pack["pack"], rounds=1, tick_budget=10)
     pack2 = copy.deepcopy(pack2)
     # strip lives in both cleanup steps and universal rules — drop both
@@ -268,18 +270,33 @@ def test_no_dialogs_no_dispatch(rig):
 
 
 def test_fair_mode_denies_debug(rig):
-    """UR-CTL-009: fair runs refuse dev.*/save-load before the bridge."""
+    """UR-CTL-009/UR-BRN-018: the fair pack declares zero dev.* methods —
+    they're unknown actions, not just refused; save/load stay refused;
+    and a dev-class pack is rejected at load."""
     d, game, ledger, pack, events, tmp = rig
     from runtime.dispatch import Dispatcher as D2
+    from runtime.templates import PackError
+    import pytest as _pt
     fair = D2(game, sink=events.append,
               clock=lambda: "2026-01-01T00:00:00Z", fair=True)
-    fair.load_pack("start-mode-v0")
-    for tpl in ("spawn-hostile", "heal-pawn", "save-game", "load-game"):
+    fair.load_pack("start-mode-v0")  # fair-class pack loads cleanly
+    # dev tooling isn't even declared in the fair pack -> unknown action
+    for tpl in ("spawn-hostile", "heal-pawn"):
         r = fair.dispatch(tpl, {"name": "x", "pawn": "c1"})
+        assert not r.get("ok"), tpl
+        assert (r.get("error") or {}).get("code") == \
+            "dispatch.unknown_action"
+    # checkpoint control is still refused per-dispatch under --fair
+    for tpl in ("save-game", "load-game"):
+        r = fair.dispatch(tpl, {"name": "x"})
         assert not r.get("ok"), tpl
         assert "fair" in (r.get("error") or {}).get("code", "")
     refused = [e for e in events if e["event_type"] == "action.refused"]
     assert len(refused) == 4
+    # a dev-class pack can't slip into a fair run at all
+    with _pt.raises(PackError) as ei:
+        fair.load_pack("dev-lab-v0")
+    assert ei.value.envelope["error"]["code"] == "pack.not_fair"
     # normal capabilities still dispatch under fair mode
     r = fair.dispatch("draft-pawn", {"pawn": "c1", "drafted": True})
     assert r.get("ok") is not None or "ok" in r

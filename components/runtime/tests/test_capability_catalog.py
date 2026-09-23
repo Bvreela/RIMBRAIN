@@ -31,9 +31,15 @@ def catalog():
 
 
 def _registry_ids() -> dict[str, set[str]]:
-    pack = templates.load_pack("start-mode-v0")["pack"]
+    # templates span the pack family: the fair pack (play surface) plus
+    # the dev-class harness (spawn/heal tooling it legitimately owns)
+    tpl_ids: set[str] = set()
+    for pid in ("start-mode-v0", "dev-lab-v0"):
+        tpl_ids |= {t["id"] for t in
+                    templates.load_pack(pid)["pack"].get("templates")
+                    or []}
     return {
-        "template": {t["id"] for t in pack.get("templates") or []},
+        "template": tpl_ids,
         "fn": set(policy.FN.keys()),
         "selector": set(policy._SELECTORS.keys()),
     }

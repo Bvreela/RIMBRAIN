@@ -5,6 +5,7 @@
 schema_version: 0
 pack_id: pack.improve-v0
 revision: v0.1
+class: fair
 
 templates:
   - id: noop

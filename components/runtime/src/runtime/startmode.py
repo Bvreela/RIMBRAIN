@@ -134,12 +134,14 @@ def _things(res) -> list:
 
 
 class StartMode:
-    """Interprets the pack's ``start.phases`` through the ledger."""
+    """Interprets the pack's ``start.phases`` through the ledger, then —
+    when the run holds past completion — its ``govern.goals``."""
 
     def __init__(self, pack: dict, ledger, *,
-                 sink=None, clock=None):
+                 sink=None, clock=None, hold: bool = False):
         self.pack = pack
         self.cfg = pack.get("start") or {}
+        self.hold = hold
         self.ledger = ledger
         self._sink = sink
         self._clock = clock or (lambda: "2026-01-01T00:00:00Z")
@@ -187,14 +189,15 @@ class StartMode:
 
     # -- phase plumbing --------------------------------------------------------
 
-    def _tid(self, phase: str) -> str:
-        return f"start.{phase}"
+    def _tid(self, phase: str, ns: str = "start") -> str:
+        return f"{ns}.{phase}"
 
     def _propose(self, phase: str, effect: dict, resources: list,
-                 tick: int, ph: dict | None = None) -> None:
+                 tick: int, ph: dict | None = None,
+                 ns: str = "start") -> None:
         ph = ph or {}
         self.ledger.propose({
-            "task_id": self._tid(phase), "kind": f"start.{phase}",
+            "task_id": self._tid(phase, ns), "kind": f"{ns}.{phase}",
             "action": {"template_id": None, "params": {}},
             "resources": resources, "effect": effect,
             "lease_ticks": int(ph.get("lease_ticks") or 200),
@@ -225,10 +228,103 @@ class StartMode:
 
     # -- main step --------------------------------------------------------------
 
+    def _drive(self, pid: str, spec: dict, tid: str, task: dict,
+               dispatcher, ctx, obs: dict, tick: int,
+               source: str) -> dict | None:
+        """Advance one ledger task through proposed->locked->dispatched->
+        verifying. Returns an outcome dict when the poll should stop on
+        this unit of work, or None to fall through to the next entry."""
+        ctx.vars["need"] = (task.get("effect") or {}).get("need")
+        st = task["state"]
+        effect_holds = self.ledger._check_effect(task, obs) is True
+        if st == "proposed":
+            if effect_holds:
+                # established-colony skip: effect already holds
+                self.ledger.acquire(tid, tick)
+                self.ledger._transition(tid, "dispatched",
+                                        "skipped_effect_present", tick)
+                self.ledger.verify(tid, obs, tick)
+                return None
+            self.ledger.acquire(tid, tick)
+            st = task["state"]
+        if st == "locked":
+            if effect_holds:
+                self.ledger._transition(tid, "dispatched",
+                                        "skipped_effect_present", tick)
+                st = task["state"]
+            else:
+                res = policy.run_steps(spec.get("steps"), dispatcher,
+                                       ctx, source=source)
+                self.ledger.mark_dispatched(
+                    tid, ok=bool(res.get("ok")), tick=tick)
+                if not res.get("ok"):
+                    return {"phase": pid, "state": task["state"],
+                            "error": (res.get("error") or {})
+                            .get("code")}
+                # just dispatched — verify against this obs and return;
+                # the repeat guard only fires on later polls so a
+                # non-idempotent step isn't re-run against stale state
+                v = self.ledger.verify(tid, obs, tick)
+                return {"phase": pid, "state": task["state"],
+                        "verdict": v.get("verdict", "transitioned")}
+        if st in ("dispatched", "verifying"):
+            # pack-declared repeat guard: keep issuing the unit work
+            # while the effect is absent and the guard holds
+            rep = spec.get("repeat") or {}
+            if rep and self.ledger._check_effect(task, obs) is False \
+                    and (not rep.get("while")
+                         or policy.check(rep["while"], ctx)):
+                policy.run_steps(spec.get("steps"), dispatcher, ctx,
+                                 source=source)
+            v = self.ledger.verify(tid, obs, tick)
+            return {"phase": pid, "state": task["state"],
+                    "verdict": v.get("verdict", "transitioned")}
+        return {"phase": pid, "state": st}
+
+    def _govern_step(self, dispatcher, ctx, obs: dict, tick: int) -> dict:
+        """Standing goals (pack ``govern.goals``): evaluated in declared
+        order each poll once the exit contract holds. ``when`` gates
+        engagement (e.g. colony stable); a terminal goal re-arms only
+        while its observed effect has lapsed, so sustainment and
+        long-horizon objectives share the phase machinery. The first
+        active goal does work this poll (UR-RUN-009)."""
+        for g in (self.pack.get("govern") or {}).get("goals") or []:
+            gid = g.get("id")
+            if not gid:
+                continue
+            self._apply_vars(g, ctx)
+            if g.get("when") and not policy.check(g["when"], ctx):
+                continue
+            tid = self._tid(gid, ns="govern")
+            task = self.ledger.tasks.get(tid)
+            if task and task.get("state") in TERMINAL:
+                if self.ledger._check_effect(task, obs) is not False:
+                    continue  # standing satisfied — leave it be
+                task = None  # effect lapsed -> re-arm below
+            if task is None:
+                missing = [v for v in g.get("requires") or []
+                           if self.vars.get(v) is None]
+                if missing:
+                    return {"phase": f"govern.{gid}", "state": "blocked",
+                            "reason": "missing:" + ",".join(missing)}
+                need = policy.resolve(g.get("need"), ctx) \
+                    if "need" in g else None
+                self._propose(gid, {"pred": g.get("effect"),
+                                    "need": need},
+                              g.get("resources") or [], tick, g,
+                              ns="govern")
+                task = self.ledger.tasks[tid]
+            out = self._drive(gid, g, tid, task, dispatcher, ctx, obs,
+                              tick, source=f"govern:{gid}")
+            if out is not None:
+                out["phase"] = f"govern.{gid}"
+                return out
+        return {"phase": "govern", "state": "holding"}
+
     def step(self, dispatcher, game, obs: dict, tick: int,
              poll: int | None = None) -> dict:
         """One poll: first non-terminal phase proposes/dispatches/verifies;
-        all terminal -> pack exit evaluation."""
+        all terminal -> pack exit evaluation -> govern goals when held."""
         self._game = game
         self._poll += 1
         ctx = self._ctx(obs, tick)
@@ -257,53 +353,10 @@ class StartMode:
                                     "need": need},
                               ph.get("resources") or [], tick, ph)
                 task = self.ledger.tasks[tid]
-            ctx.vars["need"] = (task.get("effect") or {}).get("need")
-            st = task["state"]
-            effect_holds = self.ledger._check_effect(task, obs) is True
-            if st == "proposed":
-                if effect_holds:
-                    # established-colony skip: effect already holds
-                    self.ledger.acquire(tid, tick)
-                    self.ledger._transition(tid, "dispatched",
-                                            "skipped_effect_present", tick)
-                    self.ledger.verify(tid, obs, tick)
-                    continue
-                self.ledger.acquire(tid, tick)
-                st = task["state"]
-            if st == "locked":
-                if effect_holds:
-                    self.ledger._transition(tid, "dispatched",
-                                            "skipped_effect_present", tick)
-                    st = task["state"]
-                else:
-                    res = policy.run_steps(ph.get("steps"), dispatcher,
-                                           ctx, source=f"phase:{pid}")
-                    self.ledger.mark_dispatched(
-                        tid, ok=bool(res.get("ok")), tick=tick)
-                    st = task["state"]
-                    if not res.get("ok"):
-                        return {"phase": pid, "state": st,
-                                "error": (res.get("error") or {})
-                                .get("code")}
-                    # just dispatched — verify against this obs and return;
-                    # the repeat guard only fires on later polls so a
-                    # non-idempotent step isn't re-run against stale state
-                    v = self.ledger.verify(tid, obs, tick)
-                    return {"phase": pid, "state": task["state"],
-                            "verdict": v.get("verdict", "transitioned")}
-            if st in ("dispatched", "verifying"):
-                # pack-declared repeat guard: keep issuing the unit work
-                # while the effect is absent and the guard holds
-                rep = ph.get("repeat") or {}
-                if rep and self.ledger._check_effect(task, obs) is False \
-                        and (not rep.get("while")
-                             or policy.check(rep["while"], ctx)):
-                    policy.run_steps(ph.get("steps"), dispatcher, ctx,
-                                     source=f"phase:{pid}")
-                v = self.ledger.verify(tid, obs, tick)
-                return {"phase": pid, "state": task["state"],
-                        "verdict": v.get("verdict", "transitioned")}
-            return {"phase": pid, "state": st}
+            out = self._drive(pid, ph, tid, task, dispatcher, ctx, obs,
+                              tick, source=f"phase:{pid}")
+            if out is not None:
+                return out
         # all phases terminal: pack exit evaluation
         ev = self._exit_eval(obs, ctx)
         self.last_eval = ev
@@ -311,8 +364,14 @@ class StartMode:
             first = not self.completed
             self.completed = True
             self._save_mode()
-            return {"phase": "exit", "state": "completed", "eval": ev,
-                    "first": first}
+            out = {"phase": "exit", "state": "completed", "eval": ev,
+                   "first": first}
+            if self.hold:
+                # the run doesn't end at the baseline contract — the
+                # pack's standing goals take over (UR-RUN-009)
+                out["govern"] = self._govern_step(dispatcher, ctx, obs,
+                                                tick)
+            return out
         # unmet condition -> re-propose a fix phase. `exit.fix` maps a
         # condition to an ordered fallback chain of {phase, when?} (bare
         # strings allowed); the first whose `when` holds is re-proposed.
@@ -400,14 +459,17 @@ def wire_sink(dispatcher, sink) -> None:
 
 def run_start(dispatcher, game, ledger, pack: dict, *,
               iterations: int = 12, sink=None, clock=None,
-              speed: int | None = None,
-              live_brain: bool = False) -> dict:
+              speed: int | None = None, live_brain: bool = False,
+              hold: bool = False) -> dict:
     """Drive Start Mode: observe -> reconcile -> reflex -> phase step.
 
     `pack` is the full pack dict — phases come from ``pack['start']``,
     universal rules from ``pack['universal']``. `speed` sets game speed
     for the run (live only) and restores prior pause/speed on exit.
     `live_brain` enables the brain-reset request channel (FR-1107).
+    `hold` keeps the run alive after ``start.completed``: the pack's
+    ``govern.goals`` take over as standing objectives (UR-RUN-009).
+    Bounded sub-loops (cycle) pass ``hold=False``.
     """
     prev = None
     if speed is not None:
@@ -417,7 +479,7 @@ def run_start(dispatcher, game, ledger, pack: dict, *,
     try:
         return _run_start(dispatcher, game, ledger, pack,
                           iterations=iterations, sink=sink, clock=clock,
-                          speed=speed, live_brain=live_brain)
+                          speed=speed, live_brain=live_brain, hold=hold)
     finally:
         if prev is not None:
             game.rpc("game.speed", {"speed": prev.get("speed", 0)})
@@ -427,11 +489,11 @@ def run_start(dispatcher, game, ledger, pack: dict, *,
 
 def _run_start(dispatcher, game, ledger, pack: dict, *,
                iterations: int = 12, sink=None, clock=None,
-               speed: int | None = None,
-               live_brain: bool = False) -> dict:
+               speed: int | None = None, live_brain: bool = False,
+               hold: bool = False) -> dict:
     uni_state: dict = {}
     decisions: list = []  # Quick-Action Matrix rows for this poll window
-    mode = StartMode(pack, ledger, sink=sink, clock=clock)
+    mode = StartMode(pack, ledger, sink=sink, clock=clock, hold=hold)
     mode.decisions = decisions
     state_dir = ledger._path.parent
     outcomes = []
@@ -466,7 +528,8 @@ def _run_start(dispatcher, game, ledger, pack: dict, *,
                 err = f"{type(e).__name__}: {e}"
             if err is None:
                 (state_dir / "startmode.json").unlink(missing_ok=True)
-                mode = StartMode(pack, ledger, sink=sink, clock=clock)
+                mode = StartMode(pack, ledger, sink=sink, clock=clock,
+                                 hold=hold)
                 mode.decisions = decisions
                 uni_state.clear()
             brain.write_status(
@@ -502,15 +565,17 @@ def _run_start(dispatcher, game, ledger, pack: dict, *,
             views.start_snapshot(mode, ledger, obs,
                                  events_path=state_dir / "events.jsonl"),
             decisions[prev:])
-        if out.get("state") == "completed":
-            if out.get("first"):
-                seq += 1
-                env = mode.completed_event(obs, out["eval"])
-                env["sequence"] = seq
-                env["event_id"] = f"evt.start-{seq:06d}"
-                emit = sink or getattr(dispatcher, "_sink", None)
-                if emit is not None:
-                    emit(env)
+        if out.get("first"):
+            seq += 1
+            env = mode.completed_event(obs, out["eval"])
+            env["sequence"] = seq
+            env["event_id"] = f"evt.start-{seq:06d}"
+            emit = sink or getattr(dispatcher, "_sink", None)
+            if emit is not None:
+                emit(env)
+        # completion is a handoff, not an exit, when the run holds —
+        # govern goals + universal rules keep working the colony
+        if out.get("state") == "completed" and not hold:
             break
         if callable(getattr(game, "advance", None)):
             game.advance(i)

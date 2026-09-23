@@ -36,6 +36,14 @@
       "minimum": 1,
       "description": "Policy primitive vocabulary version (feature 012; UR-BRN-014): the runtime interpreter validates @fn/selector/op names against this version. Absent = pre-engine pack (no phases/rules)."
     },
+    "class": {
+      "type": "string",
+      "enum": [
+        "fair",
+        "dev"
+      ],
+      "description": "Pack class (UR-BRN-018): 'fair' packs declare zero dev.* bridge methods and are loadable under --fair; 'dev' packs carry test/debug tooling (spawn/heal/checkpoint scripts) and are refused at load in fair runs. Absent = unclassified."
+    },
     "templates": {
       "type": "array",
       "minItems": 1,
@@ -203,6 +211,15 @@
       "type": "object",
       "additionalProperties": true,
       "description": "Start-mode config (feature 008): site ranking weights, shelter dims, recreation defs, food policy, exit conditions. Absent on non-start packs."
+    },
+    "govern": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Standing post-start goals (UR-RUN-009): ordered {id, when?, requires?, need?, effect, steps, repeat?} evaluated every poll after the start exit contract holds on a held run. Terminal goals re-arm while their effect lapses — sustainment and long-horizon objectives (research queue, mission letters) share the phase machinery."
+    },
+    "goal_options": {
+      "type": "array",
+      "description": "Overarching strategic goal options (catalog-level, not committed policy): [{id, summary, survival_benefit, investment, wealth_impact, raid_threat_impact, phase, prerequisites, sources}] the planner weighs against the raid-points economy and may promote into govern.goals or a plan."
     },
     "improve": {
       "type": "object",

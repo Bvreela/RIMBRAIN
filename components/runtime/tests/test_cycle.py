@@ -25,7 +25,7 @@ def rig(tmp_path, monkeypatch):
 
     d = Dispatcher(game, sink=sink,
                    clock=lambda: "2026-01-01T00:00:00Z")
-    d.load_pack("start-mode-v0")
+    d.load_pack("dev-lab-v0")  # cycle+combat scripting is dev-class
     return d, game, store, events, tmp_path
 
 

@@ -1,18 +1,13 @@
-# Start-mode policy pack v0 (feature 008; FR-701..709) — class: fair.
-# Dedicated fresh-start module: deterministic bootstrap (site -> roofed
-# storage zone -> unforbid -> shelter -> haul) then prioritized work until
-# every colonist has shelter+bed+food-source+recreation. After the exit
-# contract holds, `govern.goals` keep the colony running: sustainment
-# re-arms on regression, then long-horizon objectives (research queue,
-# mission letters) engage once stable.
-# ZERO dev.* methods — this pack runs under --fair end to end
-# (UR-BRN-018). Test tooling lives in dev-lab-v0.
-# Every template.method exists in the sealed bridge inventory.
+# Dev-lab policy pack v0 — the dev-class test/troubleshooting harness
+# (UR-BRN-018). Same start/universal policy as start-mode-v0 plus dev.*
+# tooling (spawn/heal) and the scripted combat section used by
+# --mode combat / --mode cycle. Refused at load under --fair; keep it
+# out of scored runs.
 schema_version: 0
-pack_id: pack.start-mode-v0
+pack_id: pack.dev-lab-v0
 revision: v0
 policy_version: 1
-class: fair
+class: dev
 
 templates:
   - id: set-anchor
@@ -253,40 +248,33 @@ templates:
         name: {type: string}
     require: [name]
 
-  - id: set-research
-    method: ui.set_research
-    description: "Set the current research project by def name (tech-tree progression)."
+  - id: spawn-incident
+    method: dev.incident
+    description: "Fire a bounded incident (RaidEnemy etc.) — combat test only."
     params_schema:
       type: object
       required: [def]
       properties:
         def: {type: string}
+        points: {type: number}
+        faction: {type: string}
     require: [def]
 
-  - id: queue-research
-    method: steward.research
-    description: "Push the pack's ordered research queue; the next startable project becomes current when one finishes."
+  - id: spawn-hostile
+    method: dev.spawn_pawn
+    description: "Spawn a hostile pawn at a cell near the base — bounded combat test."
     params_schema:
       type: object
+      required: [kind, faction, cell]
       properties:
-        queue:
+        kind: {type: string}
+        faction: {type: string}
+        cell:
           type: array
-          items: {type: string}
-        append: {type: boolean}
-        clear: {type: boolean}
-    require: []
-
-  - id: answer-letter
-    method: ui.letter
-    description: "Respond to a letter that has choices — mission offers, events (choose/dismiss by label or index)."
-    params_schema:
-      type: object
-      required: [id, action]
-      properties:
-        id: {}
-        action: {enum: [choose, dismiss]}
-        choice: {}
-    require: [id, action]
+          items: {type: integer}
+          minItems: 2
+          maxItems: 2
+    require: [kind, faction, cell]
 
   - id: draft-pawn
     method: ui.draft
@@ -327,6 +315,16 @@ templates:
         action: {type: string}
         set: {type: object}
         close: {type: boolean}
+
+  - id: heal-pawn
+    method: dev.heal
+    description: "Remove all injuries from a pawn (post-combat restore; assisted)."
+    params_schema:
+      type: object
+      required: [pawn]
+      properties:
+        pawn: {type: string}
+    require: [pawn]
 
   - id: roof-rect
     method: ui.designate
@@ -416,9 +414,7 @@ emergency:
 #   colonist_ids(), best(skill), unarmed(), armor_ids(defs), armed_count(),
 #   weapons_avail(kinds), arm_pawn(kinds)/arm_weapon(kinds)/arm_pending(...),
 #   living_hostiles(), downed_ids(), fleeing_ids(), roofed(cell),
-#   enclosed_at(rect,min_cells), zone_named(label), rank_site(w,h,wi,wh),
-#   research(), research_current(), research_available(), quests(),
-#   letters(choice_only)
+#   enclosed_at(rect,min_cells), zone_named(label), rank_site(w,h,wi,wh)
 # Predicate ops: eq ne gt gte lt lte in not_in empty not_empty truthy falsy
 #   contains contains_any matches absent present + all/any/not combinators.
 # ---------------------------------------------------------------------------
@@ -727,115 +723,70 @@ universal:
         - {template: answer-dialog,
            params: {i: "@var:it.i", choice: OK}}
 
-# Standing goals (UR-RUN-009) — evaluated in declared order every poll
-# once the start exit contract holds AND the run holds past completion
-# (default for `--mode start`; --no-hold opts out). `when` gates
-# engagement; a terminal goal re-arms while its effect lapses, so
-# sustainment (beds, meals) and long-horizon objectives (tech tree,
-# missions) share the phase machinery. This is the self-directed layer:
-# ordered pack objectives, verified against the world, no dev tooling.
-govern:
-  research:
-    bench_defs: [SimpleResearchBench, HiTechResearchBench]
-    # preference order — steward skips entries that can't start yet;
-    # edit the queue, not the code
-    queue: [Battery, SolarPanels, Microelectronics, GeothermalPower,
-            Fabrication, MedicineProduction, DrugProduction]
-  missions:
-    accept_choices: [Accept]   # letter choice labels taken as consent
-  goals:
-    - id: sustained-shelter    # every colonist keeps a bed as we grow
-      requires: [site]
-      effect: {field: "@obs:beds_total", op: gte,
-               value: "@obs:colonists.count"}
-      repeat: {while: {field: "@fn:sub(@obs:colonists.count, @fn:add(@obs:beds_total, @obs:bed_blueprints))",
-                       op: gt, value: 0}}
-      steps:
-        - {template: build-one,
-           needs: "@fn:free_cell(@cfg:start.shelter.bed_def, @var:site.rect, 1, @fn:stuff(@cfg:start.shelter.stuff_preference))",
-           params: {def: "@cfg:start.shelter.bed_def",
-                    at: "@fn:free_cell(@cfg:start.shelter.bed_def, @var:site.rect, 1, @fn:stuff(@cfg:start.shelter.stuff_preference))",
-                    stuff: "@fn:stuff(@cfg:start.shelter.stuff_preference)"}}
-    - id: food-security        # a cooked-meal buffer must never regress
-      requires: [site]
-      effect: {field: "@obs:meals_present", op: truthy}
-      repeat: {while: {field: "@obs:meals_present", op: falsy}}
-      steps:
-        - {template: create-growing,
-           when: {field: "@obs:zones_growing", op: eq, value: 0},
-           params: {action: create_growing, label: start.growing,
-                    rect: "@fn:fertile(@fn:rect(@fn:sub(@var:site.min.0, @cfg:start.food.zone_w, 1), @var:site.min.1, @cfg:start.food.zone_w, @cfg:start.food.zone_h), @cfg:start.fertility.sample_step)",
-                    plant: "@cfg:start.food.plant"}}
-        - {template: set-plant,
-           when: {field: "@obs:zones_growing", op: gte, value: 1},
-           params: {action: set_plant, label: start.growing,
-                    plant: "@cfg:start.food.plant"}}
-        - {template: add-bill,
-           when: {all: [{field: "@obs:cookstation_ids", op: not_empty},
-                        {field: "@obs:cookbill_configured", op: falsy}]},
-           params: {thing: "@fn:first(@obs:cookstation_ids)",
-                    recipe: "@cfg:start.cooking.recipe",
-                    mode: "@cfg:start.cooking.bill_mode",
-                    count: "@fn:add(@fn:mul(@obs:colonists.count, @cfg:start.cooking.meals_per_day), @cfg:start.cooking.buffer)"}}
-    - id: research-bench       # tech progression needs somewhere to work
-      requires: [site]
-      lease_ticks: 12000
-      attempts: 6
-      effect: {field: "@fn:find_def(@fn:first(@cfg:govern.research.bench_defs))",
-               op: present}
-      steps:
-        - {template: build-one,
-           when: {field: "@fn:blueprints(@cfg:govern.research.bench_defs)",
-                  op: eq, value: 0},
-           needs: "@fn:free_cell(@fn:first(@cfg:govern.research.bench_defs), @fn:rect(@fn:add(@var:site.min.0, @cfg:start.shelter.room_w, 1), @fn:add(@var:site.min.1, @cfg:start.shelter.room_h, 1), 5, 4), 0, @fn:stuff(@cfg:start.shelter.stuff_preference))",
-           params: {def: "@fn:first(@cfg:govern.research.bench_defs)",
-                    at: "@fn:free_cell(@fn:first(@cfg:govern.research.bench_defs), @fn:rect(@fn:add(@var:site.min.0, @cfg:start.shelter.room_w, 1), @fn:add(@var:site.min.1, @cfg:start.shelter.room_h, 1), 5, 4), 0, @fn:stuff(@cfg:start.shelter.stuff_preference))",
-                    stuff: "@fn:stuff(@cfg:start.shelter.stuff_preference)"}}
-    - id: research-progress    # keep a project active — the tree moves
-      effect: {any: [{field: "@fn:research_current()", op: present},
-                     {field: "@fn:research_available()", op: empty}]}
-      repeat: {while: {all: [{field: "@fn:research_current()",
-                             op: absent},
-                            {field: "@fn:research_available()",
-                             op: not_empty}]}}
-      steps:
-        - {template: queue-research,
-           when: {field: "@fn:research_available()", op: not_empty},
-           params: {queue: "@cfg:govern.research.queue", append: true}}
-        - {template: set-research, optional: true,
-           when: {all: [{field: "@fn:research_current()", op: absent},
-                        {field: "@fn:research_available()",
-                         op: not_empty}]},
-           needs: "@fn:first(@fn:research_available())",
-           params: {def: "@fn:first(@fn:research_available())"}}
-    - id: mission-offers       # accept missions once stable + armed
-      when: {all: [{field: "@fn:living_hostiles()", op: empty},
-                   {field: "@obs:meals_present", op: truthy},
-                   {field: "@fn:armed_count()", op: gte, value: 1}]}
-      effect: {field: "@fn:letters(true)", op: empty}
-      repeat: {while: {field: "@fn:letters(true)", op: not_empty}}
-      steps:
-        - {template: answer-letter,
-           for_each: {from: "@fn:letters(true)",
-                      where: {field: "@var:it.choices", op: contains_any,
-                              values: "@cfg:govern.missions.accept_choices"}},
-           params: {id: "@var:it.id", action: choose,
-                    choice: "@fn:first(@cfg:govern.missions.accept_choices)"}}
+# Combat script (feature 010/012) — runs strictly after start.completed.
+# setup/spawn/cleanup are step lists; engage is a rule-loop until the
+# pack predicate holds or budgets expire.
+combat:
+  checkpoint: rimbrain-combat-checkpoint
+  prereq: start_completed       # 'none' disables the gate (tests)
+  rounds: 2
+  hostile_count: 2
+  pawn_kind: WildMan            # unarmed melee: charges, fights to the
+                              # death; ranged kinds flee and linger
+  spawn_offset: [6, 6]          # cells from home_center
+  setup:
+    - {template: save-game, params: {name: "@cfg:combat.checkpoint"}}
+  spawn:
+    - {template: spawn-hostile, times: "@cfg:combat.hostile_count",
+       params: {kind: "@cfg:combat.pawn_kind",
+                faction: "@fn:hostile_faction()",
+                cell: "@fn:near_home(@cfg:combat.spawn_offset)"}}
+  engage:
+    until: {field: "@fn:living_hostiles()", op: empty}
+    tick_budget: 24000          # fled raiders take ~10k+ ticks to exit
+    spawn_grace_ticks: 3000     # no hostiles by then -> no-spawn round
+    speed_reassert: true        # raid letters auto-pause the game
+    universal_rules: true       # chase/strip rules apply during combat
+    attack_cooldown_polls: 20
+    rules:
+      - id: draft-all
+        for_each: colonists
+        cooldown: {polls: 60}
+        try:
+          - {template: draft-pawn,
+             params: {pawn: "@var:it.id", drafted: true}}
+      - id: engage-living       # FR-903: living hostiles only — downed
+        for_each: living_hostiles   # are never valid targets
+        cooldown: {polls: "@cfg:combat.engage.attack_cooldown_polls"}
+        try:
+          - {template: attack-target,
+             needs: "@fn:nth(@fn:colonist_ids(), @fn:mod(@var:index, @obs:colonists.count))",
+             params: {pawn: "@fn:nth(@fn:colonist_ids(), @fn:mod(@var:index, @obs:colonists.count))",
+                      target: "@var:it.id"}}
+  cleanup:  # best-effort: a failed strip/heal/undraft must never block
+            # checkpoint restore (load-game stays last, always runs)
+    - {template: strip-pawn, optional: true,
+       when: {field: "@fn:downed_ids()", op: not_empty},
+       params: {designator: strip, things: "@fn:downed_ids()"}}
+    - {for_each: colonists, template: heal-pawn, optional: true,
+       params: {pawn: "@var:it.id"}}
+    - {for_each: colonists, template: draft-pawn, optional: true,
+       params: {pawn: "@var:it.id", drafted: false}}
+    - {template: load-game, params: {name: "@cfg:combat.checkpoint"}}
 
-# Save-reset improvement cycle (feature 010). Combat scripting is dev
-# tooling — it lives in dev-lab-v0, not this pack.
+# Save-reset improvement cycle (feature 010).
 cycle:
   checkpoint: rimbrain-cycle
-  order: [start, improve]
+  order: [start, combat, improve]
   start_iterations: 2000   # construction takes game-hours at speed 3
+  combat_iterations: 2000  # enough polls to reach tick_budget live
 
 # Overarching goal options (colony-goals-v0 catalog) — strategy-level
 # choices the planner weighs: how each helps the colony last longer, what
 # investment it needs, and its effect on colony wealth and raid threat.
-# These are OPTIONS, not committed policy — govern.goals above is the
-# committed subset; a plan may promote further options into executable
-# objectives. Catalog + provenance: packs/colony-goals-v0.yaml and
-# colony-goals-v0.notes.md.
+# These are OPTIONS, not committed policy — a plan (or a govern layer)
+# promotes a subset into executable objectives. Catalog + provenance:
+# packs/colony-goals-v0.yaml and colony-goals-v0.notes.md.
 # Mechanics baseline (rimworldwiki.com):
 #   Storyteller Wealth = items + creatures + buildings*0.5
 #   Wealth pts: 0 below 14k; ~1pt/160.83 wealth from 14k-400k (2400@400k);

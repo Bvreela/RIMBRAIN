@@ -143,6 +143,8 @@ Define a controller protocol with lifecycle operations: start/adopt, reconcile, 
 - Result persisted before scheduling verifier.
 - Timeout produces `uncertain`, never immediate retry.
 - Every mutation gateway call requires a dispatcher-only capability token/object not constructible by provider/domain code.
+- Pack loading enforces `class` (UR-BRN-018): fair/ranked runs refuse a `class: dev` pack — or any pack declaring `dev.*` methods — at load (`pack.not_fair`), so debug tooling can never enter a scored registry.
+- Mode completion is a handoff: bounded callers stop at the exit contract; held runs continue into the pack's `govern` standing goals on the same ledger machinery (UR-RUN-009).
 
 ## 8. Provider design
 

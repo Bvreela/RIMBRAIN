@@ -792,6 +792,63 @@ def _fn_zone_named(ctx, label):
                for z in zones)
 
 
+def _fn_research(ctx):
+    """Raw state.research dict {current, available, finished} —
+    {} when the bridge lacks it (fail-closed)."""
+    res = ctx.rpc("state.research")
+    return res if isinstance(res, dict) else {}
+
+
+def _fn_research_current(ctx):
+    """Active project def/label, or None when nothing is queued."""
+    cur = _fn_research(ctx).get("current")
+    if isinstance(cur, dict):
+        return cur.get("def") or cur.get("defName") or cur.get("label")
+    return cur
+
+
+def _fn_research_available(ctx):
+    """Def names of projects whose prerequisites are met."""
+    out = []
+    for p in (_fn_research(ctx).get("available") or []):
+        v = (p.get("def") or p.get("defName") or p.get("name")) \
+            if isinstance(p, dict) else p
+        if v:
+            out.append(v)
+    return out
+
+
+def _fn_quests(ctx):
+    """Active + available quest rows (state.quests)."""
+    res = ctx.rpc("state.quests")
+    if isinstance(res, dict):
+        res = res.get("quests") or res.get("active") or []
+    return res if isinstance(res, list) else []
+
+
+def _fn_letters(ctx, choice_only=False):
+    """state.letters rows with `choices` normalized to label strings;
+    `letters(true)` keeps only letters awaiting a decision."""
+    res = ctx.rpc("state.letters")
+    rows = res.get("letters") if isinstance(res, dict) else res
+    out = []
+    for l in (rows if isinstance(rows, list) else []):
+        if not isinstance(l, dict):
+            continue
+        labels = []
+        for c in l.get("choices") or []:
+            v = (c.get("label") or c.get("id") or c.get("name")) \
+                if isinstance(c, dict) else c
+            if v is not None:
+                labels.append(str(v))
+        row = dict(l)
+        row["choices"] = labels
+        if choice_only and not labels:
+            continue
+        out.append(row)
+    return out
+
+
 def _fn_rank_site(ctx, w=9, h=9, w_items=2.0, w_home=1.0):
     """Score open rects by weighted distance to the item cluster and
     home center — deterministic; weights arrive as arguments."""
@@ -855,6 +912,9 @@ FN = {
     "dialogs": _fn_dialogs,
     "roofed": _fn_roofed, "enclosed_at": _fn_enclosed_at,
     "zone_named": _fn_zone_named, "rank_site": _fn_rank_site,
+    "research": _fn_research, "research_current": _fn_research_current,
+    "research_available": _fn_research_available,
+    "quests": _fn_quests, "letters": _fn_letters,
 }
 
 
@@ -1128,13 +1188,30 @@ def validate_policy(pack: dict, template_ids=None) -> list[str]:
             if tid and tid not in known_templates:
                 problems.append(
                     f"combat.{section}: unknown template '{tid}'")
+    gov = pack.get("govern") or {}
+    goals = gov.get("goals")
+    if goals is not None and not isinstance(goals, list):
+        problems.append("govern.goals: must be a list")
+    for g in goals or []:
+        if not isinstance(g, dict) or not g.get("id"):
+            problems.append("govern.goals[]: every goal needs an id")
+            continue
+        if "effect" not in g:
+            problems.append(f"goal {g['id']}: no effect predicate")
+        for st in g.get("steps") or []:
+            tid = st.get("template") if isinstance(st, dict) else None
+            if not tid:
+                problems.append(f"goal {g['id']}: step missing template")
+            elif tid not in known_templates:
+                problems.append(
+                    f"goal {g['id']}: unknown template '{tid}'")
     for s in _walk_strings(pack):
         for m in _FN_RE.finditer(s) if s.startswith("@fn:") else []:
             if m.group(1) not in FN:
                 problems.append(f"unknown @fn:{m.group(1)}")
     for pred in _walk_preds(
             {"s": start.get("phases"), "e": start.get("exit"),
-             "u": uni.get("rules"), "c": combat}):
+             "u": uni.get("rules"), "c": combat, "g": gov.get("goals")}):
         op = pred.get("op")
         if op and op not in _OPS:
             problems.append(f"unknown predicate op '{op}'")

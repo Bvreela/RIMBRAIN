@@ -130,8 +130,23 @@ class Dispatcher:
     # -- pack ---------------------------------------------------------------
 
     def load_pack(self, pack_id: str) -> dict:
-        """Load (or reload) a policy pack; fail-closed on any violation."""
+        """Load (or reload) a policy pack; fail-closed on any violation.
+
+        Under ``fair=True`` a pack declaring ``dev.*`` bridge methods is
+        refused at load (``pack.not_fair``) — fair runs never even carry
+        debug tooling, so a dev-class pack can't slip in (UR-BRN-018).
+        """
         loaded = templates.load_pack(pack_id)
+        if self._fair:
+            bad = sorted({t.get("method") for t in
+                          loaded["pack"].get("templates") or []
+                          if str(t.get("method") or "").startswith("dev.")})
+            if bad:
+                raise PackError(templates.err(
+                    "pack.not_fair",
+                    f"pack '{pack_id}' declares dev tooling {bad}; "
+                    "fair runs require a pack with no dev.* methods",
+                    {"pack": pack_id, "methods": bad}))
         self._pack = loaded
         self._pack_file = pack_id   # file id (may differ from declared pack_id)
         return loaded

@@ -19,7 +19,7 @@ def rig(tmp_path, monkeypatch):
     game = StartSim()
     d = Dispatcher(game, sink=events.append,
                    clock=lambda: "2026-01-01T00:00:00Z")
-    d.load_pack("start-mode-v0")
+    d.load_pack("dev-lab-v0")  # combat scripting is dev-class tooling
     pack = d.pack["pack"]
     ledger = TaskLedger(tmp_path / "state" / "tasks.jsonl",
                         sink=events.append)
@@ -93,7 +93,7 @@ def test_combat_timeout_records_failed(rig):
     g2 = StubbornSim()
     d2 = Dispatcher(g2, sink=events.append,
                     clock=lambda: "2026-01-01T00:00:00Z")
-    d2.load_pack("start-mode-v0")
+    d2.load_pack("dev-lab-v0")  # combat scripting is dev-class
     res = run_combat(d2, g2, ledger,
                      _pack_with(d2.pack["pack"], rounds=1,
                                 tick_budget=10),

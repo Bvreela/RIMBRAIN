@@ -12,6 +12,7 @@ RimBrain is the editable, forkable strategy and decision layer. It lets humans a
 ## 2. Contents
 
 - objectives and plan templates;
+- goal-option catalogs (overarching strategy options annotated with survival benefit, investment, and wealth/raid-threat impact — inert choices a planner promotes into committed goals);
 - task templates and workflow DAGs;
 - decision matrices and deterministic scoring/fallbacks;
 - parameters, thresholds, hysteresis, budgets, cadence;
@@ -84,6 +85,8 @@ Channels:
 - `dev`: proposal/experiment; not ranked;
 - `stable`: reviewed release;
 - `frozen`: exact scored snapshot.
+
+Pack `class: fair|dev` (UR-BRN-018) is orthogonal to channel: class gates *content* (zero `dev.*` methods in fair packs; dev-class packs refused at load in fair runs) while channel gates *promotion state*. A dev-class pack may still be `stable` — it is a test/troubleshooting harness, never a scored-run brain.
 
 ## 10. Human editing workflow
 

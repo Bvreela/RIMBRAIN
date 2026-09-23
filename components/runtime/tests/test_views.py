@@ -43,8 +43,12 @@ def test_views_written_each_poll(rig):
     assert planning["mode"] == "start"
     assert planning["complete"] is True
     ids = [g["id"] for g in planning["goals"]]
-    # pack order preserved — site first, overflow last
-    assert ids[0] == "site" and ids[-1] == "overflow"
+    # pack order preserved — site first, overflow last phase; govern
+    # goals render after the phase list
+    n_phases = len(cfg["start"]["phases"])
+    assert ids[0] == "site" and ids[n_phases - 1] == "overflow"
+    assert ids[n_phases:] == [
+        f"govern.{g['id']}" for g in cfg["govern"]["goals"]]
     assert (sdir / "planning.md").is_file()
     assert (sdir / "actions.md").is_file()
     rows = [json.loads(l) for l in

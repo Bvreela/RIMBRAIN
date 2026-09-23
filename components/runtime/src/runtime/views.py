@@ -47,22 +47,28 @@ def _brief(spec, limit: int = 72) -> str | None:
 
 
 def _goal_rows(mode, ledger) -> list[dict]:
-    """Ordered goals straight from the pack — the pack IS the plan."""
+    """Ordered goals straight from the pack — the pack IS the plan.
+    Start phases first, then the pack's post-start govern goals."""
     rows = []
-    for ph in (mode.cfg.get("phases") or []):
-        pid = ph.get("id")
-        if not pid:
-            continue
-        task = ledger.tasks.get(mode._tid(pid)) or {}
-        state = task.get("state", "pending")
-        blocker = None
-        if state in ("failed", "cancelled"):
-            blocker = task.get("reason") or state
-        elif state in ("dispatched", "verifying"):
-            blocker = "awaiting effect"
-        rows.append({"id": pid, "state": state, "blocker": blocker,
-                     "attempts": task.get("attempts", 0),
-                     "effect": _brief(ph.get("effect"))})
+    sections = [("start", mode.cfg.get("phases") or [], ""),
+                ("govern", ((mode.pack.get("govern") or {})
+                            .get("goals") or []), "govern.")]
+    for ns, entries, prefix in sections:
+        for g in entries:
+            gid = g.get("id")
+            if not gid:
+                continue
+            task = ledger.tasks.get(mode._tid(gid, ns=ns)) or {}
+            state = task.get("state", "pending")
+            blocker = None
+            if state in ("failed", "cancelled"):
+                blocker = task.get("reason") or state
+            elif state in ("dispatched", "verifying"):
+                blocker = "awaiting effect"
+            rows.append({"id": f"{prefix}{gid}", "state": state,
+                         "blocker": blocker,
+                         "attempts": task.get("attempts", 0),
+                         "effect": _brief(g.get("effect"))})
     return rows
 
 

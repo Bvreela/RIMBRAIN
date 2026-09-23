@@ -188,6 +188,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--live-brain", action="store_true",
                    help="honor brain-reset requests: reload the pack + "
                         "re-plan mid-run (FR-1107; never for scored runs)")
+    p.add_argument("--no-hold", action="store_true",
+                   help="start mode: stop at start.completed instead of "
+                        "holding under the pack's govern goals")
     args = p.parse_args(argv)
     if args.mode in ("start", "combat", "cycle") \
             and args.pack == "core-survival-v0":
@@ -250,7 +253,8 @@ def main(argv: list[str] | None = None) -> int:
                 iterations=args.iterations,
                 sink=sink, speed=3,  # unpause so work actually lands;
                                      # prior speed/pause restored on exit
-                live_brain=args.live_brain)
+                live_brain=args.live_brain,
+                hold=not args.no_hold)  # post-start: govern goals run
         elif args.mode == "combat":
             game = BridgeClient(args.bridge)
             if args.fair:

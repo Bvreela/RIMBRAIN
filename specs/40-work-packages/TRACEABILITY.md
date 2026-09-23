@@ -11,6 +11,7 @@
 | UR-RUN-001..004 | Runtime | WP-101, WP-102, WP-104 | forced crash/recovery and lifecycle fixtures |
 | UR-RUN-005..007 | Runtime | WP-103, WP-400 | dead-man, circuit breaker, hysteresis/dwell tests |
 | UR-RUN-008 | Runtime, Contracts | WP-301 | cancel/timeout/stale correlation fixtures |
+| UR-RUN-009 | Runtime, RimBrain | feature 015 | `startmode._govern_step` + `run_start(hold=)`/`--no-hold`/`cycle hold=False`; `test_hold_governs_after_completed` (govern goals dispatch/verify/re-arm on lapse); `govern.*` rows in planning view; `colony-goals-v0` catalog embedded as `goal_options` (19 annotated strategy options; inert data — promotion via govern/plans only) |
 | UR-SUR-001..004 | Runtime | WP-103, WP-400, WP-600 | labeled-save TTC/runway/site fixtures |
 | UR-SUR-005..006 | Runtime, RimBrain | WP-103, WP-203, WP-300 | posture transitions; dispatcher invariant rejection |
 | UR-SUR-007 | Runtime, Lab | WP-202, WP-400, WP-501 | death/near-miss post-mortem fixture creation |
@@ -26,6 +27,7 @@
 | UR-BRN-010 | Runtime, Lab | WP-202, WP-602 | 100% due predictions scored/clustered without model call |
 | UR-BRN-011..014 | Runtime, RimBrain, Contracts | feature 012 (T155..T162), ADR-015 | `policy.py` engine + pack-driven start/combat/universal; pack-mutation tests (SC-1001..1003); `validate_policy` fail-closed; `policy_version` in pack schema; live: pack-driven start mode completed all exit conditions on a real colony (shelter/beds/food/meals/recreation), pack idle-rule assigned real jobs |
 | UR-BRN-015..017 | RimBrain, Runtime, Contracts | feature 014 (T167..T170) | `capability-catalog.yaml` (170 entries / 33 domains, wiki-cited); `capability_audit.py` baseline+live diff (115/115 mapped, 0 drift); registry↔catalog consistency tests; schema forbids policy fields |
+| UR-BRN-018 | RimBrain, Runtime, Contracts | feature 015, ADR-017 | `class: fair|dev` in `pack.schema.json`; `dispatch.load_pack` refuses dev-method packs under fair (`pack.not_fair`); `dev-lab-v0` owns spawn/heal/combat scripting; `test_fair_mode_denies_debug` (dev actions = `dispatch.unknown_action`, dev pack refused at load) |
 | UR-VIEW-001..004 | Runtime | feature 013 (T163..T166) | `views.py` planning/actions renders + `decisions.jsonl` per-poll records wired into start/combat/loop; live start run rendered real goals/matrix; fail-open render test |
 | UR-DAT-001..003 | Runtime, Contracts | WP-101 | durability/torn-tail/atomic Windows tests |
 | UR-DAT-004..005 | Runtime, Lab | WP-104, WP-202, WP-500 | complete decision projection; unchosen-label check |

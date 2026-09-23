@@ -102,6 +102,8 @@ No unpinned network reference is execution authority. Registry URLs locate artif
 9. materialize immutable content-addressed snapshot;
 10. return `BrainSnapshot` identity; do not mutate source.
 
+Pack classes (UR-BRN-018): every pack declares `class: fair|dev`. A fair-class pack contains zero `dev.*` bridge methods and is the only kind loadable under a fair/ranked run — the loader refuses a dev-class pack (`pack.not_fair`) before write authority exists, so debug tooling is absent from the registry rather than merely refused at dispatch. Optional pack sections by role: `start`/`govern` (bootstrap + standing post-start goals), `goal_options` (inert strategy option space), `improve`, `combat`/`cycle` (dev-class scripting only), `universal`.
+
 ## 7. Activation
 
 Activation is a command against a validated snapshot. Preconditions: allowed mode/boundary, no RED/BLACK unless explicit operator approval, current pointer revision matches, rollback snapshot exists, release/profile compatibility passes, and no pending action depends on changed semantics. Activation atomically changes pointer, emits lineage event, and starts monitoring cohort.

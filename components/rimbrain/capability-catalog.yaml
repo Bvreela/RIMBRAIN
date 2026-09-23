@@ -221,6 +221,29 @@ entries:
   domains:
   - combat
   - health_medical
+- id: set-research
+  kind: template
+  status: implemented
+  bridge_methods:
+  - ui.set_research
+  domains:
+  - research
+- id: queue-research
+  kind: template
+  status: implemented
+  bridge_methods:
+  - steward.research
+  domains:
+  - research
+  - steward_component
+- id: answer-letter
+  kind: template
+  status: implemented
+  bridge_methods:
+  - ui.letter
+  domains:
+  - ui_control
+  - quests_incidents
 - id: colonists
   kind: selector
   status: implemented
@@ -477,6 +500,14 @@ entries:
   bridge_methods: []
   domains:
   - collections
+- id: letters
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.letters
+  domains:
+  - observation
+  - quests_incidents
 - id: living_hostiles
   kind: fn
   status: implemented
@@ -548,6 +579,14 @@ entries:
   bridge_methods: []
   domains:
   - collections
+- id: quests
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.quests
+  domains:
+  - quests_incidents
+  - observation
 - id: rank_site
   kind: fn
   status: implemented
@@ -560,6 +599,30 @@ entries:
   bridge_methods: []
   domains:
   - geometry
+- id: research
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.research
+  domains:
+  - research
+  - observation
+- id: research_available
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.research
+  domains:
+  - research
+  - observation
+- id: research_current
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.research
+  domains:
+  - research
+  - observation
 - id: roofed
   kind: fn
   status: implemented
@@ -950,7 +1013,7 @@ entries:
   - https://rimworldwiki.com/wiki/Factions
 - id: cap.state.letters
   kind: capability
-  status: gap
+  status: implemented
   bridge_methods:
   - state.letters
   domains:
@@ -984,7 +1047,7 @@ entries:
   - https://rimworldwiki.com/wiki/Power
 - id: cap.state.quests
   kind: capability
-  status: gap
+  status: implemented
   bridge_methods:
   - state.quests
   domains:
@@ -993,7 +1056,7 @@ entries:
   - https://rimworldwiki.com/wiki/Quests
 - id: cap.state.research
   kind: capability
-  status: gap
+  status: implemented
   bridge_methods:
   - state.research
   domains:
@@ -1069,7 +1132,7 @@ entries:
   - navigation
 - id: cap.ui.letter
   kind: capability
-  status: gap
+  status: implemented
   bridge_methods:
   - ui.letter
   domains:
@@ -1122,7 +1185,7 @@ entries:
   - https://rimworldwiki.com/wiki/Assign
 - id: cap.ui.set_research
   kind: capability
-  status: gap
+  status: implemented
   bridge_methods:
   - ui.set_research
   domains:
@@ -1245,7 +1308,7 @@ entries:
   notes: owned by components/steward, not runtime
 - id: cap.steward.research
   kind: capability
-  status: gap
+  status: implemented
   bridge_methods:
   - steward.research
   domains:

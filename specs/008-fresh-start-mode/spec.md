@@ -10,7 +10,7 @@
 
 ## Purpose
 
-A dedicated `start-mode` policy module (its own pack + objective workflow) that takes a brand-new colony from scattered drop pods to a stable baseline. It executes a fixed deterministic bootstrap — site selection, roofed storage zone over the starting items, unforbid, shelter construction, haul-in — then transitions to prioritized task execution until the declared exit conditions hold. It then disengages cleanly and hands the colony back to the normal policy loop.
+A dedicated `start-mode` policy module (its own pack + objective workflow) that takes a brand-new colony from scattered drop pods to a stable baseline. It executes a fixed deterministic bootstrap — site selection, roofed storage zone over the starting items, unforbid, shelter construction, haul-in — then transitions to prioritized task execution until the declared exit conditions hold. Completion is a handoff, not an exit: on a held run the pack's `govern` standing goals take over — sustainment objectives that re-arm on regression and long-horizon objectives (tech-tree progression, mission offers) that engage once the colony is stable. Non-held callers (cycle phases, tests) still stop cleanly at `start.completed`.
 
 ## User Stories *(mandatory)*
 
@@ -45,9 +45,9 @@ Start Mode is expressed as an ordered objective graph of tasks in the ledger (fe
 
 ### User Story 3 - Baseline Completion (Priority: P1)
 
-After the bootstrap, the agent plans and prioritizes until every colonist has: (a) enclosed shelter (a room with roof and door, no unroofed/no-door problems), (b) an owned/available bed inside a room, (c) a replenishable food source (growing zone planted OR a steward stock job targeting food OR equivalent observed mechanism), and (d) a basic recreation object (horseshoes pin or equivalent declared def). When all conditions hold for all colonists, Start Mode ends: it emits a completion event, stops proposing start-mode work, and the normal policy loop resumes.
+After the bootstrap, the agent plans and prioritizes until every colonist has: (a) enclosed shelter (a room with roof and door, no unroofed/no-door problems), (b) an owned/available bed inside a room, (c) a replenishable food source (growing zone planted OR a steward stock job targeting food OR equivalent observed mechanism), and (d) a basic recreation object (horseshoes pin or equivalent declared def). When all conditions hold for all colonists, Start Mode emits `start.completed` and stops proposing start-phase work. A held run then evaluates the pack's `govern.goals` — standing objectives declared in the pack (sustainment that re-arms when its effect lapses, then gated ambitions like research and mission acceptance) — instead of terminating.
 
-**Why this priority**: "baseline of stability" is the user's explicit exit contract — it must be observable, all-or-nothing per colonist, and terminal.
+**Why this priority**: "baseline of stability" is the user's explicit exit contract — it must be observable, all-or-nothing per colonist, and it marks the handoff from scripted bootstrap to self-directed play.
 
 **Independent Test**: fixture states satisfying/violating each condition — the mode exits exactly when all four hold for every colonist.
 
@@ -82,7 +82,7 @@ Start Mode is its own pack (`start-mode-v0`) with tunable thresholds: zone size 
 - **FR-702**: deterministic site selection ranks `map.open_rects` results by declared criteria (proximity to starting items, distance to home center, buildability) and anchors the choice via `anchor.set` for downstream steps and evidence.
 - **FR-703**: bootstrap steps execute in declared order as ledger tasks with effect specs verified against observation (`state.storage`/`state.base`/`map.find`/`state.stocks`), all through the single writer.
 - **FR-704**: unforbid covers every observed starting item (`map.find` forbidden items near home); haul designates all loose items to the zone.
-- **FR-705**: exit-condition evaluator checks per-colonist shelter (enclosed room), bed-in-room, replenishable food, and recreation presence; Start Mode emits a completion event and disengages only when all hold.
+- **FR-705**: exit-condition evaluator checks per-colonist shelter (enclosed room), bed-in-room, replenishable food, and recreation presence; Start Mode emits `start.completed` when all hold. Whether the run ends there is the caller's `hold` flag — held runs continue into the pack's `govern.goals` standing objectives (UR-RUN-009), bounded callers (cycle) still stop at completion.
 - **FR-706**: the mode engages only via explicit selection (`--start`/`pack start-mode-v0`); auto-detection of "fresh game" is out of scope — an established colony invoked into the mode must produce zero redundant designations (effects already hold).
 - **FR-707**: new event types as needed (e.g. `start.phase`, `start.completed`) registered native in event-map + schemas + corpus; transitions continue to use `task.transition`.
 - **FR-708**: emergencies retain precedence — reflexes evaluate before start-mode task progression each poll.
@@ -103,3 +103,5 @@ Start Mode is its own pack (`start-mode-v0`) with tunable thresholds: zone size 
 - Fail-closed: no viable site or missing materials blocks with a recorded outcome; never place on water/rock/buildings/items.
 - Real-colony-data-only rule applies: site/item/colonist decisions come from observation, never assumptions.
 - Pack is reviewable data (validated like core-survival-v0); the mode is opt-in only.
+- Fair-mode: `start-mode-v0` is `class: fair` — zero `dev.*` methods end to end (UR-BRN-018). Spawn/heal test tooling and the scripted combat section live in `dev-lab-v0` (`class: dev`), refused at load under `--fair`.
+- Post-start goals are pack data (`govern.goals`): ordered standing objectives with `when` engagement gates and verifier-checked `effect`s; terminal goals re-arm only while the observed effect has lapsed. Mission completion beyond accepting an offer is emergent play — out of scope for v0.

@@ -51,7 +51,7 @@ Both views render from the same poll's data — the planning snapshot and the de
 ## Requirements *(mandatory)*
 
 - **FR-1101**: `policy.py` `Ctx` gains a `decisions` sink; `run_steps` and `run_rules` append `{tick, poll, source, template, params, ok}` for every dispatch. Source is the phase id or rule id supplied by the caller.
-- **FR-1102**: `runtime/views.py` renders `state/planning.md` + `state/planning.json` (mode, ordered goals w/ state+effect truth, exit eval, blockers, planner summary if present) and `state/actions.md` (trailing-window table) from canonical inputs.
+- **FR-1102**: `runtime/views.py` renders `state/planning.md` + `state/planning.json` (mode, ordered goals w/ state+effect truth, exit eval, blockers, planner summary if present) and `state/actions.md` (trailing-window table) from canonical inputs. The goal list is the pack's declared order: start phases first, then `govern.<id>` standing goals when the pack carries them (feature 015).
 - **FR-1103**: `_run_start`, `run_combat`, `run_cycle`, and `run_loop` write both views each poll; render failure must not interrupt control (fail-open on views, fail-closed on control).
 - **FR-1104**: `decisions.jsonl` is append-only canonical; `planning.md`/`actions.md` are disposable renders rebuildable from canonical records (UR-DAT-007).
 - **FR-1105**: Views never include model chain-of-thought or secrets; planner summaries cite the `plan.proposed` event's declared goal/plan fields only.

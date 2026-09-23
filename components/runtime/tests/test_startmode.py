@@ -65,6 +65,11 @@ class StartSim:
         self.stripped: list[str] = []
         self.zone_filters: dict[str, dict] = {}
         self.zone_plants: dict[str, str] = {}
+        self.benches = 0               # research benches built
+        self.research = {"current": None,
+                         "available": ["Battery", "SolarPanels"],
+                         "finished": 0}
+        self.letters: list[dict] = []  # pending letters {id, choices}
         self._pending: list[str] = []
         self.writes: list[tuple] = []
         if established:
@@ -127,6 +132,11 @@ class StartSim:
                 n = self.meals if params.get("def") == "MealSimple" else 0
                 return {"ok": True, "result": {
                     "count": n, "things": [{"id": "m"}] * n}}
+            if params.get("def") in ("SimpleResearchBench",
+                                     "HiTechResearchBench"):
+                return {"ok": True, "result": {
+                    "count": self.benches,
+                    "things": [{"id": "rb"}] * self.benches}}
             wdef = params.get("def")
             wpool = ([t for t in self.weapons if t["def"] == wdef]
                      or [t for t in self.armor if t["def"] == wdef])
@@ -236,6 +246,9 @@ class StartSim:
                 self._pending.append("bed")
             elif params.get("def") == "HorseshoesPin":
                 self._pending.append("recreation")
+            elif params.get("def") in ("SimpleResearchBench",
+                                       "HiTechResearchBench"):
+                self._pending.append("bench")
             elif params.get("def") in ("Campfire", "FueledStove",
                                        "ElectricStove"):
                 self._pending.append("cookstation")
@@ -290,6 +303,32 @@ class StartSim:
                 "skills": self.skills.get(pid, {}),
                 "downed": any(h.get("id") == pid and h.get("downed")
                               for h in self.hostiles)}}
+        if method == "state.research":
+            return {"ok": True, "result": dict(self.research)}
+        if method == "ui.set_research":
+            self.research["current"] = params.get("def")
+            return {"ok": True,
+                    "result": {"current": params.get("def")}}
+        if method == "steward.research":
+            q = [p for p in (params.get("queue") or [])
+                 if p in self.research["available"]]
+            if params.get("append"):
+                self.research.setdefault("queue", [])
+                self.research["queue"] += q
+            else:
+                self.research["queue"] = q
+            if not self.research.get("current"):
+                self.research["current"] = next(
+                    iter(self.research.get("queue") or []), None)
+            return {"ok": True, "result": {
+                "queue": self.research.get("queue"),
+                "current": self.research.get("current")}}
+        if method == "state.letters":
+            return {"ok": True, "result": list(self.letters)}
+        if method == "ui.letter":
+            self.letters = [l for l in self.letters
+                            if l.get("id") != params.get("id")]
+            return {"ok": True, "result": {"answered": params.get("id")}}
         return {"ok": False, "error": {"code": "sim.unknown",
                                        "message": method}}
 
@@ -325,6 +364,8 @@ class StartSim:
                     self.hostiles.pop()  # drafted colonists win
             elif p == "recreation":
                 self.recreation = True
+            elif p == "bench":
+                self.benches += 1
         self._pending = []
 
 
@@ -354,6 +395,32 @@ def test_full_bootstrap_to_completed(rig):
     types = [e["event_type"] for e in events]
     assert "start.completed" in types
     assert types.index("start.completed") == len(types) - 1
+
+
+def test_hold_governs_after_completed(rig):
+    """UR-RUN-009: hold=True keeps polling past start.completed —
+    standing goals dispatch/verify, and a lapsed effect re-arms."""
+    d, game, ledger, cfg, events = rig
+    game.letters = [{"id": "l-quest", "choices": ["Accept", "Reject"]}]
+    res = run_start(d, game, ledger, cfg, iterations=60, hold=True)
+    assert res["completed"]
+    types = [e["event_type"] for e in events]
+    assert "start.completed" in types
+    # the run kept going — evidence continues after completion
+    assert types.index("start.completed") < len(types) - 1
+    gov = {t: s["state"] for t, s in ledger.tasks.items()
+           if t.startswith("govern.")}
+    assert gov.get("govern.research-bench") == "succeeded"
+    assert gov.get("govern.research-progress") == "succeeded"
+    assert gov.get("govern.mission-offers") == "succeeded"
+    assert game.benches >= 1
+    assert game.research["current"] == "Battery"
+    assert game.letters == []  # the offer was accepted via ui.letter
+    # a fresh offer re-arms the terminal goal on the next held run
+    game.letters.append({"id": "l2", "choices": ["Accept"]})
+    res2 = run_start(d, game, ledger, cfg, iterations=10, hold=True)
+    assert res2["completed"]
+    assert game.letters == []
     # every write has evidence: issued + terminal
     for env in events:
         if env["event_type"] == "action.issued":

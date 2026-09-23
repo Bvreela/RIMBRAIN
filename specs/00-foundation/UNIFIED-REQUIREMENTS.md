@@ -26,6 +26,7 @@
 - **UR-RUN-006:** Repeated identical failures MUST trip a context-scoped circuit breaker.
 - **UR-RUN-007:** Thresholds MUST define enter/exit hysteresis and relevant dwell/cooldown.
 - **UR-RUN-008:** Provider calls MUST be cancellable, deadline-bound, revision-correlated, and stale-rejected.
+- **UR-RUN-009:** Start Mode completion (`start.completed`) MUST be a handoff, not an exit: under a held run the pack's `govern` standing goals keep driving the colony (sustainment objectives that re-arm on regression, plus stability-gated ambitions such as tech progression and mission offers); bounded callers MAY still stop at completion.
 
 ## Survival and attention
 
@@ -78,6 +79,7 @@
 - **UR-BRN-015:** The engine MUST maintain a versioned capability catalog covering every action, mechanic, and interaction exposed by the bridge and documented by authoritative sources (e.g. the RimWorld Wiki); each catalog entry MUST map to an implemented primitive or be explicitly marked a known gap.
 - **UR-BRN-016:** Capability coverage MUST be auditable: tooling MUST diff the bridge RPC surface and documented mechanic domains against the catalog and report unmapped surface; coverage gaps MUST never be silently absent.
 - **UR-BRN-017:** Capability primitives MUST remain strategy-agnostic; the catalog and primitives MUST NOT carry when/why/threshold/priority policy — how capabilities are used is pack data only.
+- **UR-BRN-018:** Packs MUST declare `class: fair|dev`. A fair-class pack MUST contain zero `dev.*` methods end to end; a dev-class pack MUST be refused at load under a fair run. Multiple packs MUST coexist in the pack library, loadable by id with independent hashes/revisions.
 
 ## Transparency and observability
 
