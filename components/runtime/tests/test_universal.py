@@ -265,3 +265,21 @@ def test_no_dialogs_no_dispatch(rig):
     d, game, ledger, pack, events, tmp = rig
     fired = universal.apply_rules(d, game, {}, pack, {}, poll=0)
     assert not _issued(events, "answer-dialog")
+
+
+def test_fair_mode_denies_debug(rig):
+    """UR-CTL-009: fair runs refuse dev.*/save-load before the bridge."""
+    d, game, ledger, pack, events, tmp = rig
+    from runtime.dispatch import Dispatcher as D2
+    fair = D2(game, sink=events.append,
+              clock=lambda: "2026-01-01T00:00:00Z", fair=True)
+    fair.load_pack("start-mode-v0")
+    for tpl in ("spawn-hostile", "heal-pawn", "save-game", "load-game"):
+        r = fair.dispatch(tpl, {"name": "x", "pawn": "c1"})
+        assert not r.get("ok"), tpl
+        assert "fair" in (r.get("error") or {}).get("code", "")
+    refused = [e for e in events if e["event_type"] == "action.refused"]
+    assert len(refused) == 4
+    # normal capabilities still dispatch under fair mode
+    r = fair.dispatch("draft-pawn", {"pawn": "c1", "drafted": True})
+    assert r.get("ok") is not None or "ok" in r

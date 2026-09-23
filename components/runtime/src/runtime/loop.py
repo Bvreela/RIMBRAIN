@@ -167,6 +167,9 @@ def main(argv: list[str] | None = None) -> int:
                    help="reconcile the task ledger before attend each poll")
     p.add_argument("--feed", action="store_true",
                    help="narrate every emitted event into state/feed.md")
+    p.add_argument("--fair", action="store_true",
+                   help="fair run: refuse dev.* and save/load dispatches "
+                        "(no debug cheating, UR-CTL-009)")
     args = p.parse_args(argv)
     if args.mode in ("start", "combat", "cycle") \
             and args.pack == "core-survival-v0":
@@ -208,14 +211,15 @@ def main(argv: list[str] | None = None) -> int:
             # the dispatcher's writer target IS the SimGame (single writer must
             # never silently point at the real bridge during a sim run)
             game = _simgame.SimGame()
-            dispatcher = Dispatcher(game, game_tick=0, clock=_Clock())
+            dispatcher = Dispatcher(game, game_tick=0, clock=_Clock(),
+                                      fair=args.fair)
             dispatcher.load_pack(args.pack)
             result = run_loop(dispatcher, game, iterations=args.iterations,
                               ledger=ledger,
                               sink=sink)
         elif args.mode == "start":
             game = BridgeClient(args.bridge)
-            dispatcher = Dispatcher(game)
+            dispatcher = Dispatcher(game, fair=args.fair)
             dispatcher.load_pack(args.pack)
             from .startmode import run_start
             from .tasks import TaskLedger
@@ -227,7 +231,7 @@ def main(argv: list[str] | None = None) -> int:
                                      # prior speed/pause restored on exit
         elif args.mode == "combat":
             game = BridgeClient(args.bridge)
-            dispatcher = Dispatcher(game)
+            dispatcher = Dispatcher(game, fair=args.fair)
             dispatcher.load_pack(args.pack)
             from .combatmode import run_combat
             from .tasks import TaskLedger
@@ -238,7 +242,7 @@ def main(argv: list[str] | None = None) -> int:
                 sink=sink, speed=3)
         elif args.mode == "cycle":
             game = BridgeClient(args.bridge)
-            dispatcher = Dispatcher(game)
+            dispatcher = Dispatcher(game, fair=args.fair)
             dispatcher.load_pack(args.pack)
             from .cycle import run_cycle
             result = run_cycle(
@@ -255,7 +259,7 @@ def main(argv: list[str] | None = None) -> int:
                 iterations=args.iterations, sink=sink, feed=feed)
         else:
             game = BridgeClient(args.bridge)
-            dispatcher = Dispatcher(game)
+            dispatcher = Dispatcher(game, fair=args.fair)
             dispatcher.load_pack(args.pack)
             result = run_loop(dispatcher, game, iterations=args.iterations,
                               decider=lambda s, i: _live_decider(),
