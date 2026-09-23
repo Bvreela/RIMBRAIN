@@ -34,6 +34,38 @@ def _dotted(d, path):
     return d
 
 
+_CMP = {
+    "eq": lambda a, b: a == b,
+    "ne": lambda a, b: a != b,
+    "gt": lambda a, b: a is not None and a > b,
+    "gte": lambda a, b: a is not None and a >= b,
+    "lt": lambda a, b: a is not None and a < b,
+    "lte": lambda a, b: a is not None and a <= b,
+    "in": lambda a, b: a in (b or []),
+    "contains": lambda a, b: a is not None and b in a,
+    "present": lambda a, b: a is not None,
+    "absent": lambda a, b: a is None,
+}
+
+
+def _match_where(pred: dict, event: dict) -> bool:
+    """FR-812: predicate over an event's fields ({field, op, value})."""
+    val = _dotted(event, pred.get("field", ""))
+    return _CMP.get(pred.get("op", "eq"), lambda a, b: False)(
+        val, pred.get("value"))
+
+
+def _windowed_max(group: list[dict], window: int) -> int:
+    """Max events of a group inside any `window`-tick span (game year etc.)."""
+    ticks = sorted(e.get("game_tick") or 0 for e in group)
+    best = j = 0
+    for i, t in enumerate(ticks):
+        while ticks[j] < t - window:
+            j += 1
+        best = max(best, i - j + 1)
+    return best
+
+
 def diagnose(events: list[dict], cfg: dict) -> list[dict]:
     """Group events by pack-declared defect patterns -> findings."""
     findings = []
@@ -49,18 +81,22 @@ def diagnose(events: list[dict], cfg: dict) -> list[dict]:
             if pat.get("match_to_state") and \
                     p.get("to_state") not in pat["match_to_state"]:
                 continue
+            if pat.get("where") and not _match_where(pat["where"], e):
+                continue
             key = str(_dotted(e, pat.get("group_by", "")) or "")
             if not key:  # no groupable identity -> not a template defect
                 continue
             hits.setdefault(key, []).append(e)
+        window = pat.get("window_ticks")
         for key, group in hits.items():
-            if len(group) >= pat.get("min_count", 2):
+            count = _windowed_max(group, window) if window else len(group)
+            if count >= pat.get("min_count", 2):
                 seqs = [g.get("sequence", 0) for g in group]
                 findings.append({
                     "defect_class": pat["id"],
                     "affected": [key],
                     "remediation": pat.get("remediation"),
-                    "count": len(group),
+                    "count": count,
                     "span": {"first_seq": min(seqs),
                              "last_seq": max(seqs)},
                 })
@@ -80,18 +116,79 @@ def diagnosed_event(cycle_id: str, findings: list[dict], seq: int,
     return _env("selfcheck.diagnosed", payload, seq, clock)
 
 
+def _set_path(doc: dict, path: str, value) -> bool:
+    keys = [k for k in path.split(".") if k]
+    if not keys:
+        return False
+    node = doc
+    for k in keys[:-1]:
+        nxt = node.get(k)
+        if not isinstance(nxt, dict):
+            nxt = {}
+            node[k] = nxt
+        node = nxt
+    node[keys[-1]] = value
+    return True
+
+
+def _apply_ops(doc: dict, ops: list[dict] | None) -> bool:
+    """FR-813: declarative pack mutations. Returns True if doc changed.
+
+    `set_cfg` writes a config path, `append` pushes onto a list path,
+    `drop_template`/`drop_rule` remove pack elements by id — the fix is
+    declared in the improve pack, the engine only applies it.
+    """
+    changed = False
+    for op in ops or []:
+        kind = op.get("op")
+        if kind == "set_cfg":
+            changed |= _set_path(doc, op.get("path", ""), op.get("value"))
+        elif kind == "append":
+            node = _dotted(doc, op.get("path", ""))
+            if isinstance(node, list):
+                node.append(op.get("value"))
+                changed = True
+        elif kind == "drop_template":
+            bad = set(op.get("ids") or [])
+            tpls = [t for t in doc.get("templates", [])
+                    if t.get("id") not in bad]
+            changed |= len(tpls) != len(doc.get("templates", []))
+            doc["templates"] = tpls
+        elif kind == "drop_rule":
+            bad = set(op.get("ids") or [])
+            uni = doc.setdefault("universal", {})
+            keep = [r for r in (uni.get("rules") or [])
+                    if r.get("id") not in bad]
+            changed |= len(keep) != len(uni.get("rules") or [])
+            uni["rules"] = keep
+    return changed
+
+
 def propose(findings: list[dict], active_pack: dict,
             candidates_dir: Path) -> Path | None:
-    """Rules-only remediation -> candidate pack file.
+    """Remediation -> candidate pack file.
 
-    Supported remediation: `fix_template_params`/`quarantine` for a
-    chronically-refused template -> drop the template so the writer
-    stops dispatching an always-failing action. Anything else -> None
-    (recorded, not invented).
+    Dict remediation (`{ops: [...]}`) applies declarative mutations —
+    set_cfg/append/drop_template/drop_rule — to a candidate copy.
+    Legacy string remediations (`fix_template_params`,
+    `retune_lease_or_effect`) quarantine the affected template.
+    Anything else -> None (recorded, not invented).
     """
     for f in findings:
-        if f["remediation"] in ("fix_template_params",
-                                "retune_lease_or_effect"):
+        rem = f.get("remediation")
+        if isinstance(rem, dict) and rem.get("ops"):
+            cand = copy.deepcopy(active_pack)
+            if not _apply_ops(cand, rem["ops"]):
+                continue  # ops changed nothing -> vacuous candidate
+            cand["revision"] = str(cand.get("revision", "v0")) + \
+                f"+mut.{f['defect_class']}"
+            candidates_dir = Path(candidates_dir)
+            candidates_dir.mkdir(parents=True, exist_ok=True)
+            out = candidates_dir / f"cand-{f['defect_class']}.yaml"
+            out.write_text(yaml.safe_dump(cand, sort_keys=False),
+                           encoding="utf-8")
+            return out
+        if rem in ("fix_template_params", "retune_lease_or_effect"):
             bad = set(f["affected"])
             cand = copy.deepcopy(active_pack)
             remaining = [t for t in cand.get("templates", [])

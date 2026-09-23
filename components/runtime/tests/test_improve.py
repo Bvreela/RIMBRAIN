@@ -130,3 +130,136 @@ def test_predict_metrics_drops_quarantined():
     after = score(cand, CFG["metrics"])
     assert after < before
     assert cand["refusal_rate"] == 0.0
+
+
+# --- FR-811/812/813: colony-health failure classes + mutation ops ---
+
+YEAR = 3_600_000  # RimWorld game year in ticks
+
+VITALS_CFG = {
+    "defect_patterns": [
+        {"id": "poor_mood", "event_type": "colony.vitals",
+         "where": {"field": "payload.mood_min", "op": "lt", "value": 30},
+         "group_by": "event_type", "min_count": 3,
+         "remediation": {"ops": [
+             {"op": "set_cfg", "path": "start.cooking.buffer",
+              "value": 6}]}},
+        {"id": "repeat_sickness", "event_type": "colony.sickness",
+         "group_by": "payload.pawn", "window_ticks": YEAR,
+         "min_count": 2,
+         "remediation": {"ops": [
+             {"op": "set_cfg", "path": "start.cooking.station_defs",
+              "value": ["ElectricStove"]}]}},
+        {"id": "multiple_downed", "event_type": "colony.vitals",
+         "where": {"field": "payload.downed", "op": "gte", "value": 2},
+         "group_by": "event_type", "min_count": 1,
+         "remediation": {"ops": [
+             {"op": "drop_rule", "ids": ["chase-fleeing"]}]}},
+        {"id": "colonist_death", "event_type": "colony.vitals",
+         "where": {"field": "payload.dead", "op": "gte", "value": 1},
+         "group_by": "event_type", "min_count": 1,
+         "remediation": {"ops": [
+             {"op": "drop_rule", "ids": ["chase-fleeing"]}]}},
+    ],
+}
+
+MUTABLE_PACK = dict(PACK, universal={"rules": [
+    {"id": "chase-fleeing"}, {"id": "idle-work"}]},
+                    start={"cooking": {"buffer": 2},
+                           "recreation": {"defs": ["HorseshoesPin"]}})
+
+
+def _vitals(tick=0, **kw):
+    return {"event_type": "colony.vitals", "sequence": 1,
+            "game_tick": tick, "payload": kw}
+
+
+def test_diagnose_poor_mood_sustained():
+    """mood_min < 30 across >=3 samples -> poor_mood finding."""
+    evs = [_vitals(tick=t, mood_min=22) for t in (100, 200, 300)]
+    findings = diagnose(evs, VITALS_CFG)
+    assert any(f["defect_class"] == "poor_mood" for f in findings)
+    # two samples only -> below min_count, no finding
+    assert not diagnose(evs[:2], VITALS_CFG)
+
+
+def test_diagnose_downed_and_death_single_sample():
+    """multiple_downed + colonist_death fire on one bad sample."""
+    evs = [_vitals(tick=50, downed=2, dead=1)]
+    ids = {f["defect_class"] for f in diagnose(evs, VITALS_CFG)}
+    assert {"multiple_downed", "colonist_death"} <= ids
+
+
+def test_diagnose_repeat_sickness_windowed():
+    """2 onsets per pawn inside a game year -> finding; spread apart -> none."""
+    sick = lambda p, t: {"event_type": "colony.sickness", "sequence": 1,
+                         "game_tick": t,
+                         "payload": {"pawn": p, "hediff": "Flu"}}
+    close = [sick("c0", 1000), sick("c0", 2000)]
+    assert any(f["defect_class"] == "repeat_sickness"
+               for f in diagnose(close, VITALS_CFG))
+    far = [sick("c0", 1000), sick("c0", 1000 + YEAR + 1)]
+    assert not any(f["defect_class"] == "repeat_sickness"
+                   for f in diagnose(far, VITALS_CFG))
+    # different pawns in-window -> not a per-pawn repeat
+    other = [sick("c0", 1), sick("c1", 2)]
+    assert not any(f["defect_class"] == "repeat_sickness"
+                   for f in diagnose(other, VITALS_CFG))
+
+
+def test_propose_mutation_ops(tmp_path):
+    """FR-813: dict remediation applies declared ops to a candidate."""
+    from runtime.improve import propose
+    findings = [{"defect_class": "poor_mood", "affected": ["colony.vitals"],
+                 "remediation": VITALS_CFG["defect_patterns"][0]["remediation"],
+                 "count": 3, "span": {"first_seq": 1, "last_seq": 3}}]
+    out = propose(findings, MUTABLE_PACK, tmp_path)
+    cand = yaml.safe_load(out.read_text(encoding="utf-8"))
+    assert cand["start"]["cooking"]["buffer"] == 6
+    assert cand["revision"].endswith("+mut.poor_mood")
+    assert cand["templates"] == MUTABLE_PACK["templates"]  # untouched
+
+
+def test_propose_drop_rule(tmp_path):
+    from runtime.improve import propose
+    findings = [{"defect_class": "multiple_downed",
+                 "affected": ["colony.vitals"],
+                 "remediation": VITALS_CFG["defect_patterns"][2]["remediation"],
+                 "count": 1, "span": {"first_seq": 1, "last_seq": 1}}]
+    out = propose(findings, MUTABLE_PACK, tmp_path)
+    cand = yaml.safe_load(out.read_text(encoding="utf-8"))
+    ids = [r["id"] for r in cand["universal"]["rules"]]
+    assert "chase-fleeing" not in ids and "idle-work" in ids
+
+
+def test_vitals_sample_emits_health_and_sickness_onsets():
+    """FR-811: sampler builds vitals payload + once-per-onset sickness."""
+    from runtime.vitals import sample
+
+    class G:
+        def __init__(self):
+            self.sick = {"c0": ["Flu"]}
+        def rpc(self, m, p=None):
+            if m == "state.summary":
+                return {"ok": True, "result": {"mood_avg": 40}}
+            if m == "state.pawns":
+                return {"ok": True, "result": [
+                    {"id": "c0", "mood": 25, "state": "ok"},
+                    {"id": "c1", "mood": 60, "state": "downed"},
+                    {"id": "c2", "mood": None, "state": "dead"}]}
+            if m == "state.pawn":
+                pid = (p or {}).get("pawn")
+                return {"ok": True, "result": {
+                    "hediffs": [{"def": h} for h in self.sick.get(pid, [])]}}
+            return {"ok": False}
+
+    g, vstate = G(), {}
+    v, sick = sample(g, vstate, {})
+    assert v["mood_min"] == 25 and v["downed"] == 1 and v["dead"] == 1
+    assert sick == [{"pawn": "c0", "hediff": "Flu"}]
+    # same illness next sample -> not re-emitted; a new onset is
+    v, sick = sample(g, vstate, {})
+    assert sick == [] and v["sick_now"] == 1
+    g.sick["c0"] = ["Flu", "FoodPoisoning"]
+    v, sick = sample(g, vstate, {})
+    assert sick == [{"pawn": "c0", "hediff": "FoodPoisoning"}]

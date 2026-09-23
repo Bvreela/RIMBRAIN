@@ -30,3 +30,6 @@
 
 - [x] T139 [P] `tests/test_feed.py` (every decision type renders, fallback echo, coverage 100%, failure non-fatal), `tests/test_metrics.py` (determinism, two histories differ), `tests/test_audit.py` (unsafe pack refused, failing suite blocks), `tests/test_improve.py` (planted-defect trace: diagnose→candidate→validate→decide; thin evidence defers; promote only at boundary) (SC-801..805)
 - [x] T140 Polish: INDEX row 009, runtime README self-improvement + feed sections, AGENTS.md phase note, `validate_components` green
+- [x] T090a `vitals.py` + `_run_start`: `colony.vitals`/`colony.sickness` canonical events every `vitals.every` polls (mood, downed, dead, illness onsets diffed per pawn) (FR-811)
+- [x] T090b `improve.py`: `where` predicates + `window_ticks` in `diagnose`; dict remediations `{ops}` (`set_cfg`/`append`/`drop_template`/`drop_rule`) in `propose` (FR-812/813)
+- [x] T090c `improve-v0.yaml`: poor_mood / repeat_sickness (per pawn-year) / multiple_downed / colonist_death failure classes with pack-declared mutations; tests in `test_improve.py` (SC-806)
