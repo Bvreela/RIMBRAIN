@@ -1,0 +1,25 @@
+{
+  "schema_version": 0,
+  "pack_id": "pack.bad",
+  "revision": "v0",
+  "templates": [
+    {
+      "id": "t1",
+      "method": "x.y",
+      "params_schema": { "type": "object" }
+    }
+  ],
+  "jobs": ["food"],
+  "decision_map": [],
+  "emergency": [
+    {
+      "id": "r1",
+      "priority": 1,
+      "condition": {
+        "combinator": "all",
+        "predicates": []
+      },
+      "action": { "template_id": "t1", "params": {} }
+    }
+  ]
+}

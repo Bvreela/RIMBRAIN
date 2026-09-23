@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rimbrainagent.dev/schemas/events/types/legacy.unmapped.schema.json",
+  "title": "events/types/legacy.unmapped",
+  "description": "Payload for event_type 'legacy.unmapped': catch-all for upstream bus.py kinds with no registered mapping (FR-008). Shape {kind, data} preserves the raw upstream kind and data verbatim — stored, but rejected by strict execution consumers (code event.type.not_executable). Permissive by design: the point is store-not-execute.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kind", "data"],
+  "properties": {
+    "kind": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "description": "Raw upstream kind value, preserved verbatim."
+    },
+    "data": {
+      "type": "object",
+      "description": "Raw upstream data dict, preserved verbatim and unvalidated."
+    }
+  }
+}

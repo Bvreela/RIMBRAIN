@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rimbrainagent.dev/schemas/events/types/plan.accepted.schema.json",
+  "title": "events/types/plan.accepted",
+  "description": "Payload for event_type 'plan.accepted' (native type, feature 005; FR-404/405): an approved proposal materialized a candidate pack revision and/or dispatched its actions through the single writer.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["plan_id", "pack_revision", "dispatched", "candidates"],
+  "properties": {
+    "plan_id": { "type": "string", "minLength": 1 },
+    "pack_revision": { "type": "string", "minLength": 1 },
+    "endpoint_id": { "type": "string", "minLength": 1 },
+    "model": { "type": "string", "minLength": 1 },
+    "usage": {
+      "type": "object",
+      "required": ["prompt_tokens", "completion_tokens"],
+      "properties": {
+        "prompt_tokens": { "type": "integer", "minimum": 0 },
+        "completion_tokens": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "dispatched": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["template_id", "outcome"],
+        "properties": {
+          "template_id": { "type": "string" },
+          "outcome": { "type": "string" },
+          "error_code": { "type": "string" }
+        },
+        "additionalProperties": false
+      },
+      "description": "One entry per plan action dispatched via the feature-004 Dispatcher."
+    },
+    "candidates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["path", "hash"],
+        "properties": {
+          "path": { "type": "string" },
+          "hash": { "type": "string" }
+        },
+        "additionalProperties": false
+      },
+      "description": "Candidate pack revisions written under packs/candidates/."
+    }
+  }
+}

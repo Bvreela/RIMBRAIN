@@ -1,0 +1,372 @@
+# Core-survival policy pack v0 (feature 004; FR-302/305/308).
+# Validated data: action templates, jobs, typed-decision map, emergency reflexes.
+# Every template.method exists in the sealed bridge inventory
+# (baselines/upstream-85cb050/rpc-inventory.json) — enforced at load.
+# Placeholders in params: "{state.path.to.field}" resolves from observed game
+# status; "{answer}" is the selected decision choice id.
+schema_version: 0
+pack_id: pack.core-survival-v0
+revision: v0
+class: fair
+
+templates:
+  - id: prioritize-work
+    method: ui.set_work
+    description: "Set a colonist's work priorities (manual mode; 0=off, 1=highest)."
+    params_schema:
+      type: object
+      required: [pawn, priorities]
+      properties:
+        pawn: {type: string}
+        priorities:
+          type: object
+          description: "WorkTypeDef -> 0..4 (0 disabled, 1 highest)."
+    require: [pawn, priorities]
+
+  - id: rescue
+    method: ui.job
+    description: "Give a pawn the Rescue job on a downed colonist."
+    params_schema:
+      type: object
+      required: [pawn, job, target]
+      properties:
+        pawn: {type: string}
+        job: {const: Rescue}
+        target: {type: string, description: "downed colonist thing/pawn id"}
+    require: [pawn, job, target]
+
+  - id: firefight
+    method: ui.job
+    description: "Give a pawn the Firefight job at a map cell."
+    params_schema:
+      type: object
+      required: [pawn, job, target]
+      properties:
+        pawn: {type: string}
+        job: {const: Firefight}
+        target:
+          type: array
+          items: {type: integer}
+          minItems: 2
+          maxItems: 2
+    require: [pawn, job, target]
+
+  - id: haul-designate
+    method: ui.designate
+    description: "Designate hauling at map cells."
+    params_schema:
+      type: object
+      required: [designator, cells]
+      properties:
+        designator: {const: haul}
+        cells:
+          type: array
+          items:
+            type: array
+            items: {type: integer}
+            minItems: 2
+            maxItems: 2
+    require: [designator, cells]
+
+  - id: forbid-item
+    method: ui.designate
+    description: "Forbid items by id (stops hauling/usage)."
+    params_schema:
+      type: object
+      required: [designator, things]
+      properties:
+        designator: {const: forbid}
+        things:
+          type: array
+          items: {type: string}
+    require: [designator, things]
+
+  - id: unforbid-item
+    method: ui.designate
+    description: "Unforbid items by id."
+    params_schema:
+      type: object
+      required: [designator, things]
+      properties:
+        designator: {const: unforbid}
+        things:
+          type: array
+          items: {type: string}
+    require: [designator, things]
+
+jobs: [food, emergency]
+
+# Typed systemone answers (question q.action) -> dispatcher actions.
+# score/noul thresholds may also trigger; unmapped answers are refused (FR-303).
+decision_map:
+  - question: q.action
+    choice: forbid
+    action:
+      template_id: forbid-item
+      params: {designator: forbid, things: ["{answer.thing}"]}
+  - question: q.action
+    choice: haul
+    action:
+      template_id: haul-designate
+      params: {designator: haul, cells: ["{state.haul_cell}"]}
+  - question: q.action
+    choice: rescue
+    action:
+      template_id: rescue
+      params: {pawn: "{state.first_colonist}", job: Rescue,
+               target: "{state.colonists.downed_id}"}
+  - question: q.action
+    choice: firefight
+    action:
+      template_id: firefight
+      params: {pawn: "{state.first_colonist}", job: Firefight,
+               target: "{state.map.fire_cell}"}
+
+# Deterministic no-model reflexes; evaluated before any model call (FR-308).
+# Lower priority fires first when several rules match.
+emergency:
+  - id: colonist-downed
+    priority: 1
+    condition:
+      combinator: any
+      predicates:
+        - {field: colonists.downed, op: gte, value: 1}
+    action:
+      template_id: rescue
+      params: {pawn: "{state.first_colonist}", job: Rescue,
+               target: "{state.colonists.downed_id}"}
+
+  - id: fire-active
+    priority: 2
+    condition:
+      combinator: any
+      predicates:
+        - {field: map.fires, op: gte, value: 1}
+    action:
+      template_id: firefight
+      params: {pawn: "{state.first_colonist}", job: Firefight,
+               target: "{state.map.fire_cell}"}
+
+# Deterministic rules-only plan (feature 005, FR-408): emitted by the planner
+# loop when rimbrain.plan resolves to the terminal fallback sentinel. Shape
+# mirrors plan.schema.json minus model provenance.
+fallback_plan:
+  plan_id: plan.rules-only-fallback
+  horizon_ticks: 60000
+  actions:
+    - template_id: prioritize-work
+      params: {pawn: "{state.first_colonist}",
+               priorities: {Firefight: 1, Patient: 1, Doctor: 2, Growing: 2,
+                            Hauling: 3}}
+    - template_id: haul-designate
+      params: {designator: haul, cells: ["{state.haul_cell}"]}
+  policy_mutations: []
+  rationale: "Degraded rules-only plan: survival priorities + haul."
+
+# Overarching goal options (colony-goals-v0 catalog) — strategy-level
+# choices the planner weighs: how each helps the colony last longer, what
+# investment it needs, and its effect on colony wealth and raid threat.
+# These are OPTIONS, not committed policy — a plan (or a govern layer)
+# promotes a subset into executable objectives. Catalog + provenance:
+# packs/colony-goals-v0.yaml and colony-goals-v0.notes.md.
+# Mechanics baseline (rimworldwiki.com):
+#   Storyteller Wealth = items + creatures + buildings*0.5
+#   Wealth pts: 0 below 14k; ~1pt/160.83 wealth from 14k-400k (2400@400k);
+#     reduced slope to 4200 at 1M cap. Pawn pts: 15 + (wealth-10k)/3120 per
+#     colonist (10k-400k range) plus each pawn's market value.
+#   Raid Points = (Wealth + Pawn pts) * threat_scale * start_factor *
+#     adaption(0.4-1.47, grows with days since last colonist downed/dead).
+#   Raid points min 35, max 10k. Unlocks: mech raids/drop pods ~300,
+#     infestations/mech clusters ~400, sieges ~500, sappers/breachers ~700.
+#   Ship-reactor and Royal Ascent raids: min 500 raid points regardless.
+#   Items in caravans off the map tile do not count toward colony wealth.
+goal_options:
+  - id: secure-shelter-and-beds
+    summary: "Enclosed roofed room with a bed per colonist, table, and a first recreation item."
+    survival_benefit: "Removes exposure/Outdoor-sleep failure modes: slept-outside and no-table mood debuffs, deteriorating items left outdoors; first failure cascade stopper."
+    investment: "low — ~1 day of construction work; wood/steel for ~13x13 room, beds, horseshoe pin (guide 00:10-00:13)."
+    wealth_impact: "low positive — building wealth counts at 0.5x; furniture is cheap."
+    raid_threat_impact: "neutral — trivial wealth added; no defensive value itself, but prevents mood-collapse spirals that cost pawns."
+    phase: early
+    prerequisites: []
+    sources: ["guide ~00:10-00:14 (13x13 shack, beds, horseshoe pin)", "guide ~00:48 (base planning)"]
+
+  - id: establish-food-security
+    summary: "Renewable food: growing zone on best soil (rice), cooking, and a freezer buffer."
+    survival_benefit: "Prevents starvation — the baseline survival failure. ~2 meals/pawn/day; ~15-30 crop tiles per pawn depending on meal tier; freezer at -5C stops spoilage loss."
+    investment: "medium — ongoing grower/cook work; power + cooler for freezer; farmland."
+    wealth_impact: "low-medium positive — crops/meals are item wealth; keep buffer sized to need, excess food is a major hoarded-wealth source (guide 03:32:27)."
+    raid_threat_impact: "slightly negative — overstocked meals/raw food inflate item wealth with zero combat value; right-size the buffer."
+    phase: early
+    prerequisites: [secure-shelter-and-beds]
+    sources: ["guide ~01:19-01:33 (crops/pawn math, nutrient paste, freezer -5C)", "wiki: Wealth management (overproduction warning)"]
+
+  - id: arm-every-colonist
+    summary: "Every combat-capable pawn equipped; ranged to best shooters, melee + armor to front-line."
+    survival_benefit: "An unarmed colonist is a dead colonist in the first raid; day-one arming is the cheapest defense there is."
+    investment: "low — starting weapons suffice; later ~60 steel + 7 components per assault rifle."
+    wealth_impact: "low positive — weapons are item wealth but worn gear pulls double duty."
+    raid_threat_impact: "positive — best defense-per-wealth-point available early; combat-capable coverage beats stockpiled gear."
+    phase: early
+    prerequisites: []
+    sources: ["guide ~01:58:17-01:58:40 (weapons to best shooters)", "guide ~02:08:56 (rush assault rifles)"]
+
+  - id: build-chokepoint-defense
+    summary: "Spike-trap corridor / choke point with an open-door funnel so raiders path through it."
+    survival_benefit: "Kills early raiders and animals with zero pawn damage — 'always fight in choke points, always use spike traps, always kite' (guide 02:01:47)."
+    investment: "low — wood/steel spike traps (wood 8 dmg, steel 20), a wall line, auto-rearm enabled."
+    wealth_impact: "minimal — traps and walls are cheap building wealth at 0.5x."
+    raid_threat_impact: "positive — large defensive return for almost no wealth; keeps early raids below pawn capacity."
+    phase: early
+    prerequisites: [secure-shelter-and-beds]
+    sources: ["guide ~01:58:40-02:03 (spike traps, open-door funnel, cover)", "guide ~01:00:08 (early barricade fallback)"]
+
+  - id: stockpile-medicine
+    summary: "Grow healroot, buy/hold industrial medicine, medic carries medicine; build a clean hospital room."
+    survival_benefit: "Untreated wounds and infections kill; tend speed decides survival. Recovery speed between raids is the real attrition war (guide 04:53:59)."
+    investment: "low-medium — healroot plot, ~24-30 silver/medicine bought, dedicated room + beds."
+    wealth_impact: "low positive — medicine is valuable item wealth but consumed on use; keep a working stock, not a hoard."
+    raid_threat_impact: "positive — converts raid damage into recoverable injuries instead of lost pawns (lost pawns both hurt defense and feed the adaption factor downward pressure... deaths reduce adaption but cost capability)."
+    phase: early
+    prerequisites: [establish-food-security]
+    sources: ["guide ~00:18:02 (healroot)", "guide ~01:10:40 (hospital)", "guide ~03:38:03 (medic carries medicine)", "guide ~04:53:59-04:54:36 (recovery wins wars)"]
+
+  - id: maintain-mood-stability
+    summary: "Recreation variety (6 types), impressive shared rooms, apparel >51% HP policy, scheduled drug policy."
+    survival_benefit: "Prevents mental breaks — berserk/tantrum/run-wild pawns during raids or crises are a top colony-killer."
+    investment: "low-medium — rec items, dining/rec room combined for double impressiveness, cheap drug crops."
+    wealth_impact: "low positive — art/furniture wealth; combining rooms gets 2-3x moodlets per wealth point."
+    raid_threat_impact: "neutral-positive — breaks during defense cause deaths; wealth cost is small."
+    phase: early
+    prerequisites: [secure-shelter-and-beds]
+    sources: ["guide ~04:03:12 (6 rec types)", "guide ~05:42:18-05:43 (mood-threshold drug policy)", "guide ~03:38:19 (apparel HP policy)", "wiki: Wealth management (multi-function rooms)"]
+
+  - id: establish-power-grid
+    summary: "Wind/wood-fueled generation plus researched batteries; hidden conduits where affordable."
+    survival_benefit: "Unlocks freezer, lights (work/move speed), turrets, heaters — everything downstream needs power."
+    investment: "medium — batteries research, generator + battery + conduit materials."
+    wealth_impact: "medium positive — building wealth at 0.5x; batteries are a modest chunk."
+    raid_threat_impact: "neutral — enables defense (turrets) and food security (freezer); hidden conduits remove short-circuit explosion risk (guide 04:04:53)."
+    phase: early
+    prerequisites: [secure-shelter-and-beds]
+    sources: ["guide ~00:16:22 (wind + battery)", "guide ~00:53:08 (power choice)", "guide ~04:04:53 (hidden conduits)"]
+
+  - id: research-core-tech
+    summary: "Research bench + priority path: batteries, solar, microelectronics (comms), precision rifling, fabrication."
+    survival_benefit: "Defense tech buys time to research everything else; fabrication removes the component bottleneck that stalls the whole colony."
+    investment: "medium — a research-capable pawn's ongoing work-time; bench + lab room."
+    wealth_impact: "minimal — benches are cheap building wealth."
+    raid_threat_impact: "positive — better weapons/defense tech raises defense faster than research adds wealth."
+    phase: early-mid
+    prerequisites: [establish-power-grid]
+    sources: ["guide ~03:02-03:18 (full research order + skips)", "guide ~03:16:45 (defenses/microelectronics/fabrication priority)"]
+
+  - id: recruit-for-skill-gaps
+    summary: "Prisoner room + warden recruitment to fill missing core skills (construction, plants, medical, social)."
+    survival_benefit: "Missing skills stall the colony; each recruit adds a worker and a gun. Avoid old/addicted/violence-incapable pawns early (guide 04:09-04:12)."
+    investment: "medium — prisoner beds/food, warden time over days-weeks of resistance."
+    wealth_impact: "high positive — each pawn adds market value AND a pawn-point entry (15 + (wealth-10k)/3120 pts below 400k)."
+    raid_threat_impact: "mixed — pawns are the most expensive scaling factor after raw wealth; recruit for capability, not headcount. Healthy pawns count full; keeping them healthy matters."
+    phase: early-mid
+    prerequisites: [establish-food-security, maintain-mood-stability]
+    sources: ["guide ~00:29:16 (prisoner room)", "guide ~04:09:28-04:12 (recruit to cover gaps, avoid bad recruits)", "wiki: Raid points (pawn points)"]
+
+  - id: build-compound-wall
+    summary: "Perimeter wall enclosing base + fields with a single controlled entrance feeding the trap corridor."
+    survival_benefit: "Stops raiders wandering to crops/coolers/colonists; forces all threats through the prepared funnel. Protects cooler units and fields from torching."
+    investment: "medium-high — many wall segments (stone blocks preferred over flammable wood)."
+    wealth_impact: "medium positive — large building footprint, but at 0.5x storyteller rate."
+    raid_threat_impact: "positive — controls attacker geometry; wealth cost is half-rated building wealth."
+    phase: mid
+    prerequisites: [build-chokepoint-defense]
+    sources: ["guide ~02:06:25-02:07 (compound phase)", "guide ~03:42:00 (coolers are raid-bait)"]
+
+  - id: construct-killbox
+    summary: "Long firing-lane killbox sized to assault-rifle range: sandbag cover, roofed firing line, declumping turret at entry."
+    survival_benefit: "Converts numerical inferiority into a shooting gallery; an unpowered turret at the corridor entrance makes raiders stack up instead of flooding in (guide 02:09:57)."
+    investment: "high — construction work, sandbags/walls, roofing, lights, one turret."
+    wealth_impact: "medium positive — mostly building wealth at 0.5x."
+    raid_threat_impact: "strongly positive — the core mid-game answer to raid scaling; defense output far exceeds its wealth cost."
+    phase: mid
+    prerequisites: [build-compound-wall, research-core-tech]
+    sources: ["guide ~02:09:44-02:17 (killbox construction, declump turret, roofed firing line)"]
+
+  - id: deploy-turret-screen
+    summary: "Spaced mini/autocannon/uranium-slug turrets covering the killbox and compound approaches."
+    survival_benefit: "Turrets add free firepower and act as distractors/ablative targets; spaced to prevent chain explosions (guide 04:04:31)."
+    investment: "medium-high — steel + components per turret, power draw."
+    wealth_impact: "medium positive — building wealth at 0.5x plus component cost."
+    raid_threat_impact: "positive — scales defense with raid points; costs components, so pair with secure-component-supply."
+    phase: mid
+    prerequisites: [construct-killbox, establish-power-grid]
+    sources: ["guide ~02:17-02:25 (turret types/placement)", "guide ~04:04:31 (spacing vs chain explosion)"]
+
+  - id: secure-component-supply
+    summary: "Buy components early on every trader visit; later deep drilling + fabrication bench to self-supply."
+    survival_benefit: "Components are 'the biggest bottleneck you will ever undergo' (guide 03:24:07); no components = no turrets, no fabrication, stalled colony."
+    investment: "medium — recurring silver (~43/component bought); fabrication needs advanced components + research."
+    wealth_impact: "neutral-low — components are compact item wealth; spend silver (pure wealth) for capability."
+    raid_threat_impact: "positive — converts passive silver wealth into defense-enabling materials."
+    phase: early-mid
+    prerequisites: [open-trade-routes]
+    sources: ["guide ~03:24:07-03:24:34 (buy components until fabrication)", "guide ~03:16:49 (deep drilling, fabrication)"]
+
+  - id: open-trade-routes
+    summary: "Regular caravans to neutral factions (~30d restock), comms console + trade beacon, best-social pawn trades."
+    survival_benefit: "Buys what you can't make (components, medicine, weapons); sells surplus; gifts build goodwill into allies."
+    investment: "medium — a pawn + pack animal absent for days; comms console needs microelectronics."
+    wealth_impact: "reduces net wealth — selling at the built-in loss (~60% value) converts items to less silver; caravan cargo doesn't count while off-map."
+    raid_threat_impact: "positive — main valve for the wealth-control strategy; trades dead item value for capability or goodwill."
+    phase: mid
+    prerequisites: [establish-food-security]
+    sources: ["guide ~03:19-03:24 (caravan cadence, comms console, social trader)", "guide ~04:07:35 (settle near traders)", "wiki: Wealth management (sell-at-loss lowers wealth)"]
+
+  - id: produce-export-goods
+    summary: "Convert labor into sellables: flake (not yayo), quality clothing/dusters, spare armor; optional organ harvest."
+    survival_benefit: "Funds component/medicine/weapon purchases; goods are compact value that converts to capability."
+    investment: "medium — psychoid/cloth plots, crafter work, drug lab."
+    wealth_impact: "high positive while held — unsold goods and silver both count; only worthwhile if regularly converted via open-trade-routes."
+    raid_threat_impact: "negative if hoarded, neutral-positive if cycled — production for its own sake inflates wealth; sell or gift the output."
+    phase: mid
+    prerequisites: [open-trade-routes, maintain-mood-stability]
+    sources: ["guide ~03:26:50-03:29 (flake > yayo, dusters, organs ~1783 silver)", "wiki: Wealth management (don't produce for money's sake)"]
+
+  - id: cap-idle-wealth
+    summary: "Keep-wealth-low discipline: don't overproduce, sell/gift surplus, destroy trash gear, park overflow in caravans."
+    survival_benefit: "Directly shrinks raid points: ~139 storyteller wealth per raid point at 3 colonists (less per point as pop grows). Prevents 'too rich too quick' raid compounding."
+    investment: "low — hauling/destroy work, occasional gifting caravan; opportunity cost of a leaner stockpile."
+    wealth_impact: "negative — the goal IS reducing wealth: gifts destroy it, sales convert below market, deterioration/caravan-parking hide it."
+    raid_threat_impact: "strongly positive — the only lever that lowers raid size instead of racing it; most valuable at high threat scale (Losing is Fun 220%+)."
+    phase: mid-late
+    prerequisites: [open-trade-routes]
+    sources: ["guide ~03:31:28-03:35 (small stockpile, sell/gift wealth away)", "wiki: Wealth management (control strategies)", "wiki: Raid points (wealth curve)"]
+
+  - id: invest-wealth-in-defense
+    summary: "Spend-down before wealth spikes: convert silver/goods into weapons, armor, components, doomsday/triple rockets, artifacts."
+    survival_benefit: "Turns raid-scaling wealth into raid-beating capability; consumables (rockets, lances) delete raids then leave no wealth behind."
+    investment: "high — silver stockpile spent on trader visits; production materials."
+    wealth_impact: "neutral-to-negative net — trades 1x-counted silver for capability items; used consumables remove wealth entirely."
+    raid_threat_impact: "positive — the wealth-investment alternative to cap-idle-wealth: keep wealth only where it fights."
+    phase: mid-late
+    prerequisites: [open-trade-routes, construct-killbox]
+    sources: ["guide ~03:32:47 ('immediately expand upon defenses' when rich)", "wiki: Wealth management (investment strategies: rockets, barrels, artifacts)"]
+
+  - id: sustain-post-raid-recovery
+    summary: "Maintain recovery reserve: medicine, repair materials (blocks), hospital capacity, backup parts for turrets/mortars."
+    survival_benefit: "Late raids are an attrition war — 'not about winning the fight, but how fast you recover' (guide 04:53:59). Reserve stockpiles decide whether the next raid is survivable."
+    investment: "medium — standing reserve of medicine, blocks, components, spare barrels; hospital beds."
+    wealth_impact: "medium positive — reserves are item wealth; justified because they're consumed exactly when threat peaks."
+    raid_threat_impact: "positive — healthy pawns fight at full pawn-point value and capability; repair speed keeps defenses online between raids."
+    phase: late
+    prerequisites: [stockpile-medicine, secure-component-supply]
+    sources: ["guide ~04:53:59-04:54:36 (recovery is the real battle)", "guide ~04:54:36 (backup resource stockpile, hospital)"]
+
+  - id: launch-ship-endgame
+    summary: "Research the full ship tree, build reactor + cryptosleep caskets, survive the launch window."
+    survival_benefit: "Victory condition — ends the game; alternatively take the Ship to the Stars quest to a ready ship."
+    investment: "high — deep research tree (fabrication onward), large material build, days of reactor startup under attack."
+    wealth_impact: "high positive — ship parts are expensive building/item wealth; irrelevant once launched."
+    raid_threat_impact: "negative — reactor activation forces raids at min 500 raid points regardless of threat scale; wealth peaks right when raids do. Stockpile first (sustain-post-raid-recovery)."
+    phase: late
+    prerequisites: [research-core-tech, sustain-post-raid-recovery, invest-wealth-in-defense]
+    sources: ["guide ~04:53:38 (prepare for ship launch)", "guide ~05:40:59 (Ship to the Stars alternative)", "guide ~07:00 (reactor launch, 23 raids)", "wiki: Raid points (reactor min 500)"]

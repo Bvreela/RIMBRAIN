@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rimbrainagent.dev/schemas/common/freshness.schema.json",
+  "title": "common/freshness",
+  "description": "Freshness block for observation-bearing references. All three fields are required: freshness-bearing consumers treat missing freshness as a load failure, never as 'fresh' (P13).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["observed_tick", "observed_utc", "max_age_ticks"],
+  "properties": {
+    "observed_tick": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Game tick at which the referenced state was observed."
+    },
+    "observed_utc": {
+      "type": "string",
+      "format": "date-time",
+      "description": "RFC 3339 wall-clock time of the observation."
+    },
+    "max_age_ticks": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Maximum age in game ticks before the referenced state is stale."
+    }
+  }
+}

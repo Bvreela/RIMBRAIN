@@ -1,0 +1,13 @@
+[project]
+name = "rimbrainagent-runtime"
+version = "0.1.0"
+description = "RimBrainAgent runtime component: endpoint registry, role bindings, probing, model clients (feature 002)"
+requires-python = ">=3.12"
+dependencies = ["pyyaml"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]

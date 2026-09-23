@@ -1,0 +1,10 @@
+# Tasks: Brain Policy Engine (feature 012)
+
+- [x] T155 `policy.py`: resolver (`@cfg:`/`@obs:`/`@var:`/`@fn:`), predicate evaluator + combinators, `run_steps`, `run_rules`, FN + SELECTOR registries, `validate_policy` (FR-1001, FR-1007)
+- [x] T156 Pack schema: `policy_version`, `start.phases[]`, `start.exit.conditions{}`, `universal.rules[]`, `combat` script shape (FR-1002)
+- [x] T157 `start-mode-v0.yaml`: full declarative policy — phases, exit conditions, universal rules, combat script (FR-1006)
+- [x] T158 `startmode.py`: generic phase interpreter; delete hardcoded phase list/dispatch/effects; capability helpers move to `policy.py` (FR-1003)
+- [x] T159 `combatmode.py`: script-driven setup/spawn/engage/cleanup (FR-1004)
+- [x] T160 `universal.py`: thin `apply_rules` over the engine; update `loop.py`/`cycle.py` call sites (FR-1005)
+- [x] T161 Tests: pack-driven behavior proofs (phase omission/reorder, rule opt-out), updated fixtures; suite green (SC-1001..1004)
+- [x] T162 Live validation: pack-driven start run on real colony (all exit conditions verified live: shelter/beds/food/meals/recreation), idle-rule live poke (CutPlant/HaulToCell assignments), suite 140 + corpus 54/54 + validators 6/6, docs + traceability (SC-1005)

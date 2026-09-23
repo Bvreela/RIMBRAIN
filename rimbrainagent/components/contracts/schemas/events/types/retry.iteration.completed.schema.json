@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rimbrainagent.dev/schemas/events/types/retry.iteration.completed.schema.json",
+  "title": "events/types/retry.iteration.completed",
+  "description": "Payload for event_type 'retry.iteration.completed' (native type, feature 003; FR-205): per-window verdict. verdict 'passed' ends the loop early_exit; 'failed' leads to mutate+reload or exhaustion; 'aborted' marks a window cut short by a bridge/budget/state failure.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["run_id", "iteration", "checkpoint_id", "verdict", "gate_passed", "mutation_id", "window_ticks", "tick_start", "tick_end"],
+  "properties": {
+    "run_id": {
+      "allOf": [
+        { "$ref": "../../common/id.schema.json" },
+        { "pattern": "^run\\." }
+      ]
+    },
+    "iteration": { "type": "integer", "minimum": 1 },
+    "checkpoint_id": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "verdict": {
+      "enum": ["passed", "failed", "aborted"]
+    },
+    "gate_passed": {
+      "type": "boolean",
+      "description": "Gate verdict for this window; false for aborted windows."
+    },
+    "mutation_id": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "maxLength": 128,
+      "description": "Mutation applied before this window; null on the initial attempt."
+    },
+    "window_ticks": { "type": "integer", "minimum": 1 },
+    "tick_start": { "type": "integer", "minimum": 0 },
+    "tick_end": {
+      "type": ["integer", "null"],
+      "minimum": 0,
+      "description": "Observed tick at window end; null when the window aborted before status could be read."
+    }
+  }
+}

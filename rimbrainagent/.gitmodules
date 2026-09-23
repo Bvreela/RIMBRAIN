@@ -1,0 +1,3 @@
+[submodule "upstream/rimagent"]
+	path = upstream/rimagent
+	url = https://github.com/zorrobyte/rimagent.git

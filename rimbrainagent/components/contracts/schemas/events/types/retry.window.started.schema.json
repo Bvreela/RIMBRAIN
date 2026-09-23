@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rimbrainagent.dev/schemas/events/types/retry.window.started.schema.json",
+  "title": "events/types/retry.window.started",
+  "description": "Payload for event_type 'retry.window.started' (native type, feature 003; FR-205): one game-time window attempt begins. iteration is 1-based; iterations >= 2 are retries and each follows exactly one mutation.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["run_id", "iteration", "checkpoint_id", "window_ticks", "speed", "start_tick", "start_day"],
+  "properties": {
+    "run_id": {
+      "allOf": [
+        { "$ref": "../../common/id.schema.json" },
+        { "pattern": "^run\\." }
+      ]
+    },
+    "iteration": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "1-based attempt index; 1 is the initial attempt, >=2 are retries."
+    },
+    "checkpoint_id": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "window_ticks": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Game-time increment this window advances."
+    },
+    "speed": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4,
+      "description": "Game speed applied for this window."
+    },
+    "start_tick": { "type": "integer", "minimum": 0 },
+    "start_day": { "type": "integer", "minimum": 0 }
+  }
+}

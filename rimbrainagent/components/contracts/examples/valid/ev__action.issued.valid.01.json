@@ -1,0 +1,6 @@
+{
+  "pack_revision": "b6a08c79519a501aacfed331ff1cfa1082d28300a60e337e9f402cf600652cae",
+  "template_id": "haul-designate",
+  "params": {"designator": "haul", "cells": [[3, 3]]},
+  "outcome": "issued"
+}

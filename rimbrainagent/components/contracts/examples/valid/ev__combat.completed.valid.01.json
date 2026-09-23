@@ -1,0 +1,9 @@
+{
+  "mode": "combat",
+  "rounds": 2,
+  "hostiles_spawned": 4,
+  "hostiles_cleared": 4,
+  "colonist_casualties": 0,
+  "ticks": 8400,
+  "verdict": "cleared"
+}

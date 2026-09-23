@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rimbrainagent.dev/schemas/events/types/plan.proposed.schema.json",
+  "title": "events/types/plan.proposed",
+  "description": "Payload for event_type 'plan.proposed' (native type, feature 005; FR-405): a planning-tier call produced a schema-valid PlanProposal. Carries full model provenance and token usage.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["plan_id", "pack_revision", "endpoint_id", "model", "usage", "proposal"],
+  "properties": {
+    "plan_id": { "type": "string", "minLength": 1 },
+    "pack_revision": { "type": "string", "minLength": 1 },
+    "endpoint_id": { "type": "string", "minLength": 1 },
+    "model": { "type": "string", "minLength": 1 },
+    "degraded": {
+      "type": "boolean",
+      "description": "True when resolution walked a degraded path (rules-only fallback included)."
+    },
+    "usage": {
+      "type": "object",
+      "required": ["prompt_tokens", "completion_tokens"],
+      "properties": {
+        "prompt_tokens": { "type": "integer", "minimum": 0 },
+        "completion_tokens": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "proposal": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "The validated PlanProposal document."
+    }
+  }
+}

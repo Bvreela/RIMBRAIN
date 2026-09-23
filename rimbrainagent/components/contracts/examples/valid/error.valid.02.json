@@ -1,0 +1,12 @@
+{
+  "ok": false,
+  "error": {
+    "code": "bridge.rpc.timeout",
+    "message": "RimBridge RPC did not answer within the deadline.",
+    "details": {
+      "method": "state.summary",
+      "deadline_ms": 5000
+    },
+    "retryable": true
+  }
+}

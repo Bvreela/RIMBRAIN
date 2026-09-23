@@ -1,0 +1,7 @@
+{
+  "pack_revision": "abc",
+  "template_id": "haul-designate",
+  "params": {},
+  "outcome": "completed",
+  "_note": "outcome must be 'issued' for this payload type"
+}

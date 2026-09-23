@@ -1,0 +1,9 @@
+{
+  "cycle_id": "cycle-000003",
+  "defect_class": "repeated_refusal",
+  "span": { "first_seq": 41, "last_seq": 58 },
+  "remediation": "fix_template_params",
+  "affected": ["firefight"],
+  "finding_count": 1,
+  "noop": false
+}

@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rimbrainagent.dev/schemas/events/types/policy.watcher.fired.schema.json",
+  "title": "events/types/policy.watcher.fired",
+  "description": "Payload for event_type 'policy.watcher.fired' (upstream kind 'watcher'): {name, action|alert|error}. Exactly one outcome key per upstream docstring; at least one required.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name"],
+  "anyOf": [
+    { "required": ["action"] },
+    { "required": ["alert"] },
+    { "required": ["error"] }
+  ],
+  "properties": {
+    "name": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "action": {},
+    "alert": {},
+    "error": {}
+  }
+}
