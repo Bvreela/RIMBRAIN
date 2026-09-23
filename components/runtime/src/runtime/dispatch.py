@@ -25,12 +25,13 @@ except ImportError:  # pragma: no cover - tests install it
     jsonschema = None  # type: ignore[assignment]
 
 from . import templates
+from ._root import repo_root
 from .bridgeclient import BridgeClient
 from .templates import PackError
 
 DEFAULT_STATE_DIR = Path(os.environ.get(
     "RIMBRAIN_STATE_DIR",
-    str(Path(__file__).resolve().parents[4] / "state"),
+    str(repo_root() / "state"),
 ))
 
 __all__ = ["Dispatcher", "substitute_params", "validate_template_params",

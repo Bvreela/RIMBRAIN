@@ -20,6 +20,11 @@ from tkinter import ttk
 ACTION_ROWS = 60
 RESET_REQUEST = "brain_reset.request"
 BRAIN_STATUS = "brain_status.json"
+LEARN_TYPES = {"selfcheck.diagnosed", "audit.verdict",
+               "improvement.promoted", "improvement.rejected",
+               "episode.metrics", "cycle.completed"}
+LEARN_ROWS = 8
+LEARN_TAIL = 128 * 1024  # bounded tail read of events.jsonl
 
 
 def write_reset_request(state_dir: Path) -> Path:
@@ -73,6 +78,61 @@ def epoch_window(rows: list[dict]) -> list[dict]:
     return rows[cut:]
 
 
+def load_learning(state_dir: Path) -> list[dict]:
+    """Tail events.jsonl for learning-loop envelopes (fail-open)."""
+    try:
+        with (state_dir / "events.jsonl").open("rb") as fh:
+            fh.seek(0, 2)
+            fh.seek(max(0, fh.tell() - LEARN_TAIL))
+            lines = fh.read().decode("utf-8", "replace").splitlines()
+    except OSError:
+        return []
+    out = []
+    for line in lines:
+        try:
+            e = json.loads(line)
+        except ValueError:
+            continue
+        if e.get("event_type") in LEARN_TYPES:
+            out.append(e)
+    return out[-LEARN_ROWS:]
+
+
+def learn_line(e: dict) -> tuple[str, str]:
+    """(text, tag) render of one learning-loop envelope."""
+    t = e.get("event_type", "?")
+    p = e.get("payload") or {}
+    if t == "selfcheck.diagnosed":
+        if p.get("noop"):
+            return f"{p.get('cycle_id')}: self-check clean", ""
+        return (f"{p.get('cycle_id')}: defect "
+                f"{p.get('defect_class')} on "
+                f"{','.join(p.get('affected') or [])}", "")
+    if t == "audit.verdict":
+        v = p.get("verdict", "?")
+        return f"audit {p.get('check_id')}: {v.upper()}", \
+            "" if v == "pass" else "bad"
+    if t == "improvement.promoted":
+        m = p.get("metrics") or {}
+        return (f"MUTATION PROMOTED {p.get('candidate_id')} "
+                f"score {m.get('candidate_score', 0):.3f} vs "
+                f"{m.get('incumbent_score', 0):.3f}", "promo")
+    if t == "improvement.rejected":
+        r = "; ".join(p.get("reasons") or [])
+        return (f"rejected {p.get('candidate_id')} at {p.get('gate')}"
+                + (f" — {r[:64]}" if r else ""), "bad")
+    if t == "episode.metrics":
+        return (f"metrics {p.get('episode_id')}: refusal "
+                f"{p.get('refusal_rate', 0):.0%} verify-fail "
+                f"{p.get('verify_failure_rate', 0):.0%} done "
+                f"{p.get('task_completion_rate', 0):.0%}", "")
+    if t == "cycle.completed":
+        ph = p.get("phases") or {}
+        return (f"cycle {p.get('iteration')} done "
+                f"(improve: {ph.get('improve', '?')})", "")
+    return t, ""
+
+
 class Overlay(tk.Tk):
     def __init__(self, state_dir: Path, interval_ms: int = 1000,
                  topmost: bool = True, alpha: float = 0.92,
@@ -111,6 +171,15 @@ class Overlay(tk.Tk):
         self.exit_lbl = ttk.Label(self, font=("Consolas", 9))
         self.exit_lbl.pack(fill="x", padx=6)
 
+        ttk.Label(self, text="Learning", font=("Consolas", 9, "bold"),
+                  anchor="w").pack(fill="x", padx=6, pady=(4, 0))
+        self.learn = tk.Text(self, font=("Consolas", 9),
+                             height=LEARN_ROWS, state="disabled",
+                             wrap="none", bg="#101010", fg="#c8c8c8")
+        self.learn.pack(fill="x", padx=6, pady=2)
+        self.learn.tag_config("promo", foreground="#7fd17f")
+        self.learn.tag_config("bad", foreground="#e08080")
+
         self.actions = tk.Text(self, font=("Consolas", 9), height=14,
                                state="disabled", wrap="none",
                                bg="#101010", fg="#c8c8c8")
@@ -134,6 +203,8 @@ class Overlay(tk.Tk):
         self._render_planning(planning)
         if self._changed("decisions.jsonl"):
             self._render_actions(decisions)
+        if self._changed("events.jsonl"):
+            self._render_learning()
         if self._changed(BRAIN_STATUS):
             self._render_brain_status()
         self.after(self.interval, self._refresh)
@@ -164,6 +235,18 @@ class Overlay(tk.Tk):
                 f"{'ok' if r.get('ok') else 'FAIL'}\n"))
         self.actions.see("end")
         self.actions.config(state="disabled")
+
+    def _render_learning(self):
+        self.learn.config(state="normal")
+        self.learn.delete("1.0", "end")
+        for e in load_learning(self.state_dir):
+            line, tag = learn_line(e)
+            if tag:
+                self.learn.insert("end", line + "\n", tag)
+            else:
+                self.learn.insert("end", line + "\n")
+        self.learn.see("end")
+        self.learn.config(state="disabled")
 
     def _brain_reset(self):
         try:

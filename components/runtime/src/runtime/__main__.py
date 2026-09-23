@@ -35,6 +35,17 @@ def main(argv: list[str] | None = None) -> int:
                     help="reconcile the task ledger before attend each poll")
     sp.add_argument("--feed", action="store_true",
                     help="narrate every emitted event into state/feed.md")
+    sp.add_argument("--fair", dest="fair", action="store_true", default=True,
+                    help="fair run (default): refuse dev.* and save/load "
+                         "(UR-CTL-009)")
+    sp.add_argument("--dev", dest="fair", action="store_false",
+                    help="development testing only: allow dev/cheat surface")
+    sp.add_argument("--no-store", action="store_true",
+                    help="do not persist events to state/events.jsonl")
+    sp.add_argument("--live-brain", action="store_true",
+                    help="honor brain-reset requests mid-run")
+    sp.add_argument("--no-hold", action="store_true",
+                    help="start mode: stop at start.completed")
     sp = sub.add_parser("plan", help="planner/review loop (sim deterministic)")
     sp.add_argument("--pack", default="core-survival-v0")
     sp.add_argument("--mode", choices=["sim", "live"], default="sim")
@@ -43,6 +54,8 @@ def main(argv: list[str] | None = None) -> int:
     sp.add_argument("--no-dispatch", action="store_true")
     sp.add_argument("--live-flag", action="store_true",
                     help="confirm live mode (operator only)")
+    sp.add_argument("--dev", dest="fair", action="store_false", default=True,
+                    help="development testing only: allow dev/cheat surface")
     args = p.parse_args(argv)
 
     from . import bindings as _b, discover as _d, probe as _p, registry as _r
@@ -65,14 +78,19 @@ def main(argv: list[str] | None = None) -> int:
                            "--bridge", args.bridge]
                           + (["--live"] if args.live_flag else [])
                           + (["--ledger"] if args.ledger else [])
-                          + (["--feed"] if args.feed else []))
+                          + (["--feed"] if args.feed else [])
+                          + ([] if args.fair else ["--dev"])
+                          + (["--no-store"] if args.no_store else [])
+                          + (["--live-brain"] if args.live_brain else [])
+                          + (["--no-hold"] if args.no_hold else []))
     elif args.cmd == "plan":
         from . import planloop as _pl
         return _pl.main(["--pack", args.pack, "--mode", args.mode,
                          "--iterations", str(args.iterations),
                          "--bridge", args.bridge]
                         + (["--no-dispatch"] if args.no_dispatch else [])
-                        + (["--live"] if args.live_flag else []))
+                        + (["--live"] if args.live_flag else [])
+                        + ([] if args.fair else ["--dev"]))
     return 0
 
 

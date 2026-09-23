@@ -174,7 +174,7 @@ def main(argv: list[str] | None = None) -> int:
                    default="sim")
     p.add_argument("--iterations", type=int, default=5)
     p.add_argument("--bridge", default="http://127.0.0.1:8765")
-    p.add_argument("--live", action="store_true",
+    p.add_argument("--live", "--live-flag", action="store_true",
                    help="confirm live mode (operator smoke only)")
     p.add_argument("--no-store", action="store_true",
                    help="do not persist events to state/events.jsonl")
@@ -182,9 +182,12 @@ def main(argv: list[str] | None = None) -> int:
                    help="reconcile the task ledger before attend each poll")
     p.add_argument("--feed", action="store_true",
                    help="narrate every emitted event into state/feed.md")
-    p.add_argument("--fair", action="store_true",
-                   help="fair run: refuse dev.* and save/load dispatches "
-                        "(no debug cheating, UR-CTL-009)")
+    p.add_argument("--fair", dest="fair", action="store_true", default=True,
+                   help="fair run (default): refuse dev.* and save/load "
+                        "dispatches (no debug cheating, UR-CTL-009)")
+    p.add_argument("--dev", dest="fair", action="store_false",
+                   help="development testing only: allow dev.* methods, "
+                        "save/load dispatches, and dev-class packs")
     p.add_argument("--live-brain", action="store_true",
                    help="honor brain-reset requests: reload the pack + "
                         "re-plan mid-run (FR-1107; never for scored runs)")
@@ -203,6 +206,13 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps({"ok": False, "error": {
             "code": "loop.live_requires_confirmation",
             "message": f"--mode {args.mode} needs --live (operator smoke only)",
+            "retryable": False}}))
+        return 2
+    if args.mode == "cycle" and args.fair:
+        print(json.dumps({"ok": False, "error": {
+            "code": "loop.cycle_requires_dev",
+            "message": "cycle mode is a checkpoint save/load test harness; "
+                       "run with --dev (development testing only)",
             "retryable": False}}))
         return 2
 
@@ -281,7 +291,7 @@ def main(argv: list[str] | None = None) -> int:
         elif args.mode == "improve":
             # read-only over canonical evidence — no game, no writes
             from .improve import run_improve
-            dispatcher = Dispatcher(None)
+            dispatcher = Dispatcher(None, fair=args.fair)
             dispatcher.load_pack(args.pack)
             cfg = (dispatcher.pack["pack"].get("improve") or {})
             result = run_improve(
