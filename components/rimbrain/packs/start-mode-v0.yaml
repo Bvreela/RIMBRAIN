@@ -684,7 +684,8 @@ universal:
         - {template: assign-job, needs: "@fn:loose_id()",
            params: {pawn: "@var:it.id", job: HaulToCell,
                     target: "@fn:loose_id()",
-                    target_b: "@var:site.min"}}
+                    target_b: "@var:site.min",
+                    count: "@fn:stack_of(@fn:loose_id())"}}
         - {template: assign-job, needs: "@fn:find_kind(tree, 60)",
            when: {field: "@fn:blueprints_pending()", op: eq, value: 0},
            params: {pawn: "@var:it.id", job: CutPlant,

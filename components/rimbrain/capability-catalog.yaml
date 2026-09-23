@@ -505,6 +505,13 @@ entries:
   - map.find
   domains:
   - items_hauling
+- id: stack_of
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - map.find
+  domains:
+  - items_hauling
 - id: max
   kind: fn
   status: implemented
