@@ -298,6 +298,23 @@ templates:
         melee: {type: boolean}
     require: [pawn, target]
 
+  - id: answer-dialog
+    method: ui.dialog
+    description: "Answer an open modal window (naming, message, ritual, trade)."
+    params_schema:
+      type: object
+      properties:
+        i: {type: integer}
+        choice: {}
+        name: {type: string}
+        second_name: {type: string}
+        assign: {type: object}
+        trade: {type: object}
+        method: {type: string}
+        action: {type: string}
+        set: {type: object}
+        close: {type: boolean}
+
   - id: heal-pawn
     method: dev.heal
     description: "Remove all injuries from a pawn (post-combat restore; assisted)."
@@ -691,6 +708,18 @@ universal:
       try:
         - {template: strip-pawn,
            params: {designator: strip, things: "@fn:downed_ids()"}}
+    - id: answer-naming         # colony/pawn naming dialogs pause the game
+      for_each: "@fn:dialogs()"
+      when: {field: "@var:it.kind", op: eq, value: give_name}
+      try:
+        - {template: answer-dialog,
+           params: {i: "@var:it.i", choice: OK}}
+    - id: dismiss-message       # Dialog_MessageBox modals pause until OK
+      for_each: "@fn:dialogs()"
+      when: {field: "@var:it.type", op: eq, value: Dialog_MessageBox}
+      try:
+        - {template: answer-dialog,
+           params: {i: "@var:it.i", choice: OK}}
 
 # Combat script (feature 010/012) — runs strictly after start.completed.
 # setup/spawn/cleanup are step lists; engage is a rule-loop until the

@@ -700,6 +700,12 @@ def _fn_downed_ids(ctx):
             if isinstance(h, dict) and h.get("id") and _is_downed(ctx, h)]
 
 
+def _fn_dialogs(ctx):
+    """Open modal windows from state.dialogs (i/type/kind/choices)."""
+    res = ctx.rpc("state.dialogs")
+    return res if isinstance(res, list) else []
+
+
 def _fn_fleeing_ids(ctx, window=3, rise=5):
     """Hostiles whose dist_home is rising over recent polls (routed)."""
     trend = ctx.state.setdefault("dist_trend", {})
@@ -835,6 +841,7 @@ FN = {
     "arm_pending": _fn_arm_pending,
     "living_hostiles": _fn_living_hostiles,
     "downed_ids": _fn_downed_ids, "fleeing_ids": _fn_fleeing_ids,
+    "dialogs": _fn_dialogs,
     "roofed": _fn_roofed, "enclosed_at": _fn_enclosed_at,
     "zone_named": _fn_zone_named, "rank_site": _fn_rank_site,
 }

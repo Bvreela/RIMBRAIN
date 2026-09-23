@@ -183,6 +183,13 @@ entries:
   - ui.attack
   domains:
   - combat
+- id: answer-dialog
+  kind: template
+  status: implemented
+  bridge_methods:
+  - ui.dialog
+  domains:
+  - ui_control
 - id: heal-pawn
   kind: template
   status: implemented
@@ -381,6 +388,14 @@ entries:
   - state.threats
   domains:
   - combat
+- id: dialogs
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.dialogs
+  domains:
+  - observation
+  - ui_control
 - id: enclosed_at
   kind: fn
   status: implemented
@@ -912,7 +927,7 @@ entries:
   - observation
 - id: cap.state.dialogs
   kind: capability
-  status: gap
+  status: implemented
   bridge_methods:
   - state.dialogs
   domains:
@@ -1026,7 +1041,7 @@ entries:
   - work_jobs
 - id: cap.ui.dialog
   kind: capability
-  status: gap
+  status: implemented
   bridge_methods:
   - ui.dialog
   domains:
