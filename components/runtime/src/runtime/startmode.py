@@ -19,7 +19,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from . import policy, views
+from . import brain, policy, views
 from .planloop import observe
 from .store import write_atomic
 
@@ -400,12 +400,14 @@ def wire_sink(dispatcher, sink) -> None:
 
 def run_start(dispatcher, game, ledger, pack: dict, *,
               iterations: int = 12, sink=None, clock=None,
-              speed: int | None = None) -> dict:
+              speed: int | None = None,
+              live_brain: bool = False) -> dict:
     """Drive Start Mode: observe -> reconcile -> reflex -> phase step.
 
     `pack` is the full pack dict — phases come from ``pack['start']``,
     universal rules from ``pack['universal']``. `speed` sets game speed
     for the run (live only) and restores prior pause/speed on exit.
+    `live_brain` enables the brain-reset request channel (FR-1107).
     """
     prev = None
     if speed is not None:
@@ -415,7 +417,7 @@ def run_start(dispatcher, game, ledger, pack: dict, *,
     try:
         return _run_start(dispatcher, game, ledger, pack,
                           iterations=iterations, sink=sink, clock=clock,
-                          speed=speed)
+                          speed=speed, live_brain=live_brain)
     finally:
         if prev is not None:
             game.rpc("game.speed", {"speed": prev.get("speed", 0)})
@@ -425,7 +427,8 @@ def run_start(dispatcher, game, ledger, pack: dict, *,
 
 def _run_start(dispatcher, game, ledger, pack: dict, *,
                iterations: int = 12, sink=None, clock=None,
-               speed: int | None = None) -> dict:
+               speed: int | None = None,
+               live_brain: bool = False) -> dict:
     uni_state: dict = {}
     decisions: list = []  # Quick-Action Matrix rows for this poll window
     mode = StartMode(pack, ledger, sink=sink, clock=clock)
@@ -447,10 +450,36 @@ def _run_start(dispatcher, game, ledger, pack: dict, *,
         obs = observe_start(game, pack.get("start") or {})
         tick = obs.get("tick") or i
         dispatcher._last_tick = tick  # evidence carries the live tick
+        prev = len(decisions)
+        # FR-1107: brain-reset request — reload pack, wipe planning state,
+        # re-derive goals from the colony as-observed. Honored only under
+        # --live-brain; scored runs never set the flag.
+        req = brain.poll_request(state_dir, live_brain)
+        if req is not None:
+            err = None
+            try:
+                loaded = dispatcher.load_pack(dispatcher._pack_file)
+                pack = loaded["pack"]
+            except Exception as e:  # PackError / OSError — stay fail-closed
+                err = f"{type(e).__name__}: {e}"
+            if err is None:
+                (state_dir / "startmode.json").unlink(missing_ok=True)
+                mode = StartMode(pack, ledger, sink=sink, clock=clock)
+                mode.decisions = decisions
+                uni_state.clear()
+            brain.write_status(
+                state_dir, ok=err is None, pack_id=dispatcher._pack_file,
+                pack_revision=dispatcher._pack["hash"], error=err)
+            decisions.append({
+                "tick": tick, "poll": i, "source": "ui:brain-reset",
+                "template": "brain-reset", "params": {},
+                "ok": err is None, "error": err})
+            dispatcher._emit("brain.reset", {
+                "ok": err is None, "pack_id": dispatcher._pack_file,
+                "pack_revision": dispatcher._pack["hash"], "error": err})
         ledger.reconcile(obs, tick)
         dispatcher.reflex(obs)
         # pack-declared universal rules run every poll, after reflexes
-        prev = len(decisions)
         uni_ctx = policy.Ctx(cfg=pack, obs=obs, game=game,
                              state=uni_state, persist=mode.vars,
                              tick=tick, poll=i, decisions=decisions)

@@ -142,3 +142,11 @@ def test_overlay_epoch_window_resets_on_load():
     # monotone epoch -> everything shown
     rows = [{"tick": 1, "template": "x"}, {"tick": 2, "template": "y"}]
     assert len(epoch_window(rows)) == 2
+
+
+def test_overlay_write_reset_request(tmp_path):
+    """FR-1108: Brain Reset button posts the request file the runtime polls."""
+    from dashboard.overlay import write_reset_request  # noqa: E402
+
+    p = write_reset_request(tmp_path)
+    assert p.name == "brain_reset.request" and p.is_file()

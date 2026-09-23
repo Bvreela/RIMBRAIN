@@ -89,6 +89,8 @@ native:
     notes: bounded combat exercise outcome {rounds, hostiles_spawned, hostiles_cleared, colonist_casualties, verdict} - test mode only, never scored (feature 010)
   cycle.completed:
     notes: one save-reset iteration finished {iteration, checkpoint, phases} - per-phase verdicts for cross-cycle trends (feature 010)
+  brain.reset:
+    notes: "live brain-reset request handled {ok, pack_id, pack_revision, error?} - --live-brain runs only, never scored episodes (feature 013)"
 strict_execution:
   reject:
     - legacy.unmapped
