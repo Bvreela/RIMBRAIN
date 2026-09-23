@@ -112,8 +112,11 @@ class Dispatcher:
     def __init__(self, bridge: BridgeClient | None = None, *,
                  state_dir: str | Path | None = None,
                  sink=None, game_tick: int | None = None,
-                 clock=None) -> None:
+                 clock=None, fair: bool = False) -> None:
         self.bridge = bridge or BridgeClient()
+        # fair mode: no debug/cheat surface — dev.* plus save-load
+        # (checkpoint restore is a test harness, not fair play)
+        self._fair = fair
         self._state_dir = Path(state_dir) if state_dir else DEFAULT_STATE_DIR
         self._sink = sink
         self._lock = threading.RLock()
@@ -190,6 +193,12 @@ class Dispatcher:
             return self._refuse(action_id, params, "dispatch.unknown_action",
                                 f"action '{action_id}' is not in the pack",
                                 decision_id)
+        if self._fair and (template["method"].startswith("dev.")
+                           or template["method"] in
+                           ("game.save", "game.load")):
+            return self._refuse(action_id, params, "dispatch.fair_mode",
+                                f"'{template['method']}' denied: fair run "
+                                "(no debug/save-load)", decision_id)
         problems = self._validate_params(template, params)
         if problems:
             return self._refuse(action_id, params, "dispatch.params_invalid",
