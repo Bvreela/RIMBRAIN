@@ -11,3 +11,16 @@ uv run --with pyyaml python -m dashboard.server --port 8771
 ```
 
 Endpoints table (probe/del per row), add-endpoint form, "scan local" discovery with one-click add, role-bindings editor. YAML stays authoritative — the page re-reads files per request and never displays secrets.
+
+## Agent-thought overlay
+
+Floating always-on-top desktop window (feature 013 follow-on) that tails
+the canonical view records — `state/planning.json` (goals) and
+`state/decisions.jsonl` (quick-action matrix). No runtime imports, no
+game writes.
+
+```powershell
+$env:PYTHONPATH = "components/dashboard/src"
+python -m dashboard.overlay --state-dir state
+# --interval 1000 --no-topmost --alpha 0.9
+```
