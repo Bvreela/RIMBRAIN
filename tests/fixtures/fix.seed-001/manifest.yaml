@@ -1,0 +1,22 @@
+# Fixture manifest per specs/001-fork-bootstrap-contracts/contracts/fixture-package.md
+# Minimal valid fixture: one canonical envelope record, exact comparison.
+schema_version: 0
+fixture_id: fix.seed-001
+created_utc: "2026-09-22T00:00:00Z"
+provenance:
+  source: synthesized
+  source_hash: 0daa85018d19cafa590c1f5422cc6f89caf7ef7cdb5397c4cd1bd9d5cd6accb7
+  episode_id: ep.000001
+  notes: >-
+    Minimal single-record fixture synthesized for harness validation.
+    source_hash is the sha256 of input.jsonl (the synthesized source segment).
+schema_pins:
+  envelope_schema: schemas/events/envelope.schema.json
+  envelope_schema_version: 0
+  event_map: evtmap.upstream-bus
+  event_map_upstream_revision: "85cb050"
+files:
+  input.jsonl: 0daa85018d19cafa590c1f5422cc6f89caf7ef7cdb5397c4cd1bd9d5cd6accb7
+  expected.jsonl: 0daa85018d19cafa590c1f5422cc6f89caf7ef7cdb5397c4cd1bd9d5cd6accb7
+expected_comparison:
+  mode: exact

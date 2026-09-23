@@ -1,0 +1,43 @@
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+*.local.yaml
+*.local.yml
+*.local.json
+
+# Runtime and derived data
+state/
+runs/
+cache/
+exports/
+proposals/
+sft/
+out/
+
+# Python/.NET/JS build artifacts for future components
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+bin/
+obj/
+node_modules/
+dist/
+build/
+coverage/
+
+# Devin local project config may contain MCP credentials; skills stay tracked
+.devin/config.json
+
+# honey-ccr local offload cache
+.honey-ccr/
+
+# IDE/OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

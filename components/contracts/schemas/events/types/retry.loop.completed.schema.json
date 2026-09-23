@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rimbrainagent.dev/schemas/events/types/retry.loop.completed.schema.json",
+  "title": "events/types/retry.loop.completed",
+  "description": "Payload for event_type 'retry.loop.completed' (native type, feature 003; FR-205/FR-207): terminal loop outcome. early_exit = gate passed at the final iteration; exhausted = retry cap or mutation-space exhaustion; aborted = named-error termination (budget, reload mismatch, bridge failure) -- never a hang or silent stop.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["run_id", "outcome", "iterations", "max_retries", "mutations_applied"],
+  "properties": {
+    "run_id": {
+      "allOf": [
+        { "$ref": "../../common/id.schema.json" },
+        { "pattern": "^run\\." }
+      ]
+    },
+    "outcome": {
+      "enum": ["early_exit", "exhausted", "aborted"]
+    },
+    "iterations": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Windows actually run (1 initial + retries used)."
+    },
+    "max_retries": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Configured retry cap echoed for the record."
+    },
+    "mutations_applied": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Mutations that applied cleanly (rejected ones are excluded)."
+    },
+    "reason": {
+      "enum": [
+        "gate_passed",
+        "max_retries",
+        "mutation_space_exhausted",
+        "budget_per_window",
+        "budget_total",
+        "reload_state_mismatch",
+        "bridge_error",
+        "config_error"
+      ],
+      "description": "Named termination reason; 'gate_passed' pairs with early_exit."
+    },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message"],
+      "properties": {
+        "code": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "message": { "type": "string", "maxLength": 4096 }
+      },
+      "description": "Structured failure detail for aborted loops (shared error grammar, minus retryable which is always false here)."
+    }
+  }
+}

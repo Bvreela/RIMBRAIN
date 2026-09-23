@@ -1,0 +1,110 @@
+<!--
+Sync Impact Report (temporary — remove before commit)
+- Version change: none → 1.0.0 (initial ratification)
+- Principles: 8 established, consolidated from specs/00-foundation/ENGINEERING-PRINCIPLES.md P1–P15
+  and the architectural invariants in AGENTS.md
+- Added sections: Safety and Operational Constraints; Development Workflow and Quality Gates; Governance
+- Removed sections: none (template placeholders only)
+- Deferred items: none
+-->
+
+# RimBrainAgent Constitution
+
+## Core Principles
+
+### I. Deterministic Before Probabilistic
+
+Code decides whenever legality, arithmetic, freshness, ordering, idempotency, or a hard safety
+invariant determines the answer. A model is justified only for unresolved tradeoffs or novel
+strategic synthesis. Unknown or stale safety-critical state causes observation or safe pause —
+never a guess; noncritical gaps may use only an explicitly declared fallback.
+
+### II. One Writer, Bounded Model Authority (NON-NEGOTIABLE)
+
+Every game mutation passes through a single serialized dispatcher. Models emit typed choices or
+proposals — the selector picks one offered option ID, the planner proposes plans — and never hold
+bridge mutation handles or issue unrestricted RPCs. Emergency and reflex paths have no provider
+dependency and never wait on a model.
+
+### III. Spec-First Development (NON-NEGOTIABLE)
+
+Every change begins as a versioned specification with stable requirement IDs. Cross-component
+behavior begins with a versioned contract plus consumer/provider tests. Architectural changes
+require an ADR before code. A feature is not complete until its traceability row links passing
+evidence. Undeclared dependency directions are forbidden.
+
+### IV. Explicit Compatibility
+
+Every interface and artifact declares a schema/contract version; consumers reject unknown newer
+schemas. Releases pin exact submodule commits, pack hashes, and model revisions. Migrations run
+between scored series, never during them. New repositories are split only when a boundary has an
+independent release cadence, a stable public contract, external consumers, and independent tests.
+
+### V. Evidence Is Immutable; Policy Is Revisable Data
+
+Observations, decisions, responses, actions, and outcomes are append-only canonical flat-file
+records; indexes are disposable projections. Reusable matrices, workflows, prompts, and lessons
+belong to versioned, hashed RimBrain packs — per-episode plans, locks, and cursors belong to
+runtime state. Policy activates atomically at episode boundaries and is immutable during scored
+runs; no component promotes its own proposals.
+
+### VI. Granular Qualification, Staged Promotion
+
+No model is globally trusted. Selector authority is qualified per matrix row, model revision,
+prompt/renderer revision, and context family; drift or calibration failure demotes only the
+affected tuple. Provider behavior, policy patches, and action templates pass offline fixtures and
+contract tests, then shadow mode, then bounded live trials before live authority.
+
+### VII. Build for Diagnosis
+
+Every route, exclusion, fallback, lock, validation rejection, write, and verifier result emits a
+causal event. A reviewer must be able to reconstruct any behavior from exported evidence without
+source-level debugging or access to private chain-of-thought.
+
+### VIII. Migration Escape Hatch
+
+Upstream legacy play remains an opt-in recovery and baseline-comparison mode while the framework
+matures. It must never share write authority with framework mode and can never qualify as a
+scored framework run.
+
+## Safety and Operational Constraints
+
+- RimBridge stays generic; agent-specific deterministic policy lives in Steward or the runtime.
+- All Verse work executes on the Unity main thread; RPC failures return `{ok:false,error}` and
+  are never thrown into Unity.
+- RimBridge binds loopback only; no remote game control surface.
+- Secrets, endpoints, and credentials never enter specs, packs, logs, or exports; community
+  RimBrain packs are untrusted data and carry no auto-executed code.
+- Runtime, policy, evidence, and export data have separate ownership roots.
+- Baseline toolchain: Python 3.12+ with `uv`, .NET SDK for RimWorld 1.6 mod targets, PowerShell
+  helper scripts on Windows.
+
+## Development Workflow and Quality Gates
+
+- Feature work follows the Spec Kit pipeline: constitution → specify → clarify → plan → tasks →
+  analyze → implement → converge. Project-level normative volumes live in `specs/`; per-feature
+  workspaces live in `specs/<NNN>-<slug>/`.
+- Every work package declares requirements, interfaces, tests, migration, rollback, and measurable
+  exit criteria before implementation starts.
+- Verification ladder, in order: unit/contract tests → offline fixtures and replay → shadow mode →
+  bounded live trials → monitored cohort. Baseline suites: `uv run pytest -q` (agent),
+  `dotnet test` (RimBridge and Steward test projects).
+- `upstream/rimagent` is read-only migration input; fork implementation never edits inside it, and
+  `.gitmodules` never uses local filesystem URLs.
+- Release and episode manifests record submodule commits, schema versions, pack hashes, model
+  revisions, and build identity.
+
+## Governance
+
+- This constitution supersedes ad-hoc practice. Where documents conflict, precedence follows
+  `AGENTS.md` "Sources of truth": unified requirements → contracts → submodule specs → ADRs →
+  traceability.
+- Amendments require a written proposal, an ADR for architectural impact, and an explicit version
+  bump (MAJOR: principle removal/redefinition; MINOR: new or materially expanded principle;
+  PATCH: clarification only).
+- Every specification review, PR, and release-acceptance check verifies compliance with these
+  principles; complexity beyond them must be justified in the spec.
+- Use `AGENTS.md` for runtime development guidance and `specs/INDEX.md` for the authoritative
+  document inventory.
+
+**Version**: 1.0.0 | **Ratified**: 2026-09-22 | **Last Amended**: 2026-09-22

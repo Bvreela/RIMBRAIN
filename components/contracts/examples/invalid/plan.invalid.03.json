@@ -1,0 +1,8 @@
+{
+  "schema_version": 0,
+  "plan_id": "plan.no-base",
+  "horizon_ticks": 1000,
+  "actions": [],
+  "policy_mutations": [],
+  "rationale": "Missing base_revision; plans must name the pack hash they were built against."
+}

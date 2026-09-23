@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rimbrainagent.dev/schemas/runtime/plan.schema.json",
+  "title": "runtime/plan",
+  "description": "PlanProposal contract (feature 005; FR-402): the typed output a planning-tier model (rimbrain.plan) must emit. Actions dispatch through the feature-004 single writer; policy_mutations materialize candidate pack revisions. Malformed output is a named error, never a guess.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "plan_id", "base_revision", "horizon_ticks",
+    "actions", "policy_mutations", "rationale"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "plan_id": {
+      "type": "string",
+      "pattern": "^plan\\.[a-z0-9][a-z0-9._-]{0,63}$",
+      "description": "id grammar (common/id) with the plan. prefix."
+    },
+    "base_revision": {
+      "type": "string",
+      "minLength": 1,
+      "description": "sha256 canonical hash of the pack the plan was built against."
+    },
+    "horizon_ticks": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Game ticks the plan covers."
+    },
+    "actions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["template_id", "params"],
+        "properties": {
+          "template_id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9._-]{0,63}$"
+          },
+          "params": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "description": "Dispatcher actions the plan wants executed; validated against template params_schema at review AND at dispatch."
+    },
+    "policy_mutations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["op", "target", "patch"],
+        "properties": {
+          "op": {
+            "enum": ["add_template", "edit_decision_map", "add_emergency"],
+            "description": "Candidate-pack edit kind; nothing else is legal."
+          },
+          "target": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Id the mutation applies to (new template id, decision_map question, or emergency rule id)."
+          },
+          "patch": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Replacement/insert fragment applied into the candidate pack."
+          }
+        }
+      }
+    },
+    "rationale": {
+      "type": "string",
+      "maxLength": 4000,
+      "description": "Model's stated reasoning; recorded, never executed."
+    }
+  }
+}

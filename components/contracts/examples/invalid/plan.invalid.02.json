@@ -1,0 +1,11 @@
+{
+  "schema_version": 0,
+  "plan_id": "plan.bad-mutation-op",
+  "base_revision": "a1b2c3d4",
+  "horizon_ticks": 1000,
+  "actions": [],
+  "policy_mutations": [
+    {"op": "delete_templates", "target": "rescue", "patch": {}}
+  ],
+  "rationale": "delete_templates is not a legal mutation op."
+}

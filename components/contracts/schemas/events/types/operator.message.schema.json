@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rimbrainagent.dev/schemas/events/types/operator.message.schema.json",
+  "title": "events/types/operator.message",
+  "description": "Payload for event_type 'operator.message' (upstream kind 'operator'): {text} — message typed by the human on the dashboard.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["text"],
+  "properties": {
+    "text": { "type": "string", "maxLength": 65536 }
+  }
+}

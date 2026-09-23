@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rimbrainagent.dev/schemas/events/types/action.refused.schema.json",
+  "title": "events/types/action.refused",
+  "description": "Payload for event_type 'action.refused' (native type, feature 004; FR-304/FR-307): a write was refused before any bridge call - unknown action, invalid params, unmapped decision, lock conflict, or pack drift. Zero writes on refusal (SC-302).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["pack_revision", "template_id", "outcome", "error"],
+  "properties": {
+    "pack_revision": { "type": "string", "minLength": 1 },
+    "decision_id": { "type": "string" },
+    "template_id": {
+      "type": "string",
+      "description": "Requested action id; may be empty when the request itself was malformed."
+    },
+    "params": { "type": "object", "additionalProperties": true },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message"],
+      "properties": {
+        "code": {
+          "type": "string",
+          "enum": [
+            "dispatch.unknown_action",
+            "dispatch.params_invalid",
+            "dispatch.decision_unmapped",
+            "dispatch.locked",
+            "dispatch.pack_drift"
+          ]
+        },
+        "message": { "type": "string", "maxLength": 4096 },
+        "retryable": { "type": "boolean" }
+      }
+    },
+    "outcome": { "enum": ["refused"] }
+  }
+}

@@ -1,0 +1,81 @@
+# Example RetryConfig for checkpoint-reload retry loops (feature 003).
+# Contract: components/contracts/schemas/runtime/retry-config.schema.json
+#
+# Run offline against the deterministic sim bridge:
+#   uv run --with pyyaml python -m lab.retryloop --config configs/retryloop.example.yaml --mode sim
+# (with components/lab/src on PYTHONPATH; see components/lab/README.md)
+#
+# Live smoke (T055, manual gate -- needs a running game + bridge on :8765):
+#   python -m lab.retryloop --config configs/retryloop.example.yaml --mode live --export out/fix.retry-live
+
+schema_version: 0
+config_id: rl.example-colony-001   # rl.* id kind (common/id grammar)
+
+# Game-time window per iteration: window_ticks XOR window_hours.
+# 2500 ticks per game-hour, so 2h -> 5000 ticks.
+window_hours: 2
+
+# Retries AFTER the first attempt: total windows <= max_retries + 1.
+max_retries: 3
+
+# Bridge game.speed while a window advances (0..4).
+speed: 3
+
+# Checkpoint saves are namespaced <family>--<run_id>--cp<N> and verified via
+# game.list_saves; never touches user saves (FR-206).
+checkpoint_family: retry
+
+# Provenance refs recorded in the manifest + retry.gate.evaluated events; the
+# embedded `gate`/`mutation_space` blocks below are the executable v1 defs.
+gate_ref: gate.stockpile-v1
+mutation_space_ref: muts.priorities-v1
+
+# Hard wall-clock bounds (FR-207): per window and total. Exceeding either
+# aborts the loop with a named error -- never a hang.
+budgets:
+  per_window_s: 120
+  total_s: 600
+
+# Success gate: falsifiable state predicates over game.status (never event
+# equality -- RimWorld RNG). combinator all|any; ops eq|ne|gt|gte|lt|lte|contains.
+gate:
+  combinator: all
+  predicates:
+    - {id: stock-ok,   field: colony.stock,  op: gte, value: 100}
+    - {id: no-deaths,  field: colony.deaths, op: eq,  value: 0}
+
+# Ordered mutation space: exactly one popped per retry; invalid applies are
+# rejected and the prior candidate revision is kept (FR-204). Ops:
+#   set  -- assign value at dotted path
+#   bump -- add numeric value to numeric leaf
+#   swap -- exchange list elements at the [i, j] index pair
+mutation_space:
+  - id: bump-mine-weight
+    apply: {path: plan.priorities.0.weight, op: bump, value: 1}
+  - id: swap-priority-order
+    apply: {path: plan.priorities, op: swap, value: [0, 1]}
+  - id: set-night-window
+    apply: {path: plan.window, op: set, value: night}
+
+# Candidate plan dict the space edits -- produces new revisions, never mutates
+# an immutable pack in place (UR-RL-006).
+candidate:
+  plan:
+    window: day
+    priorities:
+      - {task: mine, weight: 1}
+      - {task: haul, weight: 2}
+
+# Offline sim parameters for --mode sim (ignored by --mode live). `state` is
+# the initial game.status dict; `effects` deterministically set state fields on
+# a given window's advance so gates can observe scripted progress.
+sim:
+  state:
+    state: playing
+    tick: 60000
+    day: 1
+    colony: {stock: 40, deaths: 0}
+  wall_per_window_s: 0
+  effects:
+    - window: 2
+      set: {colony.stock: 150}

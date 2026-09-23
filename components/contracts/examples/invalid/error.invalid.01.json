@@ -1,0 +1,7 @@
+{
+  "ok": false,
+  "error": {
+    "message": "Something failed but no machine-readable code was emitted.",
+    "retryable": false
+  }
+}

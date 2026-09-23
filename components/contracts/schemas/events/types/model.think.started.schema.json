@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rimbrainagent.dev/schemas/events/types/model.think.started.schema.json",
+  "title": "events/types/model.think.started",
+  "description": "Payload for event_type 'model.think.started' (upstream kind 'think_start'): {trigger, step}.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["trigger", "step"],
+  "properties": {
+    "trigger": { "type": "string", "maxLength": 256 },
+    "step": { "type": "integer", "minimum": 0 }
+  }
+}

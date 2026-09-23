@@ -1,0 +1,7 @@
+{
+  "mode": "steady-state",
+  "colonists": 3,
+  "conditions": {"shelter": true, "beds": true, "food": true,
+                 "recreation": true},
+  "_note": "mode must be the const 'start'"
+}

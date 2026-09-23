@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rimbrainagent.dev/schemas/events/types/operator.reply.schema.json",
+  "title": "events/types/operator.reply",
+  "description": "Payload for event_type 'operator.reply' (upstream kind 'reply'): {text} — the agent's reply_to_operator.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["text"],
+  "properties": {
+    "text": { "type": "string", "maxLength": 65536 }
+  }
+}

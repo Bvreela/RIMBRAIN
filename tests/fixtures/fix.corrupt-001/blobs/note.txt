@@ -1,0 +1,2 @@
+integrity probe blob for fix.corrupt-001
+the manifest entry for this file carries a deliberately wrong sha256

@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rimbrainagent.dev/schemas/runtime/bindings.schema.json",
+  "title": "runtime/bindings",
+  "description": "Role-bindings file contract (feature 002, specs/002-model-endpoints; FR-003/FR-010, UR-MOD-013/017). Matches the live profiles/bindings.yaml shape: bindings maps a semantic role (rimbrain.plan, rimbrain.select, rimbrain.review, rimbrain.embed, ...) to {endpoint, model}; degraded_paths maps a role to an ordered fallback list tried when the primary fails or lacks capability. Degraded-path entries are either 'endpoint_id:model' references (first colon splits; model ids may themselves contain colons, e.g. 'openrouter:nvidia/foo:free') or bare terminal sentinels (rules, rules-only, skip, lexical-bm25) that resolve as non-endpoint fallbacks. Every endpoint id referenced here must exist in endpoints.yaml; the registry fails closed at load otherwise. Bindings are runtime state, not policy: editing never mutates an active RimBrain pack. schema_version optional; absent means 0.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["bindings"],
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Contract revision; optional in v0 files (absent == 0)."
+    },
+    "bindings": {
+      "type": "object",
+      "propertyNames": { "pattern": "^[A-Za-z][A-Za-z0-9_.-]{0,127}$" },
+      "additionalProperties": { "$ref": "#/$defs/binding" },
+      "description": "role -> {endpoint, model, options?}. Roles resolve independently."
+    },
+    "degraded_paths": {
+      "type": "object",
+      "propertyNames": { "pattern": "^[A-Za-z][A-Za-z0-9_.-]{0,127}$" },
+      "additionalProperties": {
+        "type": "array",
+        "items": { "type": "string", "minLength": 1, "maxLength": 512 }
+      },
+      "description": "role -> ordered fallback hops: 'endpoint:model' refs or terminal sentinel tokens (rules, rules-only, skip, lexical-bm25, ...)."
+    }
+  },
+  "$defs": {
+    "binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["endpoint", "model"],
+      "properties": {
+        "endpoint": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "Endpoint id from endpoints.yaml."
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "description": "Model id served by that endpoint."
+        },
+        "options": {
+          "type": "object",
+          "description": "Optional per-binding call options (temperature, max_tokens, ...); adapter-defined."
+        }
+      }
+    }
+  }
+}

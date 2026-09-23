@@ -1,0 +1,224 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rimbrainagent.dev/schemas/runtime/pack.schema.json",
+  "title": "runtime/pack",
+  "description": "PolicyPack contract (feature 004; FR-302/FR-305/FR-308): validated-data policy. templates are declarative single-writer actions; decision_map binds typed systemone answers to templates; emergency rules are deterministic no-model reflexes. Immutable during scored runs; the revision hash rides in every action.* event.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "pack_id",
+    "revision",
+    "templates",
+    "jobs",
+    "decision_map",
+    "emergency"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Pack schema revision (0 = initial)."
+    },
+    "pack_id": {
+      "type": "string",
+      "pattern": "^pack\\.[a-z0-9][a-z0-9._-]{0,63}$",
+      "description": "id grammar (common/id) with the pack. prefix."
+    },
+    "revision": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "description": "Human-readable revision tag; the canonical-JSON hash is authoritative (feature 001)."
+    },
+    "templates": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "method",
+          "params_schema"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9._-]{0,63}$"
+          },
+          "method": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "description": "Bridge RPC method; must exist in the sealed inventory or the pack is rejected at load."
+          },
+          "params_schema": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "JSON-Schema subset (draft 2020-12) applied to dispatch params before any write."
+          },
+          "require": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Params that must be present (in addition to params_schema)."
+          },
+          "description": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "jobs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Survival job ids this pack covers (food, emergency, ...)."
+    },
+    "fallback_plan": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Deterministic rules-only plan the planner loop emits when the planning tier degrades to the terminal sentinel (feature 005, FR-408). Pack-authored data so degraded behavior is visible in pack diffs."
+    },
+    "decision_map": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "question",
+          "choice",
+          "action"
+        ],
+        "properties": {
+          "question": {
+            "type": "string",
+            "description": "Systemone question id the answer came from."
+          },
+          "choice": {
+            "type": "string",
+            "description": "Selected choice id; score/noul thresholds below may also trigger."
+          },
+          "score": {
+            "type": "number",
+            "description": "Optional trigger: answer score >= this value maps too."
+          },
+          "noul": {
+            "type": "number",
+            "description": "Optional trigger: answer noul >= this value maps too."
+          },
+          "action": {
+            "$ref": "#/$defs/action",
+            "description": "Dispatcher action the answer maps to; unmapped answers are refused (FR-303)."
+          }
+        }
+      }
+    },
+    "emergency": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "priority",
+          "condition",
+          "action"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "priority": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Lower fires first when several rules match."
+          },
+          "condition": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "combinator",
+              "predicates"
+            ],
+            "properties": {
+              "combinator": {
+                "enum": [
+                  "all",
+                  "any"
+                ]
+              },
+              "predicates": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "field",
+                    "op",
+                    "value"
+                  ],
+                  "properties": {
+                    "field": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "op": {
+                      "enum": [
+                        "eq",
+                        "ne",
+                        "gt",
+                        "gte",
+                        "lt",
+                        "lte",
+                        "contains"
+                      ]
+                    },
+                    "value": {
+                      "description": "Any JSON value; type compatibility checked at eval."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "action": {
+            "$ref": "#/$defs/action",
+            "description": "Reflex action dispatched without any model call (FR-308)."
+          }
+        }
+      }
+    },
+    "start": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Start-mode config (feature 008): site ranking weights, shelter dims, recreation defs, food policy, exit conditions. Absent on non-start packs."
+    }
+  },
+  "$defs": {
+    "action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "template_id",
+        "params"
+      ],
+      "properties": {
+        "template_id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9._-]{0,63}$"
+        },
+        "params": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "Template params; validated against the template's params_schema at dispatch."
+        }
+      }
+    }
+  }
+}

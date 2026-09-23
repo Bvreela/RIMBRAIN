@@ -1,0 +1,236 @@
+# Start-mode policy pack v0 (feature 008; FR-701..709).
+# Dedicated fresh-start module: deterministic bootstrap (site -> roofed
+# storage zone -> unforbid -> shelter -> haul) then prioritized work until
+# every colonist has shelter+bed+food-source+recreation.
+# Every template.method exists in the sealed bridge inventory.
+schema_version: 0
+pack_id: pack.start-mode-v0
+revision: v0
+
+templates:
+  - id: set-anchor
+    method: anchor.set
+    description: "Name the selected site so later steps and evidence can reference it."
+    params_schema:
+      type: object
+      required: [name]
+      properties:
+        name: {type: string}
+        cell:
+          type: array
+          items: {type: integer}
+          minItems: 2
+          maxItems: 2
+        rect:
+          type: array
+          items: {type: integer}
+          minItems: 4
+          maxItems: 4
+    require: [name]
+
+  - id: create-stockpile
+    method: ui.zone
+    description: "Create the storage zone (stockpile) over/near starting items."
+    params_schema:
+      type: object
+      required: [action]
+      properties:
+        action: {const: create_stockpile}
+        label: {type: string}
+        rect:
+          type: array
+          items: {type: integer}
+          minItems: 4
+          maxItems: 4
+        cells:
+          type: array
+          items:
+            type: array
+            items: {type: integer}
+            minItems: 2
+            maxItems: 2
+        preset: {type: string}
+        priority: {type: string}
+        plant: {type: string}
+    require: [action]
+
+  - id: create-growing
+    method: ui.zone
+    description: "Create a growing zone for the replenishable food source."
+    params_schema:
+      type: object
+      required: [action]
+      properties:
+        action: {const: create_growing}
+        label: {type: string}
+        rect:
+          type: array
+          items: {type: integer}
+          minItems: 4
+          maxItems: 4
+        plant: {type: string}
+    require: [action]
+
+  - id: unforbid-items
+    method: ui.designate
+    description: "Unforbid starting items by id."
+    params_schema:
+      type: object
+      required: [designator, things]
+      properties:
+        designator: {const: unforbid}
+        things:
+          type: array
+          items: {type: string}
+    require: [designator, things]
+
+  - id: haul-items
+    method: ui.designate
+    description: "Haul-designate loose items to storage."
+    params_schema:
+      type: object
+      required: [designator, things]
+      properties:
+        designator: {const: haul}
+        things:
+          type: array
+          items: {type: string}
+    require: [designator, things]
+
+  - id: build-layout
+    method: ui.build_many
+    description: "Place the shelter layout (walls outline, doors, furniture) in one call."
+    params_schema:
+      type: object
+      required: [ops]
+      properties:
+        ops:
+          type: array
+          items: {type: object}
+        stop_on_error: {type: boolean}
+    require: [ops]
+
+  - id: build-one
+    method: ui.build
+    description: "Place a single blueprint (bed, horseshoes pin, torch)."
+    params_schema:
+      type: object
+      required: [def, at]
+      properties:
+        def: {type: string}
+        at:
+          type: array
+          items: {type: integer}
+          minItems: 2
+          maxItems: 2
+        rot: {type: string}
+        stuff: {type: string}
+        dry_run: {type: boolean}
+    require: [def, at]
+
+  - id: roof-rect
+    method: ui.designate
+    description: "Roof designation over a rect (Designator_Roof classname)."
+    params_schema:
+      type: object
+      required: [designator, rect]
+      properties:
+        designator: {const: Designator_Roof}
+        rect:
+          type: array
+          items: {type: integer}
+          minItems: 4
+          maxItems: 4
+    require: [designator, rect]
+
+  - id: rescue
+    method: ui.job
+    description: "Give a pawn the Rescue job on a downed colonist."
+    params_schema:
+      type: object
+      required: [pawn, job, target]
+      properties:
+        pawn: {type: string}
+        job: {const: Rescue}
+        target: {type: string}
+    require: [pawn, job, target]
+
+  - id: firefight
+    method: ui.job
+    description: "Give a pawn the Firefight job at a map cell."
+    params_schema:
+      type: object
+      required: [pawn, job, target]
+      properties:
+        pawn: {type: string}
+        job: {const: Firefight}
+        target:
+          type: array
+          items: {type: integer}
+          minItems: 2
+          maxItems: 2
+    require: [pawn, job, target]
+
+jobs: [food, shelter, emergency]
+
+# Select tier is not used by start mode's deterministic bootstrap; decisions
+# route through the objective graph instead. Empty map keeps the schema happy.
+decision_map: []
+
+# Emergencies still precede everything (FR-708).
+emergency:
+  - id: colonist-downed
+    priority: 1
+    condition:
+      combinator: any
+      predicates:
+        - {field: colonists.downed, op: gte, value: 1}
+    action:
+      template_id: rescue
+      params: {pawn: "{state.first_colonist}", job: Rescue,
+               target: "{state.colonists.downed_id}"}
+  - id: fire-active
+    priority: 2
+    condition:
+      combinator: any
+      predicates:
+        - {field: map.fires, op: gte, value: 1}
+    action:
+      template_id: firefight
+      params: {pawn: "{state.first_colonist}", job: Firefight,
+               target: "{state.map.fire_cell}"}
+
+# Start-mode configuration (FR-701/702/705): reviewable data.
+start:
+  site:
+    # open-rect search for the storage zone + shelter site
+    zone_w: 9
+    zone_h: 9
+    radius: 60
+    weights:
+      items_proximity: 2.0   # prefer rects covering/near the item cluster
+      home_proximity: 1.0    # tiebreak: nearer home center
+    anchor_name: "start.storage"
+  shelter:
+    room_w: 5
+    room_h: 5
+    wall_def: Wall
+    door_def: Door
+    bed_def: Bed
+    stuff_preference: [Wood, Steel, BlocksGranite, BlocksLimestone]
+    fallback_bed: SleepingSpot
+  food:
+    policy: growing_zone          # growing_zone | steward_stock
+    zone_w: 7
+    zone_h: 7
+    plant: Plant_Rice
+    steward_kind: foraging        # used when policy=steward_stock
+    steward_target: 10
+  recreation:
+    defs: [HorseshoesPin, ChessTable, Telescope]
+  exit:
+    # all must hold for EVERY colonist before start.completed
+    shelter: {field: base.rooms_enclosed, op: gte, value: 1}
+    beds: {field: beds_in_rooms, op: gte_colonists, value: 1}
+    food: {field: food_source_present, op: eq, value: true}
+    recreation: {field: recreation_present, op: eq, value: true}

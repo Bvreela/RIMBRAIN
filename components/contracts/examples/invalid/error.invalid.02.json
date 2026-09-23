@@ -1,0 +1,9 @@
+{
+  "ok": false,
+  "error": {
+    "code": "bridge.rpc.timeout",
+    "message": "RimBridge RPC did not answer within the deadline.",
+    "retryable": true,
+    "extra_key": "not in the contract"
+  }
+}

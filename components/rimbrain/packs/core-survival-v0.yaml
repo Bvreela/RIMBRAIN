@@ -1,0 +1,163 @@
+# Core-survival policy pack v0 (feature 004; FR-302/305/308).
+# Validated data: action templates, jobs, typed-decision map, emergency reflexes.
+# Every template.method exists in the sealed bridge inventory
+# (baselines/upstream-85cb050/rpc-inventory.json) — enforced at load.
+# Placeholders in params: "{state.path.to.field}" resolves from observed game
+# status; "{answer}" is the selected decision choice id.
+schema_version: 0
+pack_id: pack.core-survival-v0
+revision: v0
+
+templates:
+  - id: prioritize-work
+    method: ui.set_work
+    description: "Set a colonist's work priorities (manual mode; 0=off, 1=highest)."
+    params_schema:
+      type: object
+      required: [pawn, priorities]
+      properties:
+        pawn: {type: string}
+        priorities:
+          type: object
+          description: "WorkTypeDef -> 0..4 (0 disabled, 1 highest)."
+    require: [pawn, priorities]
+
+  - id: rescue
+    method: ui.job
+    description: "Give a pawn the Rescue job on a downed colonist."
+    params_schema:
+      type: object
+      required: [pawn, job, target]
+      properties:
+        pawn: {type: string}
+        job: {const: Rescue}
+        target: {type: string, description: "downed colonist thing/pawn id"}
+    require: [pawn, job, target]
+
+  - id: firefight
+    method: ui.job
+    description: "Give a pawn the Firefight job at a map cell."
+    params_schema:
+      type: object
+      required: [pawn, job, target]
+      properties:
+        pawn: {type: string}
+        job: {const: Firefight}
+        target:
+          type: array
+          items: {type: integer}
+          minItems: 2
+          maxItems: 2
+    require: [pawn, job, target]
+
+  - id: haul-designate
+    method: ui.designate
+    description: "Designate hauling at map cells."
+    params_schema:
+      type: object
+      required: [designator, cells]
+      properties:
+        designator: {const: haul}
+        cells:
+          type: array
+          items:
+            type: array
+            items: {type: integer}
+            minItems: 2
+            maxItems: 2
+    require: [designator, cells]
+
+  - id: forbid-item
+    method: ui.designate
+    description: "Forbid items by id (stops hauling/usage)."
+    params_schema:
+      type: object
+      required: [designator, things]
+      properties:
+        designator: {const: forbid}
+        things:
+          type: array
+          items: {type: string}
+    require: [designator, things]
+
+  - id: unforbid-item
+    method: ui.designate
+    description: "Unforbid items by id."
+    params_schema:
+      type: object
+      required: [designator, things]
+      properties:
+        designator: {const: unforbid}
+        things:
+          type: array
+          items: {type: string}
+    require: [designator, things]
+
+jobs: [food, emergency]
+
+# Typed systemone answers (question q.action) -> dispatcher actions.
+# score/noul thresholds may also trigger; unmapped answers are refused (FR-303).
+decision_map:
+  - question: q.action
+    choice: forbid
+    action:
+      template_id: forbid-item
+      params: {designator: forbid, things: ["{answer.thing}"]}
+  - question: q.action
+    choice: haul
+    action:
+      template_id: haul-designate
+      params: {designator: haul, cells: ["{state.haul_cell}"]}
+  - question: q.action
+    choice: rescue
+    action:
+      template_id: rescue
+      params: {pawn: "{state.first_colonist}", job: Rescue,
+               target: "{state.colonists.downed_id}"}
+  - question: q.action
+    choice: firefight
+    action:
+      template_id: firefight
+      params: {pawn: "{state.first_colonist}", job: Firefight,
+               target: "{state.map.fire_cell}"}
+
+# Deterministic no-model reflexes; evaluated before any model call (FR-308).
+# Lower priority fires first when several rules match.
+emergency:
+  - id: colonist-downed
+    priority: 1
+    condition:
+      combinator: any
+      predicates:
+        - {field: colonists.downed, op: gte, value: 1}
+    action:
+      template_id: rescue
+      params: {pawn: "{state.first_colonist}", job: Rescue,
+               target: "{state.colonists.downed_id}"}
+
+  - id: fire-active
+    priority: 2
+    condition:
+      combinator: any
+      predicates:
+        - {field: map.fires, op: gte, value: 1}
+    action:
+      template_id: firefight
+      params: {pawn: "{state.first_colonist}", job: Firefight,
+               target: "{state.map.fire_cell}"}
+
+# Deterministic rules-only plan (feature 005, FR-408): emitted by the planner
+# loop when rimbrain.plan resolves to the terminal fallback sentinel. Shape
+# mirrors plan.schema.json minus model provenance.
+fallback_plan:
+  plan_id: plan.rules-only-fallback
+  horizon_ticks: 60000
+  actions:
+    - template_id: prioritize-work
+      params: {pawn: "{state.first_colonist}",
+               priorities: {Firefight: 1, Patient: 1, Doctor: 2, Growing: 2,
+                            Hauling: 3}}
+    - template_id: haul-designate
+      params: {designator: haul, cells: ["{state.haul_cell}"]}
+  policy_mutations: []
+  rationale: "Degraded rules-only plan: survival priorities + haul."

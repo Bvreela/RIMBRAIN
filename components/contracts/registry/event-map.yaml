@@ -1,0 +1,136 @@
+# Versioned upstream bus.py kind -> canonical event_type map (FR-008, R5).
+#
+# Implements the mapping table in
+# specs/001-fork-bootstrap-contracts/contracts/canonical-event-envelope.md.
+# Upstream envelope {seq, t, kind, data} maps onto canonical envelope fields
+# {sequence, wall_time_utc, event_type, payload}; game_tick, correlation and
+# revisions have no upstream source and are emitted null, never fabricated.
+#
+# This file is the event-type registry for the mapped upstream surface
+# (CONTRACTS.md §2): every value under `kinds` plus `legacy.unmapped` is a
+# registered event_type; every key under `native` is also a registered
+# event_type (first-party types with no upstream kind -- they register for
+# strict consumers but are never produced or unwrapped by the upstream
+# mapping path). `strict_execution.reject` lists registered types a
+# strict execution consumer must refuse (stored, never executed).
+map_id: evtmap.upstream-bus
+schema_version: 0
+description: >
+  kind -> event_type map for the pinned upstream rimagent bus
+  (upstream/rimagent/agent/rimagent/bus.py @ 85cb050). The bus docstring
+  enumerates 18 kinds; every one is covered below.
+upstream:
+  component: rimagent.bus
+  revision: "85cb050"
+  envelope: "{seq, t, kind, data}"
+envelope:
+  schema: schemas/events/envelope.schema.json
+  schema_version: 0
+  payload_schemas: schemas/events/types/<event_type>.schema.json
+# Catch-all rule: any kind not listed under `kinds` maps to legacy.unmapped.
+# The raw kind is preserved inside the payload as {kind, data}; the record is
+# stored but strict execution consumers reject it.
+unknown_kind:
+  event_type: legacy.unmapped
+  policy: preserve
+# First-party canonical event types (feature 004, specs/004-dispatcher-single-writer
+# FR-307): emitted by the runtime single-writer dispatcher; no upstream kind exists.
+#   action.issued      -- accepted write, RPC about to run (event stream == write stream)
+#   action.completed   -- RPC returned ok
+#   action.failed      -- RPC failed; dispatcher stays available
+#   action.refused     -- refused before any write (unknown/invalid/unmapped/locked/drift)
+#   action.emergency   -- deterministic reflex fired, zero model calls
+native:
+  action.issued:
+    notes: validated action accepted; bridge RPC about to run {pack_revision, template_id, params}
+  action.completed:
+    notes: dispatched RPC returned ok {pack_revision, template_id, result}
+  action.failed:
+    notes: dispatched RPC failed {pack_revision, template_id, error}
+  action.refused:
+    notes: "refused before any bridge call {code: dispatch.*}"
+  action.emergency:
+    notes: deterministic no-model reflex fired {rule_id, template_id}
+  retry.checkpoint.saved:
+    notes: namespaced checkpoint save recorded {run_id, save_name, tick, day}
+  retry.window.started:
+    notes: one game-time window attempt begins
+  retry.gate.evaluated:
+    notes: gate verdict {passed, predicates[], early_exit}
+  retry.mutation.applied:
+    notes: one mutation popped per retry; applied=false on rejection
+  retry.iteration.completed:
+    notes: per-window verdict passed|failed|aborted
+  retry.loop.completed:
+    notes: terminal outcome early_exit|exhausted|aborted
+  plan.proposed:
+    notes: planning-tier model returned a schema-valid proposal {plan_id, endpoint_id, model, usage, proposal}
+  plan.reviewed:
+    notes: deterministic gate + advisory critique verdict {verdict, violations[], feedback}
+  plan.accepted:
+    notes: approved proposal materialized candidates and/or dispatched actions
+  plan.rejected:
+    notes: "refused at any stage, zero writes {code: plan.*}"
+  task.transition:
+    notes: ledger lifecycle transition {task_id, from_state, to_state, reason, attempts} - authoritative task record (feature 007)
+  start.completed:
+    notes: start-mode exit contract held for all colonists {mode, colonists, conditions} - mode disengages (feature 008)
+strict_execution:
+  reject:
+    - legacy.unmapped
+kinds:
+  status:
+    event_type: system.status
+    notes: data carries game.status + phase
+  think_start:
+    event_type: model.think.started
+    notes: trigger, step
+  think_end:
+    event_type: model.think.completed
+    notes: notes, wake, calls, elapsed
+  reasoning:
+    event_type: model.reasoning
+    privacy: restricted
+    notes: restricted; omitted from shared profiles
+  assistant:
+    event_type: model.assistant
+    notes: visible model text
+  tool_call:
+    event_type: model.tool_call
+    notes: dispatcher-era equivalent is intent.queued; legacy family kept for replay
+  tool_result:
+    event_type: model.tool_result
+    notes: dispatcher-era equivalent is action.*; legacy family kept for replay
+  ledger:
+    event_type: bridge.event.ingested
+    notes: ledger subkind preserved in payload.kind
+  watcher:
+    event_type: policy.watcher.fired
+    notes: action/alert/error in payload
+  brain_change:
+    event_type: policy.brain.changed
+    notes: skill/tool/watcher/notebook/journal/git
+  watchdog:
+    event_type: policy.watchdog.completed
+    notes: summary/fixes/commits/errors
+  episode_start:
+    event_type: episode.started
+    notes: episode, seed
+  episode_end:
+    event_type: episode.closed
+    notes: episode, score, reason, assisted, brain_sha
+  situation:
+    event_type: observation.packet.shown
+    notes: what the model was shown
+  operator:
+    event_type: operator.message
+    notes: operator-channel record
+  reply:
+    event_type: operator.reply
+    notes: operator-channel record
+  log:
+    event_type: system.log
+    notes: "{text, ...}"
+  error:
+    event_type: system.error
+    notes: "{text}"

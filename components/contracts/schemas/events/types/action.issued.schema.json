@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rimbrainagent.dev/schemas/events/types/action.issued.schema.json",
+  "title": "events/types/action.issued",
+  "description": "Payload for event_type 'action.issued' (native type, feature 004; FR-307): a validated action was accepted by the single-writer dispatcher and the bridge RPC is about to run. Every accepted write emits this before any call (SC-301: event stream == write stream).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["pack_revision", "template_id", "params", "outcome"],
+  "properties": {
+    "pack_revision": { "type": "string", "minLength": 1 },
+    "decision_id": {
+      "type": "string",
+      "description": "Typed-decision id when the action was model-sourced; absent for reflex/operator actions."
+    },
+    "template_id": { "type": "string", "minLength": 1 },
+    "params": { "type": "object", "additionalProperties": true },
+    "outcome": { "enum": ["issued"] }
+  }
+}
