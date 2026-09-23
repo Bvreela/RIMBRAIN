@@ -55,6 +55,7 @@ Both views render from the same poll's data — the planning snapshot and the de
 - **FR-1103**: `_run_start`, `run_combat`, `run_cycle`, and `run_loop` write both views each poll; render failure must not interrupt control (fail-open on views, fail-closed on control).
 - **FR-1104**: `decisions.jsonl` is append-only canonical; `planning.md`/`actions.md` are disposable renders rebuildable from canonical records (UR-DAT-007).
 - **FR-1105**: Views never include model chain-of-thought or secrets; planner summaries cite the `plan.proposed` event's declared goal/plan fields only.
+- **FR-1106**: A floating desktop overlay (`dashboard.overlay`) renders the same canonical records in a resizable always-on-top window: goals view (mode/tick/poll/pack, goal table with state/attempts/blockers, exit-condition checkboxes) over a scrolling quick-action matrix tail. It is a pure consumer — flat files in, no runtime imports, no game writes — and must keep working when state files are missing or torn.
 
 ## Success Criteria *(mandatory)*
 
@@ -63,3 +64,4 @@ Both views render from the same poll's data — the planning snapshot and the de
 - **SC-1103**: `decisions.jsonl` rows carry source ids traceable to pack YAML elements.
 - **SC-1104**: Live run writes both views with real tick/poll stamps.
 - **SC-1105**: Suite, corpus, validators green; a render exception during a poll does not abort the run (covered by test).
+- **SC-1106**: Overlay renders live data during a real run — goals table and matrix update as polls land; missing/torn state files degrade to empty panels, never crashes.

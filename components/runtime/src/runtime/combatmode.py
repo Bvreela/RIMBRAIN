@@ -152,7 +152,8 @@ def run_combat(dispatcher, game, ledger, pack: dict, *,
     try:
         obs = observe(game)
         ctx = policy.Ctx(cfg=pack, obs=obs, game=game, state=uni_state,
-                         tick=obs.get("tick") or 0, decisions=decisions)
+                         tick=obs.get("tick") or 0, poll=0,
+                         decisions=decisions)
         policy.run_steps(cfg.get("setup"), dispatcher, ctx,
                          source="combat:setup")
         _flush(obs)
@@ -161,7 +162,7 @@ def run_combat(dispatcher, game, ledger, pack: dict, *,
             base = _colonist_ids(obs)
             ctx = policy.Ctx(cfg=pack, obs=obs, game=game,
                              state=uni_state, vars={"round": rnd},
-                             tick=obs.get("tick") or 0,
+                             tick=obs.get("tick") or 0, poll=0,
                              decisions=decisions)
             policy.run_steps(cfg.get("spawn"), dispatcher, ctx,
                              source=f"combat:spawn:r{rnd}")
@@ -215,7 +216,7 @@ def run_combat(dispatcher, game, ledger, pack: dict, *,
             obs = observe(game)
             ctx = policy.Ctx(cfg=pack, obs=obs, game=game,
                              state=uni_state, vars={"round": rnd},
-                             tick=obs.get("tick") or 0,
+                             tick=obs.get("tick") or 0, poll=0,
                              decisions=decisions)
             policy.run_steps(cfg.get("cleanup"), dispatcher, ctx,
                              source=f"combat:cleanup:r{rnd}")
