@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rimbrainagent.dev/schemas/events/types/episode.metrics.schema.json",
+  "title": "events/types/episode.metrics",
+  "description": "Payload for event_type 'episode.metrics' (native type, feature 009; FR-807): learning metrics folded from one episode's canonical evidence. Deterministic — the same event log produces the same metrics.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["episode_id", "refusal_rate", "verify_failure_rate",
+             "task_completion_rate", "event_span"],
+  "properties": {
+    "episode_id": { "type": "string", "minLength": 1 },
+    "refusal_rate": {
+      "type": "number", "minimum": 0, "maximum": 1,
+      "description": "action.refused / action.issued (0 when no issues)."
+    },
+    "verify_failure_rate": {
+      "type": "number", "minimum": 0, "maximum": 1,
+      "description": "Tasks ending failed|expired / terminal tasks."
+    },
+    "task_completion_rate": {
+      "type": "number", "minimum": 0, "maximum": 1,
+      "description": "Tasks ending succeeded / terminal tasks."
+    },
+    "ticks_to_baseline": {
+      "type": ["integer", "null"], "minimum": 0,
+      "description": "Game-tick span first->last recorded event (baseline proxy); null when unknown."
+    },
+    "event_span": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["count", "first_seq", "last_seq"],
+      "properties": {
+        "count": { "type": "integer", "minimum": 0 },
+        "first_seq": { "type": "integer", "minimum": 0 },
+        "last_seq": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "counts": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Raw event-type counts the rates derive from."
+    }
+  }
+}

@@ -129,7 +129,7 @@ def run_loop(dispatcher: Dispatcher, game, *, iterations: int = 5,
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="runtime.loop", description=__doc__)
     p.add_argument("--pack", default="core-survival-v0")
-    p.add_argument("--mode", choices=["sim", "live", "start"],
+    p.add_argument("--mode", choices=["sim", "live", "start", "improve"],
                    default="sim")
     p.add_argument("--iterations", type=int, default=5)
     p.add_argument("--bridge", default="http://127.0.0.1:8765")
@@ -139,9 +139,13 @@ def main(argv: list[str] | None = None) -> int:
                    help="do not persist events to state/events.jsonl")
     p.add_argument("--ledger", action="store_true",
                    help="reconcile the task ledger before attend each poll")
+    p.add_argument("--feed", action="store_true",
+                   help="narrate every emitted event into state/feed.md")
     args = p.parse_args(argv)
     if args.mode == "start" and args.pack == "core-survival-v0":
         args.pack = "start-mode-v0"  # the mode's own module
+    if args.mode == "improve" and args.pack == "core-survival-v0":
+        args.pack = "improve-v0"  # the mode's own module
 
     if args.mode in ("live", "start") and not args.live:
         print(json.dumps({"ok": False, "error": {
@@ -151,9 +155,22 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     store = None
-    if not args.no_store:
+    if not args.no_store or args.mode == "improve":
         from .store import EventStore
         store = EventStore()
+    feed = None
+    if args.feed:
+        from .feed import FeedWriter
+        from .store import state_dir
+        feed = FeedWriter(state_dir() / "feed.md")
+
+    def emit(env):
+        if store is not None:
+            store.append(env)
+        if feed is not None:
+            feed.write(env)
+    sink = emit if (store is not None or feed is not None) else None
+
     ledger = None
     if args.ledger:
         from .tasks import TaskLedger
@@ -167,7 +184,7 @@ def main(argv: list[str] | None = None) -> int:
             dispatcher.load_pack(args.pack)
             result = run_loop(dispatcher, game, iterations=args.iterations,
                               ledger=ledger,
-                              sink=None if store is None else store.append)
+                              sink=sink)
         elif args.mode == "start":
             game = BridgeClient(args.bridge)
             dispatcher = Dispatcher(game)
@@ -179,7 +196,16 @@ def main(argv: list[str] | None = None) -> int:
             result = run_start(
                 dispatcher, game, ledger, cfg,
                 iterations=args.iterations,
-                sink=None if store is None else store.append)
+                sink=sink)
+        elif args.mode == "improve":
+            # read-only over canonical evidence — no game, no writes
+            from .improve import run_improve
+            dispatcher = Dispatcher(None)
+            dispatcher.load_pack(args.pack)
+            cfg = (dispatcher.pack["pack"].get("improve") or {})
+            result = run_improve(
+                store, cfg, active_pack=dispatcher.pack["pack"],
+                iterations=args.iterations, sink=sink, feed=feed)
         else:
             game = BridgeClient(args.bridge)
             dispatcher = Dispatcher(game)
@@ -187,7 +213,7 @@ def main(argv: list[str] | None = None) -> int:
             result = run_loop(dispatcher, game, iterations=args.iterations,
                               decider=lambda s, i: _live_decider(),
                               ledger=ledger,
-                              sink=None if store is None else store.append)
+                              sink=sink)
         print(json.dumps({"ok": True, **result}, default=str))
         return 0
     except Exception as exc:  # fail closed at the boundary

@@ -1,0 +1,5 @@
+{
+  "check_id": "policy.invariant.single_writer",
+  "domain": "runtime",
+  "verdict": "pass"
+}

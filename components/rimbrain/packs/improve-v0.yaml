@@ -1,0 +1,54 @@
+# Improvement cycle pack (feature 009; FR-801/803/808).
+# Config for the self-improvement loop: defect patterns, metric
+# weights, audit gates, cadence. Templates are inert here — the cycle
+# writes candidate packs, never direct game actions.
+schema_version: 0
+pack_id: pack.improve-v0
+revision: v0.1
+
+templates:
+  - id: noop
+    method: game.status          # read-only; keeps the pack loadable
+    params_schema:
+      type: object
+      additionalProperties: true
+    description: sentinel — the improvement loop makes no game writes
+
+jobs: [improve]
+decision_map: []
+emergency: []
+
+improve:
+  cadence:
+    episodes_per_cycle: 1        # run a self-check after every episode
+    max_iterations: 20           # hard bound — never a runaway
+  defect_patterns:
+    - id: repeated_refusal
+      event_type: action.refused
+      group_by: payload.template_id
+      min_count: 2               # same template refused >=N times
+      remediation: fix_template_params
+    - id: params_invalid
+      event_type: action.refused
+      group_by: payload.error.code
+      match_value: dispatch.params_invalid
+      min_count: 1
+      remediation: fix_template_params
+    - id: verify_failure
+      event_type: task.transition
+      group_by: payload.kind
+      match_to_state: [failed, expired]
+      min_count: 2
+      remediation: retune_lease_or_effect
+  metrics:
+    refusal_rate: 0.4            # weights for candidate scoring
+    verify_failure_rate: 0.3
+    task_completion_rate: 0.3
+    min_events: 5                # evidence floor — below -> defer
+  audit_gates:                   # all must pass before promotion
+    - code.suite
+    - policy.invariant
+    - ux.feed_coverage
+  promotion:
+    episode_boundary_only: true  # immutability invariant
+    incumbent_wins_ties: true    # stability bias

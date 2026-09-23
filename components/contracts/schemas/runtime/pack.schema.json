@@ -198,6 +198,11 @@
       "type": "object",
       "additionalProperties": true,
       "description": "Start-mode config (feature 008): site ranking weights, shelter dims, recreation defs, food policy, exit conditions. Absent on non-start packs."
+    },
+    "improve": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Self-improvement cycle config (feature 009): defect patterns, metric weights, audit gate list, cadence. Absent on non-improvement packs."
     }
   },
   "$defs": {
