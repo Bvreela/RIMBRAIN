@@ -234,3 +234,34 @@ def test_validate_policy_fail_closed(rig):
     assert any("bogus" in p for p in problems)
     assert any("selector" in p for p in problems)
     assert any("template" in p for p in problems)
+
+
+def test_naming_dialog_answered(rig):
+    """An open give_name modal gets an answer-dialog dispatch naming the
+    window index (fr: pack rule answer-naming)."""
+    d, game, ledger, pack, events, tmp = rig
+
+    class DialogSim(StartSim):
+        def rpc(self, method, params=None):
+            if method == "state.dialogs":
+                return {"ok": True, "result": [
+                    {"i": 3, "type": "Dialog_GiveName",
+                     "kind": "give_name",
+                     "fields": {"name": "New Toronto"}}]}
+            return super().rpc(method, params)
+
+    g2 = DialogSim()
+    d2 = Dispatcher(g2, sink=events.append,
+                    clock=lambda: "2026-01-01T00:00:00Z")
+    d2.load_pack("start-mode-v0")
+    fired = universal.apply_rules(d2, g2, {}, d2.pack["pack"], {}, poll=0)
+    rows = [f for f in fired if f["rule"] == "answer-naming"]
+    assert rows and rows[0]["params"] == {"i": 3, "choice": "OK"}
+    assert _issued(events, "answer-dialog")
+
+
+def test_no_dialogs_no_dispatch(rig):
+    """Empty state.dialogs -> zero ui.dialog calls."""
+    d, game, ledger, pack, events, tmp = rig
+    fired = universal.apply_rules(d, game, {}, pack, {}, poll=0)
+    assert not _issued(events, "answer-dialog")
