@@ -14,7 +14,7 @@
 - **UR-CTL-006:** Unknown, stale, contradictory, malformed, unoffered, mismatched, or late decision inputs MUST fail closed.
 - **UR-CTL-007:** Operator pause, game pause, and dispatcher ownership MUST be separately persisted.
 - **UR-CTL-008:** Framework and legacy controllers MUST never hold concurrent write authority.
-- **UR-CTL-009:** Runs MUST be able to declare fair mode (no debug cheating): the dispatcher MUST refuse `dev.*` methods and save/load calls before any bridge invocation; refusals MUST be logged and visible in decision records.
+- **UR-CTL-009:** Runs MUST be able to declare fair mode (no debug cheating): the dispatcher MUST refuse `dev.*` methods and save/load calls before any bridge invocation; refusals MUST be logged and visible in decision records. Fair mode MUST also disable the in-game dev/debug UI (`Prefs.DevMode`, god mode) for the run duration and restore the player's prior setting on exit.
 
 ## Runtime and recovery
 

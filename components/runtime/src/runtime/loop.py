@@ -151,6 +151,21 @@ def run_loop(dispatcher: Dispatcher, game, *, iterations: int = 5,
             "outcomes": outcomes, "tick": tick}
 
 
+def _dev_off(game) -> dict:
+    """--fair: hide the in-game dev UI for the run (UR-CTL-009). Returns
+    prior {dev_mode, god_mode} so the caller can restore on exit."""
+    prev = {}
+    try:
+        st = game.rpc("game.status")
+        res = st.get("result") if st.get("ok") else {}
+        prev = {"dev_mode": res.get("dev_mode", True),
+                "god_mode": res.get("god_mode", False)}
+        game.rpc("game.dev_mode", {"enabled": False, "god": False})
+    except Exception:
+        pass
+    return prev
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="runtime.loop", description=__doc__)
     p.add_argument("--pack", default="core-survival-v0")
@@ -206,6 +221,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.ledger:
         from .tasks import TaskLedger
         ledger = TaskLedger()
+    dev_prev: dict = {}
     try:
         if args.mode == "sim":
             # the dispatcher's writer target IS the SimGame (single writer must
@@ -219,6 +235,8 @@ def main(argv: list[str] | None = None) -> int:
                               sink=sink)
         elif args.mode == "start":
             game = BridgeClient(args.bridge)
+            if args.fair:
+                dev_prev = _dev_off(game)
             dispatcher = Dispatcher(game, fair=args.fair)
             dispatcher.load_pack(args.pack)
             from .startmode import run_start
@@ -231,6 +249,8 @@ def main(argv: list[str] | None = None) -> int:
                                      # prior speed/pause restored on exit
         elif args.mode == "combat":
             game = BridgeClient(args.bridge)
+            if args.fair:
+                dev_prev = _dev_off(game)
             dispatcher = Dispatcher(game, fair=args.fair)
             dispatcher.load_pack(args.pack)
             from .combatmode import run_combat
@@ -242,6 +262,8 @@ def main(argv: list[str] | None = None) -> int:
                 sink=sink, speed=3)
         elif args.mode == "cycle":
             game = BridgeClient(args.bridge)
+            if args.fair:
+                dev_prev = _dev_off(game)
             dispatcher = Dispatcher(game, fair=args.fair)
             dispatcher.load_pack(args.pack)
             from .cycle import run_cycle
@@ -259,6 +281,8 @@ def main(argv: list[str] | None = None) -> int:
                 iterations=args.iterations, sink=sink, feed=feed)
         else:
             game = BridgeClient(args.bridge)
+            if args.fair:
+                dev_prev = _dev_off(game)
             dispatcher = Dispatcher(game, fair=args.fair)
             dispatcher.load_pack(args.pack)
             result = run_loop(dispatcher, game, iterations=args.iterations,
@@ -272,6 +296,14 @@ def main(argv: list[str] | None = None) -> int:
             "code": "loop.crashed", "message": str(exc),
             "retryable": False}}))
         return 1
+    finally:
+        if dev_prev:  # restore the player's dev-mode preference
+            try:
+                BridgeClient(args.bridge).rpc("game.dev_mode", {
+                    "enabled": dev_prev.get("dev_mode", True),
+                    "god": dev_prev.get("god_mode", False)})
+            except Exception:
+                pass
 
 
 if __name__ == "__main__":
