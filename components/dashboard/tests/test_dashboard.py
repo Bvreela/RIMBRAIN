@@ -100,3 +100,24 @@ def test_probe_unknown_endpoint(server):
     base, _ = server
     r = _send(base, "/api/probe/ghost", "POST")
     assert not r["ok"] and r["error"]["code"] == "registry.endpoint.missing"
+
+
+def test_overlay_load_view(tmp_path):
+    """Overlay reads canonical view records; torn/missing -> empty."""
+    sys.path.insert(0, str(REPO_ROOT / "components" / "dashboard" / "src"))
+    from dashboard.overlay import load_view  # noqa: E402
+
+    planning, decisions = load_view(tmp_path)
+    assert planning == {} and decisions == []
+
+    (tmp_path / "planning.json").write_text(json.dumps(
+        {"mode": "start", "tick": 1, "goals": [{"id": "beds"}]}))
+    (tmp_path / "decisions.jsonl").write_text(
+        '{"tick":1,"source":"r","template":"t","params":{},"ok":true}\n'
+        '{"tick":2,"source":"r","template":"t","params":{},"ok":false}\n')
+    planning, decisions = load_view(tmp_path)
+    assert planning["mode"] == "start"
+    assert [d["tick"] for d in decisions] == [1, 2]
+
+    (tmp_path / "decisions.jsonl").write_text('{"torn":\n')
+    assert load_view(tmp_path)[1] == []
