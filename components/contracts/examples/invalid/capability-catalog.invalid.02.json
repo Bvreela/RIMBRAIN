@@ -1,0 +1,12 @@
+{
+  "catalog_version": "0.1.0",
+  "domains": ["construction"],
+  "entries": [
+    {
+      "id": "build-one",
+      "kind": "template",
+      "status": "maybe",
+      "domains": ["construction"]
+    }
+  ]
+}

@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rimbrainagent.dev/schemas/rimbrain/capability-catalog.schema.json",
+  "title": "rimbrain/capability-catalog",
+  "description": "Capability catalog contract (feature 014; FR-1201/1202, UR-BRN-015..017): versioned, auditable inventory of every capability the engine exposes or knows it lacks. Data about what the engine CAN do — policy fields (when/why/thresholds/priorities) are forbidden; how capabilities are used lives in packs only.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "catalog_version",
+    "domains",
+    "entries"
+  ],
+  "properties": {
+    "catalog_version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "domains": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_]{0,63}$"
+      },
+      "description": "Mechanic domains (construction, combat, work_jobs...) — coverage is reported per domain."
+    },
+    "entries": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "kind",
+          "status",
+          "domains"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "template",
+              "fn",
+              "selector",
+              "capability"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "implemented",
+              "gap"
+            ],
+            "description": "implemented = registry-backed primitive; gap = known mechanic/bridge surface with no primitive yet."
+          },
+          "bridge_methods": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_]*\\.[a-z0-9_.]+$"
+            }
+          },
+          "domains": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_]{0,63}$"
+            }
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Authoritative citations (wiki URLs, baseline doc paths, live-test event ids)."
+          },
+          "notes": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

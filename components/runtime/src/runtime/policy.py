@@ -199,7 +199,8 @@ class Ctx:
     per-run mutable state (cooldowns/trends/caches), vars, tick."""
 
     def __init__(self, cfg=None, obs=None, game=None, state=None,
-                 vars=None, persist=None, tick=0, poll=None):
+                 vars=None, persist=None, tick=0, poll=None,
+                 decisions=None):
         self.cfg = cfg or {}
         self.obs = obs or {}
         self.game = game
@@ -208,6 +209,9 @@ class Ctx:
         self.persist = persist if persist is not None else {}
         self.tick = tick
         self.poll = poll if poll is not None else tick
+        # transparency: callers pass a list to collect per-poll dispatch
+        # rows {tick, poll, source, template, params, ok} (UR-VIEW-002)
+        self.decisions = decisions
         # cooldowns key on the poll counter, not game ticks — game speed
         # changes tick deltas
         self.cache: dict = {}
@@ -921,7 +925,15 @@ def _cooldown_set(ctx, key) -> None:
     ctx.state.setdefault("cooldowns", {})[key] = ctx.poll
 
 
-def run_steps(steps, dispatcher, ctx) -> dict:
+def _record(ctx, source, template, params, ok):
+    """Append a Quick-Action Matrix row to the ctx decision sink."""
+    if ctx.decisions is not None:
+        ctx.decisions.append({"tick": ctx.tick, "poll": ctx.poll,
+                              "source": source, "template": template,
+                              "params": params, "ok": bool(ok)})
+
+
+def run_steps(steps, dispatcher, ctx, source="steps") -> dict:
     """Execute a step list through the single dispatcher.
 
     Step fields: template (required), params, when (predicate), needs
@@ -971,6 +983,7 @@ def run_steps(steps, dispatcher, ctx) -> dict:
                     _cooldown_set(ctx, cd_key)
                 results.append({"template": st["template"],
                                 "params": params, "ok": ok})
+                _record(ctx, source, st["template"], params, ok)
                 if not ok and not st.get("optional"):
                     return {"ok": False,
                             "error": r.get("error") or {
@@ -981,7 +994,7 @@ def run_steps(steps, dispatcher, ctx) -> dict:
     return {"ok": True, "results": results}
 
 
-def run_rules(rules, dispatcher, ctx) -> list[dict]:
+def run_rules(rules, dispatcher, ctx, source="rules") -> list[dict]:
     """Evaluate pack invariant rules for this poll. Each rule:
     {id, for_each?, when?, cooldown: {polls, key?}, try: [alternatives]}.
     First `try` alternative whose `when`+`needs` pass gets dispatched;
@@ -1019,6 +1032,8 @@ def run_rules(rules, dispatcher, ctx) -> list[dict]:
                 fired.append({"rule": rid, "template": alt["template"],
                               "ok": bool(r.get("ok")),
                               "params": params})
+                _record(ctx, f"{source}:{rid}", alt["template"],
+                        params, r.get("ok"))
                 break
     return fired
 

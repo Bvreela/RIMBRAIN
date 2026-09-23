@@ -13,10 +13,12 @@ from . import policy
 
 def apply_rules(dispatcher, game, obs, pack: dict, state: dict, *,
                 tick: int = 0, poll: int | None = None,
-                vars: dict | None = None) -> list[dict]:
+                vars: dict | None = None,
+                decisions: list | None = None) -> list[dict]:
     """Run the pack's universal rules for this poll. Returns the fired
     dispatches (rule id, template, ok, params) for evidence."""
     rules = ((pack or {}).get("universal") or {}).get("rules") or []
     ctx = policy.Ctx(cfg=pack, obs=obs, game=game, state=state,
-                     persist=dict(vars or {}), tick=tick, poll=poll)
-    return policy.run_rules(rules, dispatcher, ctx)
+                     persist=dict(vars or {}), tick=tick, poll=poll,
+                     decisions=decisions)
+    return policy.run_rules(rules, dispatcher, ctx, source="rule")

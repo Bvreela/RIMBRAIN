@@ -21,7 +21,7 @@ from pathlib import Path
 
 from .planloop import observe
 from .startmode import wire_sink
-from . import policy
+from . import policy, views
 
 
 def _hostiles(game) -> list[dict]:
@@ -128,6 +128,8 @@ def run_combat(dispatcher, game, ledger, pack: dict, *,
 
     rounds = int(cfg.get("rounds", 1))
     engage = cfg.get("engage") or {}
+    decisions: list = []
+    state_dir = Path(getattr(ledger, "_path", "tasks.jsonl")).parent
     budget = int(engage.get("tick_budget", 12000))
     spawn_grace = int(engage.get("spawn_grace_ticks", 3000))
     uni_rules = ((pack.get("universal") or {}).get("rules") or []) \
@@ -138,18 +140,32 @@ def run_combat(dispatcher, game, ledger, pack: dict, *,
     wire_sink(dispatcher, sink)
     out = {"ok": True, "rounds": [], "spawned": 0, "cleared": 0,
            "casualties": 0, "ticks": 0}
+    cursor = [0]  # decisions.jsonl flush position across the whole run
+
+    def _flush(obs, poll=0):
+        views.write_views(
+            state_dir,
+            views.combat_snapshot(pack, obs, out["rounds"], poll),
+            decisions[cursor[0]:])
+        cursor[0] = len(decisions)
+
     try:
         obs = observe(game)
         ctx = policy.Ctx(cfg=pack, obs=obs, game=game, state=uni_state,
-                         tick=obs.get("tick") or 0)
-        policy.run_steps(cfg.get("setup"), dispatcher, ctx)
+                         tick=obs.get("tick") or 0, decisions=decisions)
+        policy.run_steps(cfg.get("setup"), dispatcher, ctx,
+                         source="combat:setup")
+        _flush(obs)
         for rnd in range(rounds):
             obs = observe(game)
             base = _colonist_ids(obs)
             ctx = policy.Ctx(cfg=pack, obs=obs, game=game,
                              state=uni_state, vars={"round": rnd},
-                             tick=obs.get("tick") or 0)
-            policy.run_steps(cfg.get("spawn"), dispatcher, ctx)
+                             tick=obs.get("tick") or 0,
+                             decisions=decisions)
+            policy.run_steps(cfg.get("spawn"), dispatcher, ctx,
+                             source=f"combat:spawn:r{rnd}")
+            _flush(obs)
             round_start = obs.get("tick") or 0
             spawned_round = cleared_round = 0
             verdict = "failed"
@@ -158,7 +174,8 @@ def run_combat(dispatcher, game, ledger, pack: dict, *,
                 tick = obs.get("tick") or 0
                 ctx = policy.Ctx(cfg=pack, obs=obs, game=game,
                                  state=uni_state, vars={"round": rnd},
-                                 tick=tick, poll=i)
+                                 tick=tick, poll=i,
+                                 decisions=decisions)
                 # hostile spawns auto-pause the game (raid letters) —
                 # re-assert speed periodically or the round stalls paused
                 if speed is not None and engage.get("speed_reassert",
@@ -183,7 +200,8 @@ def run_combat(dispatcher, game, ledger, pack: dict, *,
                 if tick - round_start > budget:
                     break
                 policy.run_rules(uni_rules + engage_rules, dispatcher,
-                                 ctx)
+                                 ctx, source="combat")
+                _flush(obs, i)
                 if callable(getattr(game, "advance", None)):
                     game.advance(i)
             after = _colonist_ids(observe(game))
@@ -194,10 +212,14 @@ def run_combat(dispatcher, game, ledger, pack: dict, *,
             out["rounds"].append({"round": rnd, "verdict": verdict,
                                   "hostiles": spawned_round,
                                   "casualties": casualties})
-            ctx = policy.Ctx(cfg=pack, obs=observe(game), game=game,
+            obs = observe(game)
+            ctx = policy.Ctx(cfg=pack, obs=obs, game=game,
                              state=uni_state, vars={"round": rnd},
-                             tick=0)
-            policy.run_steps(cfg.get("cleanup"), dispatcher, ctx)
+                             tick=obs.get("tick") or 0,
+                             decisions=decisions)
+            policy.run_steps(cfg.get("cleanup"), dispatcher, ctx,
+                             source=f"combat:cleanup:r{rnd}")
+            _flush(ctx.obs)
             out["ticks"] += (ctx.obs.get("tick") or round_start) \
                 - round_start
             _wait_playing(game)

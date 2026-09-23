@@ -52,6 +52,12 @@ One round: state -> `rimbrain.plan` proposal (schema-validated JSON) -> determin
 
 `policy.py` is the sole policy interpreter — a versioned capability vocabulary (`policy_version: 1`): resolvers (`@cfg:`/`@obs:`/`@var:`/`@fn:`), predicates (`eq/gte/.../contains_any` + `all/any/not`), selectors, and a step/rule runner (`when`/`needs`/`for_each`/`try`/`cooldown_polls`/`last_ok`). All writes go through the dispatcher; unknown refs fail closed (`validate_policy` runs at pack load). `universal.py` = `apply_rules` over `pack.universal.rules[]` (idle correction, flee-chase, strip-downed — all pack-defined). `combatmode.py` executes the `pack.combat` script (setup/spawn/engage/cleanup) as data. `cycle.py` runs save→start→combat→improve iterations. Gameplay direction lives exclusively in `components/rimbrain/packs/` — see ADR-015.
 
+## Transparency views + capability catalog (features 013/014)
+
+`views.py` renders two synchronized per-poll views from canonical state: `state/planning.md`+`planning.json` (Planning & Goals — pack-ordered goals, per-goal ledger state, live exit-condition eval, blockers, latest planner summary) and `state/actions.md` (Quick-Action Matrix — trailing window of `state/decisions.jsonl` rows `{tick, poll, source, template, params, ok}` recorded by `run_steps`/`run_rules`; `source` names the pack rule/phase — the "why" trail). Rendering is fail-open; views never expose model CoT (UR-VIEW-001..004).
+
+`components/rimbrain/capability-catalog.yaml` is the versioned, wiki-cited inventory of engine capabilities (implemented primitives + declared gaps over 33 mechanic domains). `tools/capability_audit.py` diffs the baseline/live bridge surface against it — unmapped methods fail the audit; `test_capability_catalog.py` gates registry↔catalog consistency (UR-BRN-015..017).
+
 ## Self-improvement + thought feed (feature 009)
 
 `improve.py` runs bounded improvement cycles over canonical evidence (`python -m runtime loop --mode improve` — read-only, no `--live` needed): diagnose pack-declared defect patterns → propose a rules-only candidate pack → audit gates (`audit.py`: code/policy/ux, each a canonical `audit.verdict`) → weighted-score metrics validation (`metrics.py`) → promote at episode boundary only, else reject/defer with reasons. `--feed` composes with any mode to narrate every emitted event into `state/feed.md` (deterministic templates; feed failure never fatal). Brain customization is documented in `components/rimbrain/CUSTOMIZE.md`.
