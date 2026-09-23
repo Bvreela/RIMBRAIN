@@ -380,6 +380,16 @@ def _fn_loose_count(ctx):
     return len(_fn_loose_ids(ctx))
 
 
+def _fn_stack_of(ctx, thing_id=None):
+    """Stack count of a loose item — HaulToCell needs a real count or
+    RimWorld logs 'Invalid count: -1' per job."""
+    for t in _item_rows(ctx):
+        if isinstance(t, dict) and t.get("id") == thing_id:
+            c = t.get("count")
+            return int(c) if isinstance(c, (int, float)) else 1
+    return 1
+
+
 def _fn_forbidden_ids(ctx):
     forb = ctx.obs.get("forbidden") or {}
     return _fn_ids(ctx, _things(forb))
@@ -828,6 +838,7 @@ FN = {
     "find_kind": _fn_find_kind, "find_def": _fn_find_def,
     "loose_ids": _fn_loose_ids, "loose_id": _fn_loose_id,
     "loose_count": _fn_loose_count, "forbidden_ids": _fn_forbidden_ids,
+    "stack_of": _fn_stack_of,
     "blueprints": _fn_blueprints, "blueprints_pending": _fn_blueprints_pending,
     "fertile": _fn_fertile,
     "stuff": _fn_stuff, "home": _fn_home, "near_home": _fn_near_home,
