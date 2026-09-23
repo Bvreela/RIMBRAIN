@@ -244,9 +244,9 @@ def test_vitals_sample_emits_health_and_sickness_onsets():
                 return {"ok": True, "result": {"mood_avg": 40}}
             if m == "state.pawns":
                 return {"ok": True, "result": [
-                    {"id": "c0", "mood": 25, "state": "ok"},
-                    {"id": "c1", "mood": 60, "state": "downed"},
-                    {"id": "c2", "mood": None, "state": "dead"}]}
+                    {"id": "c0", "mood": 25},
+                    {"id": "c1", "mood": 60, "downed": True},
+                    {"id": "c2", "dead": True}]}
             if m == "state.pawn":
                 pid = (p or {}).get("pawn")
                 return {"ok": True, "result": {
@@ -254,12 +254,97 @@ def test_vitals_sample_emits_health_and_sickness_onsets():
             return {"ok": False}
 
     g, vstate = G(), {}
-    v, sick = sample(g, vstate, {})
+    v, evs = sample(g, vstate, {})
     assert v["mood_min"] == 25 and v["downed"] == 1 and v["dead"] == 1
-    assert sick == [{"pawn": "c0", "hediff": "Flu"}]
+    assert evs == [{"type": "colony.sickness",
+                    "payload": {"pawn": "c0", "hediff": "Flu"}}]
     # same illness next sample -> not re-emitted; a new onset is
-    v, sick = sample(g, vstate, {})
-    assert sick == [] and v["sick_now"] == 1
+    v, evs = sample(g, vstate, {})
+    assert evs == [] and v["sick_now"] == 1
     g.sick["c0"] = ["Flu", "FoodPoisoning"]
-    v, sick = sample(g, vstate, {})
-    assert sick == [{"pawn": "c0", "hediff": "FoodPoisoning"}]
+    v, evs = sample(g, vstate, {})
+    assert evs == [{"type": "colony.sickness",
+                    "payload": {"pawn": "c0", "hediff": "FoodPoisoning"}}]
+
+
+def test_vitals_dead_via_roster_delta_and_fields():
+    """Dead colonists leave FreeColonists -> absence counts as death."""
+    from runtime.vitals import sample
+
+    class G:
+        def __init__(self, pawns, letters=()):
+            self._pawns, self._letters = pawns, letters
+        def rpc(self, m, p=None):
+            if m == "state.summary":
+                return {"ok": True, "result": {
+                    "mood_avg": 40, "food_days": 0.8,
+                    "threat_points": 500, "alerts": [{"label": "Starvation"}],
+                    "key_stocks": {"MedicineIndustrial": 0},
+                    "power": {"net_gain_w": -50},
+                    "outside_storage": {"rotting": 7}}}
+            if m == "state.pawns":
+                return {"ok": True, "result": list(self._pawns)}
+            if m == "state.pawn":
+                return {"ok": True, "result": {
+                    "hediffs": [], "needs": {"Rest": 10},
+                    "break_thresholds": [35, 20, 5]}}
+            if m == "state.letters":
+                return {"ok": True, "result": list(self._letters)}
+            if m == "map.find":
+                return {"ok": True, "result": {"count": 6}}
+            return {"ok": False}
+
+    vstate = {}
+    v, evs = sample(G([{"id": "c0", "mood": 20},
+                     {"id": "c1", "mood": 30}],
+                    letters=[{"id": 7, "def": "ThreatBig",
+                              "label": "Raid", "tick": 99}]),
+                    vstate, {})
+    assert v["colonists"] == 2 and v["dead"] == 0
+    assert v["food_days"] == 0.8 and v["threat_points"] == 500
+    assert v["fires"] == 6 and v["power_net_w"] == -50
+    assert v["medicine"] == 0 and v["rotting_outside"] == 7
+    assert v["alerts"] == ["Starvation"]
+    assert v["exhausted"] == 2  # Rest 10 < NEED_LOW on both
+    assert evs == [{"type": "colony.letter", "payload": {
+        "id": 7, "def": "ThreatBig", "label": "Raid", "tick": 99}}]
+    # letter not re-emitted; c1 vanishes from roster -> dead
+    v, evs = sample(G([{"id": "c0", "mood": 20}]), vstate, {})
+    assert v["dead"] == 1 and evs == []
+
+
+def test_propose_drop_rule_reaches_emergency_and_combat(tmp_path):
+    from runtime.improve import propose
+    pack = dict(PACK, emergency=[{"id": "fire-active"},
+                                 {"id": "colonist-downed"}],
+                combat={"engage": {"rules": [{"id": "chase-fleeing"},
+                                             {"id": "draft-all"}]}})
+    findings = [{"defect_class": "fire_rampant",
+                 "affected": ["colony.vitals"],
+                 "remediation": {"ops": [
+                     {"op": "drop_rule",
+                      "ids": ["fire-active", "chase-fleeing"]}]},
+                 "count": 2, "span": {"first_seq": 1, "last_seq": 2}}]
+    out = propose(findings, pack, tmp_path)
+    cand = yaml.safe_load(out.read_text(encoding="utf-8"))
+    assert [r["id"] for r in cand["emergency"]] == ["colonist-downed"]
+    assert [r["id"] for r in cand["combat"]["engage"]["rules"]] == \
+        ["draft-all"]
+
+
+def test_ops_candidate_promotes_on_metrics_tie(tmp_path):
+    """FR-813: outcome-defect candidates can't move dispatch metrics —
+    a tie (cand <= inc) promotes instead of metrics_fail."""
+    cfg = dict(CFG)
+    cfg["defect_patterns"] = VITALS_CFG["defect_patterns"][:1]  # poor_mood
+    pack = dict(MUTABLE_PACK)
+    evs = [_vitals(tick=t, mood_min=20) for t in (1, 2, 3)] + \
+        [{"event_type": "action.issued", "sequence": 10 + i,
+          "payload": {"template_id": "good"}} for i in range(6)]
+    out = []
+    res = run_improve(None, cfg, active_pack=pack, packs_dir=tmp_path,
+                      sink=out.append, events=evs, iterations=1)
+    assert res["cycles"][0]["verdict"] == "promoted"
+    prom = [e for e in out if e["event_type"] == "improvement.promoted"]
+    assert prom and prom[0]["payload"]["metrics"]["incumbent_score"] == \
+        prom[0]["payload"]["metrics"]["candidate_score"]

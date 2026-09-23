@@ -95,6 +95,8 @@ native:
     notes: "periodic colony-health snapshot {colonists, mood_avg, mood_min, downed, dead, sick_now} - improvement-loop diagnosis input (feature 009/FR-811)"
   colony.sickness:
     notes: "new illness hediff onset on a colonist {pawn, hediff} - one per onset, diffed across vitals samples (FR-811)"
+  colony.letter:
+    notes: "new game letter observed {id, def, label, tick} - death/raid/incident backstop detection (FR-811)"
 strict_execution:
   reject:
     - legacy.unmapped

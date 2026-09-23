@@ -482,10 +482,10 @@ def _run_start(dispatcher, game, ledger, pack: dict, *,
         # FR-811: periodic colony-health vitals -> canonical events so the
         # improve loop can diagnose mood/sickness/downed/death defects.
         if vitals_every and i % vitals_every == 0:
-            v, sick = vitals.sample(game, vstate, pack.get("vitals") or {})
+            v, evs = vitals.sample(game, vstate, pack.get("vitals") or {})
             dispatcher._emit("colony.vitals", v)
-            for s in sick:
-                dispatcher._emit("colony.sickness", s)
+            for e in evs:
+                dispatcher._emit(e["type"], e["payload"])
         ledger.reconcile(obs, tick)
         dispatcher.reflex(obs)
         # pack-declared universal rules run every poll, after reflexes

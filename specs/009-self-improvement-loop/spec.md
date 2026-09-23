@@ -106,7 +106,7 @@ The loop tracks learning progress: per-episode metrics (refusal rate, verify-fai
 - **FR-808**: the improvement cycle runs unsupervised for a declared number of iterations; every cycle leaves a complete audit trail; the loop terminates cleanly on demand or exhaustion — never a runaway.
 - **FR-809**: new event types (`selfcheck.diagnosed`, `audit.verdict`, `improvement.promoted`/`improvement.rejected`, `episode.metrics`) register native in event-map + schemas + corpus.
 - **FR-810**: all invariant boundaries hold — single writer, typed proposals only, canonical records authoritative, fail-closed on missing/bad data.
-- **FR-811**: live runs emit periodic `colony.vitals` events (colonists, mood_avg, mood_min, downed, dead, sick_now) plus one `colony.sickness` event per new illness-hediff onset per pawn (diffed across samples) — outcome-level failure evidence, not just dispatch refusals.
+- **FR-811**: live runs emit periodic `colony.vitals` events (mood_min/avg, downed, dead — incl. roster-delta death detection, needs-deprivation counts, bleeding/tending, mental-state counts, food_days, medicine, power, fires, threat_points, alerts passthrough) plus `colony.sickness` per new illness-hediff onset per pawn and `colony.letter` per unseen game letter — outcome-level failure evidence, not just dispatch refusals.
 - **FR-812**: defect patterns gain a `where` predicate (`{field, op, value}` over the event) and optional `window_ticks` (e.g. 3.6M = one game year), enabling colony-health defect classes: `poor_mood` (sustained low mood), `repeat_sickness` (>1 illness per pawn-year), `multiple_downed`, `colonist_death`.
 - **FR-813**: `propose` accepts dict remediations `{ops: [...]}` — declarative mutations (`set_cfg`, `append`, `drop_template`, `drop_rule`) applied to a candidate copy. Failure definitions AND their fixes stay pack-declared; the engine applies ops mechanically. Candidates still flow through audit + metrics + episode-boundary gates unchanged.
 
@@ -117,7 +117,7 @@ The loop tracks learning progress: per-episode metrics (refusal rate, verify-fai
 - **SC-803**: a full loop run produces feed entries covering 100% of emitted decision-point events, each keyed to its event id.
 - **SC-804**: a malformed pack edit refuses with a plain-language error naming file + field; a valid edit changes behavior with no code change.
 - **SC-805**: two episodes with different outcomes produce measurably different metrics events; a better-scoring candidate beats a worse one in validation.
-- **SC-806**: planted vitals evidence (mood_min < threshold sustained, downed >= 2, dead >= 1, >=2 sickness onsets per pawn within a game year) produces the matching defect findings, and dict-remediation patterns yield candidate packs with the declared mutations applied; live runs emit `colony.vitals` events without interrupting control.
+- **SC-806**: planted vitals evidence (mood_min < threshold sustained, downed >= 2, dead >= 1, >=2 sickness onsets per pawn within a game year) produces the matching defect findings, and dict-remediation patterns yield candidate packs with the declared mutations applied (drop_rule reaches universal.rules, emergency, and combat.*.rules); live runs emit `colony.vitals` events without interrupting control.
 
 ## Constraints
 
