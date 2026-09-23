@@ -121,3 +121,24 @@ def test_overlay_load_view(tmp_path):
 
     (tmp_path / "decisions.jsonl").write_text('{"torn":\n')
     assert load_view(tmp_path)[1] == []
+
+
+def test_overlay_epoch_window_resets_on_load():
+    """Matrix resets after load-game rows and bare tick rewinds."""
+    from dashboard.overlay import epoch_window  # noqa: E402
+
+    rows = [
+        {"tick": 100, "template": "attack-target"},
+        {"tick": 200, "template": "load-game"},
+        {"tick": 90, "template": "attack-target"},
+        {"tick": 95, "template": "draft-pawn"},
+    ]
+    assert [r["tick"] for r in epoch_window(rows)] == [90, 95]
+
+    # tick rewind without a load row (external save load)
+    rows = [{"tick": 500, "template": "x"}, {"tick": 300, "template": "y"}]
+    assert [r["tick"] for r in epoch_window(rows)] == [300]
+
+    # monotone epoch -> everything shown
+    rows = [{"tick": 1, "template": "x"}, {"tick": 2, "template": "y"}]
+    assert len(epoch_window(rows)) == 2

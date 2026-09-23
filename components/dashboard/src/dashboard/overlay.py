@@ -43,6 +43,27 @@ def _fmt_params(p: dict) -> str:
     return s if len(s) <= 72 else s[:69] + "..."
 
 
+def epoch_window(rows: list[dict]) -> list[dict]:
+    """Rows since the last save-load epoch boundary.
+
+    A ``load-game`` dispatch or a tick decrease (save loaded, checkpoint
+    restored) starts a fresh epoch — earlier decisions described a world
+    that no longer exists, so the matrix resets to the current epoch.
+    ``decisions.jsonl`` itself stays append-only canonical; this is a
+    display window only."""
+    cut = 0
+    prev_tick = None
+    for i, r in enumerate(rows):
+        if r.get("template") == "load-game":
+            cut = i + 1
+        t = r.get("tick")
+        if (i >= cut and isinstance(t, int)
+                and isinstance(prev_tick, int) and t < prev_tick):
+            cut = i
+        prev_tick = t
+    return rows[cut:]
+
+
 class Overlay(tk.Tk):
     def __init__(self, state_dir: Path, interval_ms: int = 1000,
                  topmost: bool = True, alpha: float = 0.92):
@@ -57,12 +78,15 @@ class Overlay(tk.Tk):
         self.header = ttk.Label(self, font=("Consolas", 10, "bold"))
         self.header.pack(fill="x", padx=6, pady=(4, 0))
 
-        cols = ("goal", "state", "tries", "blocker")
+        cols = ("goal", "state", "tries", "success condition", "blocker")
         self.goals = ttk.Treeview(self, columns=cols, show="headings",
                                   height=8)
-        for c, w in zip(cols, (160, 90, 50, 200)):
+        widths = (110, 80, 45, 260, 140)
+        for c, w in zip(cols, widths):
             self.goals.heading(c, text=c)
-            self.goals.column(c, width=w, stretch=c == "blocker")
+            self.goals.column(c, width=w,
+                              stretch=c in ("success condition",
+                                            "blocker"))
         self.goals.pack(fill="x", padx=6, pady=2)
         self.exit_lbl = ttk.Label(self, font=("Consolas", 9))
         self.exit_lbl.pack(fill="x", padx=6)
@@ -101,6 +125,7 @@ class Overlay(tk.Tk):
         for g in p.get("goals") or []:
             self.goals.insert("", "end", values=(
                 g.get("id"), g.get("state"), g.get("attempts", 0),
+                g.get("effect") or g.get("detail") or "—",
                 g.get("blocker") or "—"))
         exits = p.get("exit_conditions") or {}
         self.exit_lbl.config(text="  ".join(
@@ -109,7 +134,7 @@ class Overlay(tk.Tk):
     def _render_actions(self, rows: list[dict]):
         self.actions.config(state="normal")
         self.actions.delete("1.0", "end")
-        for r in rows:
+        for r in epoch_window(rows):
             self.actions.insert("end", (
                 f"{r.get('tick', '?'):>7} p{r.get('poll', '?'):<3} "
                 f"{r.get('source', '?'):<24} {r.get('template', '?'):<14} "

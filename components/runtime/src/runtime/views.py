@@ -38,6 +38,14 @@ def record_decisions(path: str | Path, rows: list[dict]) -> None:
             fh.write(json.dumps(r, sort_keys=True) + "\n")
 
 
+def _brief(spec, limit: int = 72) -> str | None:
+    """One-line render of a pack spec (effect/steps) for display."""
+    if spec is None:
+        return None
+    s = json.dumps(spec, separators=(",", ":"), default=str)
+    return s if len(s) <= limit else s[:limit - 3] + "..."
+
+
 def _goal_rows(mode, ledger) -> list[dict]:
     """Ordered goals straight from the pack — the pack IS the plan."""
     rows = []
@@ -53,7 +61,8 @@ def _goal_rows(mode, ledger) -> list[dict]:
         elif state in ("dispatched", "verifying"):
             blocker = "awaiting effect"
         rows.append({"id": pid, "state": state, "blocker": blocker,
-                     "attempts": task.get("attempts", 0)})
+                     "attempts": task.get("attempts", 0),
+                     "effect": _brief(ph.get("effect"))})
     return rows
 
 
@@ -83,10 +92,11 @@ def write_planning(state_dir: str | Path, snapshot: dict) -> None:
              f"  poll: {snapshot['poll']}",
              f"pack: `{snapshot.get('pack_revision') or '?'}`", "",
              "## Goals (pack order = priority)", "",
-             "| goal | state | attempts | blocker |",
-             "|---|---|---|---|"]
+             "| goal | state | attempts | success condition | blocker |",
+             "|---|---|---|---|---|"]
     for g in snapshot["goals"]:
         lines.append(f"| {g['id']} | {g['state']} | {g['attempts']} "
+                     f"| {g.get('effect') or g.get('detail') or '—'} "
                      f"| {g.get('blocker') or '—'} |")
     lines += ["", "## Exit conditions", ""]
     conds = snapshot.get("exit_conditions") or {}
@@ -202,7 +212,9 @@ def combat_snapshot(pack, obs, rounds_out, poll) -> dict:
     for r in rounds_out:
         goals.append({"id": f"round-{r['round']}",
                       "state": r["verdict"], "blocker": None,
-                      "attempts": r.get("hostiles", 0)})
+                      "attempts": r.get("hostiles", 0),
+                      "detail": (f"hostiles {r.get('hostiles', 0)} "
+                                 f"casualties {r.get('casualties', 0)}")})
     return {"mode": "combat", "tick": obs.get("tick"), "poll": poll,
             "pack_revision": pack.get("pack_revision")
             or pack.get("revision"),
