@@ -203,6 +203,8 @@ class Dispatcher:
             r = self.bridge.rpc(template["method"], params)
             if not r.get("ok"):
                 error = r["error"]
+                if not isinstance(error, dict):  # bridge may return bare strings
+                    error = {"code": "bridge.error", "message": str(error)}
                 self._emit("action.failed", {
                     **self._payload(action_id, params, "failed", decision_id),
                     "error": {"code": error["code"],

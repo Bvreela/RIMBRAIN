@@ -49,7 +49,9 @@ def diagnose(events: list[dict], cfg: dict) -> list[dict]:
             if pat.get("match_to_state") and \
                     p.get("to_state") not in pat["match_to_state"]:
                 continue
-            key = str(_dotted(e, pat.get("group_by", "")))
+            key = str(_dotted(e, pat.get("group_by", "")) or "")
+            if not key:  # no groupable identity -> not a template defect
+                continue
             hits.setdefault(key, []).append(e)
         for key, group in hits.items():
             if len(group) >= pat.get("min_count", 2):
@@ -92,8 +94,11 @@ def propose(findings: list[dict], active_pack: dict,
                                 "retune_lease_or_effect"):
             bad = set(f["affected"])
             cand = copy.deepcopy(active_pack)
-            cand["templates"] = [t for t in cand.get("templates", [])
-                                 if t.get("id") not in bad]
+            remaining = [t for t in cand.get("templates", [])
+                         if t.get("id") not in bad]
+            if len(remaining) == len(cand.get("templates", [])):
+                continue  # quarantine removes nothing -> vacuous candidate
+            cand["templates"] = remaining
             cand["revision"] = str(cand.get("revision", "v0")) + \
                 f"+quarantine.{f['defect_class']}"
             candidates_dir = Path(candidates_dir)

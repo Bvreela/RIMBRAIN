@@ -102,6 +102,7 @@ def run_loop(dispatcher: Dispatcher, game, *, iterations: int = 5,
             break
         if isinstance(state.get("tick"), int):
             tick = state["tick"]
+            dispatcher._last_tick = tick  # evidence carries the live tick
         if ledger is not None:
             # spine: reconcile precedes attend (UR-RUN-001/003)
             outcomes.append({"iteration": i, "kind": "reconcile",
@@ -196,7 +197,8 @@ def main(argv: list[str] | None = None) -> int:
             result = run_start(
                 dispatcher, game, ledger, cfg,
                 iterations=args.iterations,
-                sink=sink)
+                sink=sink, speed=3)  # unpause so work actually lands;
+                                     # prior speed/pause restored on exit
         elif args.mode == "improve":
             # read-only over canonical evidence — no game, no writes
             from .improve import run_improve

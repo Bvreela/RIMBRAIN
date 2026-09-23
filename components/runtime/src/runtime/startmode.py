@@ -46,7 +46,14 @@ def observe_start(game, cfg: dict | None = None) -> dict:
     obs["blueprints"] = bp.get("result") if bp.get("ok") else {}
     rects = game.rpc("map.open_rects", {"w": 9, "h": 9})
     obs["open_rects"] = rects.get("result") if rects.get("ok") else []
-    # food/recreation flags from observed zones/things (cfg-declared defs)
+    # anchors + home center come from state.base when present
+    base = obs.get("base") or {}
+    if isinstance(base, dict):
+        if isinstance(base.get("anchors"), dict):
+            obs["anchors"] = dict(base["anchors"])
+        if base.get("home_center"):
+            obs["home_center"] = base["home_center"]
+    # food/recreation/bed flags from observed zones/things (cfg-declared defs)
     cfg = cfg or {}
     zones = obs.get("storage") or []
     if isinstance(zones, dict):
@@ -61,12 +68,49 @@ def observe_start(game, cfg: dict | None = None) -> dict:
             break
     obs.setdefault("recreation_present", False)
     obs["food_source_present"] = obs["zones_growing"] > 0
+    if not obs["food_source_present"]:
+        # live fallback: planted cells of the cfg crop count as a source
+        plant = (cfg.get("food", {}) or {}).get("plant")
+        if plant:
+            r = game.rpc("map.find", {"def": plant})
+            if r.get("ok") and (r.get("result") or {}).get("count", 0) > 0:
+                obs["food_source_present"] = True
+    # built beds (any bed-ish def) — rooms[].beds is a sim-only field
+    beds = 0
+    for d in ("Bed", "DoubleBed", "SleepingSpot", "DoubleSleepingSpot"):
+        r = game.rpc("map.find", {"def": d})
+        if r.get("ok"):
+            beds += int((r.get("result") or {}).get("count", 0) or 0)
+    obs["beds_in_rooms"] = beds
     return obs
 
 
 def _things(res: dict) -> list:
     t = res.get("things") if isinstance(res, dict) else None
     return t if isinstance(t, list) else []
+
+
+_BED_DEFS = ("Bed", "DoubleBed", "SleepingSpot", "DoubleSleepingSpot")
+
+
+def _bed_blueprints(obs: dict) -> int:
+    """Pending bed-ish blueprints (construction in progress counts toward
+    the quota so repeat-dispatch doesn't stack duplicates on one cell)."""
+    n = 0
+    for t in _things(obs.get("blueprints") or {}):
+        d = str(t.get("def") or "")
+        if any(b in d for b in _BED_DEFS):
+            n += 1
+    return n
+
+
+def _in_rect(pos, rect) -> bool:
+    """pos inside [x, z, w, h] — 'in storage' for the haul verifier."""
+    if not (isinstance(pos, (list, tuple)) and len(pos) >= 2
+            and isinstance(rect, (list, tuple)) and len(rect) >= 4):
+        return False
+    return rect[0] <= pos[0] < rect[0] + rect[2] \
+        and rect[1] <= pos[1] < rect[1] + rect[3]
 
 
 def rank_site(obs: dict, cfg: dict) -> dict | None:
@@ -91,7 +135,8 @@ def rank_site(obs: dict, cfg: dict) -> dict | None:
 
     def _cell(rect):
         if isinstance(rect, dict):
-            return rect.get("min") or rect.get("cell") or [0, 0]
+            return (rect.get("min") or rect.get("at")
+                    or rect.get("cell") or [0, 0])
         return rect
 
     def score(rect) -> float:
@@ -112,17 +157,50 @@ def exit_eval(obs: dict, cfg: dict, colonists: int) -> dict:
     """Per-colonist baseline check (FR-705). Returns the four condition
     booleans + complete flag. Reads normalized obs fields; missing data
     counts as not-held (fail-closed)."""
+    min_cells = int((cfg.get("shelter", {}) or {})
+                    .get("min_room_cells", 9))
+    site_rect = obs.get("site_rect")
+
+    def _xy(v):
+        return (v[0], v[1]) if isinstance(v, (list, tuple)) \
+            and len(v) >= 2 else None
+
+    def _pos(r: dict):
+        rect = r.get("rect")
+        if isinstance(rect, dict):
+            lo, hi = _xy(rect.get("min")), _xy(rect.get("max"))
+            if lo and hi:
+                return (lo, hi)
+        at = _xy(r.get("at")) or _xy(r.get("cell"))
+        return (at, at) if at else None
+
+    def _at_site(r: dict) -> bool:
+        """Room must overlap the selected site when positions are known —
+        a Tomb/ruin across the map is not shelter for our colonists."""
+        pos = _pos(r)
+        if pos is None or not (isinstance(site_rect, (list, tuple))
+                               and len(site_rect) >= 4):
+            return True  # no position evidence -> can't disprove
+        (x0, z0), (x1, z1) = pos
+        sx, sz, sw, sh = site_rect[:4]
+        return x0 < sx + sw and x1 >= sx and z0 < sz + sh and z1 >= sz
+
     rooms = obs.get("rooms") or []
     if isinstance(rooms, dict):
         rooms = rooms.get("rooms") or []
-    enclosed = sum(1 for r in rooms
-                   if isinstance(r, dict)
-                   and not (r.get("problems") or []))
+    def _usable(r) -> bool:
+        if not isinstance(r, dict) or (r.get("problems") or []):
+            return False
+        cells = r.get("cells") or r.get("free_floor")
+        if cells is None:  # sim rooms have no cells field — count them
+            return _at_site(r)
+        return int(cells) >= min_cells and not r.get("outdoors") \
+            and _at_site(r)
+    enclosed = sum(1 for r in rooms if _usable(r))
     base = obs.get("base") or {}
     if isinstance(base, dict) and base.get("rooms"):
-        brooms = [r for r in base["rooms"]
-                  if not (r.get("problems") or [])]
-        enclosed = max(enclosed, len(brooms))
+        enclosed = max(enclosed,
+                       sum(1 for r in base["rooms"] if _usable(r)))
     beds = 0
     for r in rooms:
         if isinstance(r, dict):
@@ -237,7 +315,7 @@ class StartMode:
             s = cfg.get("shelter", {})
             x, z = self.site["min"]
             w, h = s.get("room_w", 5), s.get("room_h", 5)
-            stuff = (s.get("stuff_preference") or ["Wood"])[0]
+            stuff = self._pick_stuff(obs, s.get("stuff_preference"))
             ops = [
                 {"def": s.get("wall_def", "Wall"),
                  "rect": [x, z, w, h], "stuff": stuff},
@@ -248,7 +326,7 @@ class StartMode:
                                        {"ops": ops, "stop_on_error": False})
         if phase == "roof":
             return dispatcher.dispatch("roof-rect", {
-                "designator": "Designator_Roof",
+                "designator": "Designator_AreaBuildRoof",
                 "rect": self.site["rect"]})
         if phase == "haul":
             ids = [t.get("id") for t in _things(obs.get("items") or {})
@@ -261,10 +339,13 @@ class StartMode:
         if phase == "beds":
             s = cfg.get("shelter", {})
             x, z = self.site["min"]
+            # slot = built beds + pending bed blueprints -> distinct cells
+            i = int(obs.get("beds_total", 0) or 0) \
+                + _bed_blueprints(obs)
             return dispatcher.dispatch("build-one", {
                 "def": s.get("bed_def", "Bed"),
-                "at": [x + 1, z + 1],
-                "stuff": (s.get("stuff_preference") or ["Wood"])[0]})
+                "at": [x + 1 + 2 * i, z + 1],
+                "stuff": self._pick_stuff(obs, s.get("stuff_preference"))})
         if phase == "food":
             f = cfg.get("food", {})
             x, z = self.site["min"]
@@ -275,11 +356,32 @@ class StartMode:
                 "plant": f.get("plant", "Plant_Rice")})
         if phase == "recreation":
             x, z = self.site["min"]
+            # east of the room, outside the growing zone to the west
+            at = [x + int(cfg.get("shelter", {}).get("room_w", 7)) + 1,
+                  z + 1]
             return dispatcher.dispatch("build-one", {
                 "def": (cfg.get("recreation", {}).get("defs")
                         or ["HorseshoesPin"])[0],
-                "at": [x - 1, z + 1]})
+                "at": at,
+                "stuff": self._pick_stuff(
+                    obs, cfg.get("shelter", {}).get("stuff_preference"))})
         return {"ok": False, "error": {"code": "start.unknown_phase"}}
+
+    def _pick_stuff(self, obs: dict, prefs) -> str:
+        """First preferred stuff def that's actually available — counted
+        stocks first, then loose items (fail-open to prefs[0])."""
+        prefs = prefs or ["WoodLog"]
+        stocks = obs.get("stocks") or {}
+        counted = stocks.get("counted") if isinstance(stocks, dict) else None
+        if isinstance(counted, dict):
+            for d in prefs:
+                if (counted.get(d) or 0) > 0:
+                    return d
+        loose = {str(t.get("def")) for t in _things(obs.get("items") or {})}
+        for d in prefs:
+            if d in loose:
+                return d
+        return prefs[0]
 
     # -- main step -------------------------------------------------------------
 
@@ -291,6 +393,8 @@ class StartMode:
                        len(storage) if isinstance(storage, list)
                        else len(_things(storage or {})))
         obs.setdefault("anchors", {})
+        if self.site is not None:
+            obs["site_rect"] = self.site["rect"]
         phases = BOOTSTRAP + BASELINE
         # sequential graph: current phase = first not terminal
         for phase in phases:
@@ -335,10 +439,16 @@ class StartMode:
                                 "error": res.get("error", {}).get("code")}
             if st in ("dispatched", "verifying"):
                 # repeat-dispatch phases (beds): while the effect is absent
-                # keep issuing the unit build — the verifier still decides
+                # keep issuing the unit build — the verifier still decides.
+                # Don't spam: skip while enough blueprints already cover
+                # the remaining deficit (construction takes game-time).
                 if phase in ("beds",) and \
                         self.ledger._check_effect(task, obs) is False:
-                    self._dispatch(dispatcher, phase, obs)
+                    need = int(task.get("effect", {})
+                               .get("value", 1)) \
+                        - int(obs.get("beds_total", 0) or 0)
+                    if need - _bed_blueprints(obs) > 0:
+                        self._dispatch(dispatcher, phase, obs)
                 v = self.ledger.verify(tid, obs, tick)
                 return {"phase": phase, "state": task["state"],
                         "verdict": v.get("verdict", "transitioned")}
@@ -376,10 +486,7 @@ class StartMode:
             obs["forbidden"]["count"] = len(
                 _things(obs.get("forbidden") or {}))
         elif phase == "shelter":
-            rooms = obs.get("rooms") or []
-            if isinstance(rooms, dict):
-                rooms = rooms.get("rooms") or []
-            obs["room_count"] = len(rooms)
+            obs["room_count"] = exit_eval(obs, self.cfg, 1)["enclosed_rooms"]
         elif phase == "roof":
             # roofed cells are sampled at the site corner via map.cell when
             # the game is available; absent evidence stays 0 (inconclusive
@@ -392,7 +499,23 @@ class StartMode:
                     obs["roofed_count"] = 1
         elif phase == "haul":
             obs.setdefault("items", {})
-            obs["items"]["count"] = len(_things(obs.get("items") or {}))
+            rect = (self.site or {}).get("rect")
+            loose = [t for t in _things(obs.get("items") or {})
+                     if not t.get("forbidden")
+                     and not _in_rect(t.get("pos"), rect)]
+            # an item already inside ANY zone is hauled — the site rect is
+            # not the stockpile; check real zone membership (bounded)
+            count = max(0, len(loose) - 24)
+            for t in loose[:24]:
+                pos = t.get("pos")
+                if game is None:
+                    count += 1
+                    continue
+                r = game.rpc("map.cell", {"cell": pos})
+                res = r.get("result") if r.get("ok") else None
+                if not (isinstance(res, dict) and res.get("zone")):
+                    count += 1
+            obs["items"]["count"] = count
         elif phase in BASELINE:
             flags = exit_eval(obs, self.cfg, 1)
             obs["beds_total"] = flags["beds_count"]
@@ -426,15 +549,45 @@ class StartMode:
 
 
 def run_start(dispatcher, game, ledger, cfg: dict, *,
-              iterations: int = 12, sink=None, clock=None) -> dict:
+              iterations: int = 12, sink=None, clock=None,
+              speed: int | None = None) -> dict:
     """Drive Start Mode: observe -> reconcile -> reflex -> phase step.
 
     Spine order holds (reconcile precedes attend; emergencies precede all
     start work). Returns when start.completed emits, iterations exhaust,
-    or a phase hard-fails.
+    or a phase hard-fails. `speed` sets game speed for the run (live only)
+    and restores the prior pause/speed state on exit.
     """
+    prev = None
+    if speed is not None:
+        st = game.rpc("game.status")
+        prev = st.get("result") if st.get("ok") else None
+        game.rpc("game.speed", {"speed": speed})
+    try:
+        return _run_start(dispatcher, game, ledger, cfg,
+                          iterations=iterations, sink=sink, clock=clock)
+    finally:
+        if prev is not None:
+            game.rpc("game.speed", {"speed": prev.get("speed", 0)})
+            game.rpc("game.pause", {"paused": bool(prev.get("paused", True))})
+
+
+def _run_start(dispatcher, game, ledger, cfg: dict, *,
+               iterations: int = 12, sink=None, clock=None) -> dict:
     mode = StartMode(cfg, ledger, sink=sink, clock=clock)
     outcomes = []
+    if sink is not None:
+        # start mode's actions/transitions belong in the same evidence
+        # stream as the loop's — compose only when the sink differs so a
+        # resumed run doesn't double-write
+        prev = getattr(dispatcher, "_sink", None)
+        if prev is None:
+            dispatcher._sink = ledger._sink = sink
+        elif prev is not sink:
+            def _s(env: dict) -> None:
+                prev(env)
+                sink(env)
+            dispatcher._sink = ledger._sink = _s
     seq = max(ledger._events, getattr(dispatcher, "_events", 0))
     for i in range(iterations):
         obs = observe_start(game, cfg)

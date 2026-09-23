@@ -130,12 +130,12 @@ templates:
 
   - id: roof-rect
     method: ui.designate
-    description: "Roof designation over a rect (Designator_Roof classname)."
+    description: "Roof designation over a rect (Designator_AreaBuildRoof classname)."
     params_schema:
       type: object
       required: [designator, rect]
       properties:
-        designator: {const: Designator_Roof}
+        designator: {const: Designator_AreaBuildRoof}
         rect:
           type: array
           items: {type: integer}
@@ -212,12 +212,13 @@ start:
       home_proximity: 1.0    # tiebreak: nearer home center
     anchor_name: "start.storage"
   shelter:
-    room_w: 5
-    room_h: 5
+    room_w: 7
+    room_h: 7
+    min_room_cells: 9          # artifact 1-cell 'rooms' don't count as shelter
     wall_def: Wall
     door_def: Door
     bed_def: Bed
-    stuff_preference: [Wood, Steel, BlocksGranite, BlocksLimestone]
+    stuff_preference: [WoodLog, Steel, BlocksGranite, BlocksLimestone]
     fallback_bed: SleepingSpot
   food:
     policy: growing_zone          # growing_zone | steward_stock

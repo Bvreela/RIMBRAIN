@@ -33,7 +33,7 @@ class StartSim:
     def __init__(self, established: bool = False):
         self.tick = 0
         self.colonists = 3
-        self.items = [{"id": f"item-{i}", "pos": [20 + i % 3, 20 + i // 3]}
+        self.items = [{"id": f"item-{i}", "pos": [25 + i % 3, 20 + i // 3]}
                       for i in range(6)] if not established else []
         self.forbidden = list(self.items)
         self.zones: list[dict] = []
@@ -72,6 +72,15 @@ class StartSim:
         if method == "map.find" and (params or {}).get("def") == "Fire":
             return {"ok": True, "result": {"count": 0, "things": []}}
         if method == "map.find":
+            if params.get("def") in ("Bed", "DoubleBed", "SleepingSpot",
+                                     "DoubleSleepingSpot"):
+                n = self.beds if params.get("def") == "Bed" else 0
+                return {"ok": True, "result": {
+                    "count": n, "things": [{"id": "b"}] * n}}
+            if params.get("def") == "Plant_Rice":
+                return {"ok": True, "result": {
+                    "count": 1 if self.food_source else 0,
+                    "things": []}}
             if params.get("def") in ("HorseshoesPin", "ChessTable",
                                      "Telescope"):
                 n = 1 if self.recreation else 0
@@ -122,7 +131,7 @@ class StartSim:
                 self._pending.append("unforbid")
             elif d == "haul":
                 self._pending.append("haul")
-            elif d == "Designator_Roof":
+            elif d == "Designator_AreaBuildRoof":
                 rect = params.get("rect") or [0, 0, 0, 0]
                 self._pending.append(f"roof:{rect[0]},{rect[1]}")
             return {"ok": True, "result": {"applied": True}}
