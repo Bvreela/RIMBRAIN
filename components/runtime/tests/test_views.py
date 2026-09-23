@@ -108,3 +108,15 @@ def test_matrix_window_caps(rig, tmp_path):
     md = (tmp_path / "actions.md").read_text()
     assert md.count("| rule:x |") == 10
     assert "last 10 of 40" in md
+
+
+def test_goal_rows_carry_effect(rig):
+    """Goals render the pack's declared success condition (detail)."""
+    d, game, ledger, cfg, _ev, sdir = rig
+    from runtime import views
+    from runtime.startmode import StartMode
+
+    mode = StartMode(cfg, ledger)
+    snap = views.start_snapshot(mode, ledger, {"tick": 1})
+    beds = next(g for g in snap["goals"] if g["id"] == "beds")
+    assert beds["effect"] and "beds_total" in beds["effect"]
