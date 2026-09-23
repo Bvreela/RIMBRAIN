@@ -732,13 +732,14 @@ combat:
              needs: "@fn:nth(@fn:colonist_ids(), @fn:mod(@var:index, @obs:colonists.count))",
              params: {pawn: "@fn:nth(@fn:colonist_ids(), @fn:mod(@var:index, @obs:colonists.count))",
                       target: "@var:it.id"}}
-  cleanup:
-    - {template: strip-pawn,
+  cleanup:  # best-effort: a failed strip/heal/undraft must never block
+            # checkpoint restore (load-game stays last, always runs)
+    - {template: strip-pawn, optional: true,
        when: {field: "@fn:downed_ids()", op: not_empty},
        params: {designator: strip, things: "@fn:downed_ids()"}}
-    - {for_each: colonists, template: heal-pawn,
+    - {for_each: colonists, template: heal-pawn, optional: true,
        params: {pawn: "@var:it.id"}}
-    - {for_each: colonists, template: draft-pawn,
+    - {for_each: colonists, template: draft-pawn, optional: true,
        params: {pawn: "@var:it.id", drafted: false}}
     - {template: load-game, params: {name: "@cfg:combat.checkpoint"}}
 

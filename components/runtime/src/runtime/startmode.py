@@ -19,7 +19,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from . import policy
+from . import policy, views
 from .planloop import observe
 from .store import write_atomic
 
@@ -148,6 +148,8 @@ class StartMode:
         self._rule_state: dict = {}
         self._game = None
         self._poll = 0
+        self.last_eval: dict | None = None
+        self.decisions: list | None = None  # Quick-Action Matrix sink
         self._mode_path = ledger._path.parent / "startmode.json"
         ledger._effect_eval = self._eval_effect
         if self._mode_path.is_file():
@@ -172,7 +174,7 @@ class StartMode:
     def _ctx(self, obs, tick=0) -> policy.Ctx:
         return policy.Ctx(cfg=self.pack, obs=obs, game=self._game,
                           state=self._rule_state, persist=self.vars,
-                          tick=tick)
+                          tick=tick, decisions=self.decisions)
 
     def _eval_effect(self, eff: dict, obs: dict) -> bool:
         """Ledger effect hook — evaluates the phase's pack predicate with
@@ -223,13 +225,14 @@ class StartMode:
 
     # -- main step --------------------------------------------------------------
 
-    def step(self, dispatcher, game, obs: dict, tick: int) -> dict:
+    def step(self, dispatcher, game, obs: dict, tick: int,
+             poll: int | None = None) -> dict:
         """One poll: first non-terminal phase proposes/dispatches/verifies;
         all terminal -> pack exit evaluation."""
         self._game = game
         self._poll += 1
         ctx = self._ctx(obs, tick)
-        ctx.poll = self._poll
+        ctx.poll = poll if poll is not None else self._poll
         for ph in self.cfg.get("phases") or []:
             pid = ph.get("id")
             if not pid:
@@ -274,7 +277,7 @@ class StartMode:
                     st = task["state"]
                 else:
                     res = policy.run_steps(ph.get("steps"), dispatcher,
-                                           ctx)
+                                           ctx, source=f"phase:{pid}")
                     self.ledger.mark_dispatched(
                         tid, ok=bool(res.get("ok")), tick=tick)
                     st = task["state"]
@@ -295,13 +298,15 @@ class StartMode:
                 if rep and self.ledger._check_effect(task, obs) is False \
                         and (not rep.get("while")
                              or policy.check(rep["while"], ctx)):
-                    policy.run_steps(ph.get("steps"), dispatcher, ctx)
+                    policy.run_steps(ph.get("steps"), dispatcher, ctx,
+                                     source=f"phase:{pid}")
                 v = self.ledger.verify(tid, obs, tick)
                 return {"phase": pid, "state": task["state"],
                         "verdict": v.get("verdict", "transitioned")}
             return {"phase": pid, "state": st}
         # all phases terminal: pack exit evaluation
         ev = self._exit_eval(obs, ctx)
+        self.last_eval = ev
         if ev["complete"]:
             first = not self.completed
             self.completed = True
@@ -422,7 +427,10 @@ def _run_start(dispatcher, game, ledger, pack: dict, *,
                iterations: int = 12, sink=None, clock=None,
                speed: int | None = None) -> dict:
     uni_state: dict = {}
+    decisions: list = []  # Quick-Action Matrix rows for this poll window
     mode = StartMode(pack, ledger, sink=sink, clock=clock)
+    mode.decisions = decisions
+    state_dir = ledger._path.parent
     outcomes = []
     wire_sink(dispatcher, sink)
     if sink is not None:
@@ -442,14 +450,20 @@ def _run_start(dispatcher, game, ledger, pack: dict, *,
         ledger.reconcile(obs, tick)
         dispatcher.reflex(obs)
         # pack-declared universal rules run every poll, after reflexes
+        prev = len(decisions)
         uni_ctx = policy.Ctx(cfg=pack, obs=obs, game=game,
                              state=uni_state, persist=mode.vars,
-                             tick=tick, poll=i)
+                             tick=tick, poll=i, decisions=decisions)
         policy.run_rules(
             ((pack.get("universal") or {}).get("rules") or []),
-            dispatcher, uni_ctx)
-        out = mode.step(dispatcher, game, obs, tick)
+            dispatcher, uni_ctx, source="rule")
+        out = mode.step(dispatcher, game, obs, tick, poll=i)
         outcomes.append({"iteration": i, **out})
+        views.write_views(
+            state_dir,
+            views.start_snapshot(mode, ledger, obs,
+                                 events_path=state_dir / "events.jsonl"),
+            decisions[prev:])
         if out.get("state") == "completed":
             if out.get("first"):
                 seq += 1

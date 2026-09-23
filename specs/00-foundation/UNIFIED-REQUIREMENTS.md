@@ -74,6 +74,16 @@
 - **UR-BRN-012:** Runtime code MUST provide capability primitives only — generic predicates, selectors, phase/rule/step interpreters, and action templates — sufficient to execute any pack-defined strategy. Hardcoded gameplay direction, phase orderings, thresholds, or heuristics are forbidden.
 - **UR-BRN-013:** A pack MUST be able to redefine, reorder, extend, or disable any behavior the runtime executes — including start phases, combat steps, and universal rules — without code changes.
 - **UR-BRN-014:** The pack schema MUST version the policy primitive vocabulary so packs declare compatibility against the capabilities the runtime exposes.
+- **UR-BRN-015:** The engine MUST maintain a versioned capability catalog covering every action, mechanic, and interaction exposed by the bridge and documented by authoritative sources (e.g. the RimWorld Wiki); each catalog entry MUST map to an implemented primitive or be explicitly marked a known gap.
+- **UR-BRN-016:** Capability coverage MUST be auditable: tooling MUST diff the bridge RPC surface and documented mechanic domains against the catalog and report unmapped surface; coverage gaps MUST never be silently absent.
+- **UR-BRN-017:** Capability primitives MUST remain strategy-agnostic; the catalog and primitives MUST NOT carry when/why/threshold/priority policy — how capabilities are used is pack data only.
+
+## Transparency and observability
+
+- **UR-VIEW-001:** The system MUST render a real-time Planning & Goals view showing the agent's active objectives, ordered priorities, per-goal state, exit-condition evaluation, and blockers.
+- **UR-VIEW-002:** The system MUST render a real-time Quick-Action Matrix showing every dispatched capability primitive per poll, with source (pack rule/phase), resolved parameters, and outcome.
+- **UR-VIEW-003:** Both views MUST be synchronized per poll, derived from canonical records, and traceable to the pack revision that produced the behavior.
+- **UR-VIEW-004:** Views MUST expose decision surfaces (which rule fired, which predicate gated it, what resolved) but MUST NOT expose private model chain-of-thought or secrets.
 
 ## Persistence and evidence
 

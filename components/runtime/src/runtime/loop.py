@@ -88,6 +88,11 @@ def run_loop(dispatcher: Dispatcher, game, *, iterations: int = 5,
     if ledger is not None:
         ledger._sink = _sink  # task transitions join the run event stream
     _uni_state: dict = {}
+    decisions: list = []
+    _state_dir = None
+    if ledger is not None:
+        from pathlib import Path
+        _state_dir = Path(getattr(ledger, "_path", "tasks.jsonl")).parent
     tick = 0
     for i in range(iterations):
         status = game.rpc("game.status")
@@ -117,13 +122,22 @@ def run_loop(dispatcher: Dispatcher, game, *, iterations: int = 5,
             continue
         # universal rules: pack-declared invariants before any model call
         pack = (dispatcher.pack or {}).get("pack") or {}
+        prev = len(decisions)
         if (pack.get("universal") or {}).get("rules"):
             from .universal import apply_rules
             fired = apply_rules(dispatcher, game, state, pack,
-                                _uni_state, tick=tick, poll=i)
+                                _uni_state, tick=tick, poll=i,
+                                decisions=decisions)
             if fired:
                 outcomes.append({"iteration": i, "kind": "universal.rules",
                                  "fired": len(fired)})
+        if _state_dir is not None:
+            from . import views
+            views.write_views(
+                _state_dir,
+                views.simple_snapshot("loop", state, i, pack=pack,
+                                      ledger=ledger),
+                decisions[prev:])
         answer = (decider or _sim_decider)(state, i)
         res = dispatcher.dispatch_from_decision(answer, state,
                                                 decision_id=f"dec.sim-{i:03d}")

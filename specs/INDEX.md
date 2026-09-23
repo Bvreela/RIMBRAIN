@@ -68,6 +68,11 @@ All documents created in this preparation pass are `READY` for review, not imple
 - [007 — Objective/task/lock model (lifecycle, verifier-only success, expiring locks, restart reconcile)](007-objective-task-model/spec.md) (implemented 2026-09-23; FR-601..608, SC-601..605)
 - [008 — Fresh-start mode (deterministic bootstrap graph, per-colonist exit contract, established-colony skip)](008-fresh-start-mode/spec.md) (implemented 2026-09-23; FR-701..709, SC-701..705)
 - [009 — Self-improvement loop (evidence diagnosis, audit gates, bounded promotion, thought feed, learning metrics)](009-self-improvement-loop/spec.md) (implemented 2026-09-23; FR-801..810, SC-801..805)
+- [010 — Iterated improvement cycles (save→start→combat→improve, checkpoint restore, cycle.completed)](010-iterated-cycles/spec.md) (implemented + live-verified; combat cleared real hostiles)
+- [011 — Universal pawn rules + Start Mode v2 (no idle pawns, downed/fleeing discipline, strip sweeps, arming, rice, overflow)](011-universal-pawn-rules/spec.md) (implemented + live-verified)
+- [012 — Brain policy engine (all gameplay policy in packs; generic resolver/predicate/step-rule engine; ADR-015)](012-brain-policy-engine/spec.md) (implemented + live-verified; full start mode completed on a real colony)
+- [013 — Agent transparency views (Planning & Goals + Quick-Action Matrix, per-poll decision records)](013-agent-transparency-views/spec.md) (implemented; live-verified renders)
+- [014 — Capability catalog (audited mechanic coverage over the bridge surface; wiki-cited gap inventory)](014-capability-catalog/spec.md) (implemented; audit 115/115 mapped)
 
 ## Implemented artifacts (feature 009)
 
@@ -90,6 +95,13 @@ All documents created in this preparation pass are `READY` for review, not imple
 - `components/rimbrain/packs/start-mode-v0.yaml` — full declarative policy: 13 start phases, exit conditions, universal rules, combat script; `policy_version: 1`
 - `components/contracts` — `combat.completed`, `cycle.completed` schemas; `pack.schema.json` policy sections; corpus 54/54
 - `specs/90-decisions/ADR-015-brain-policy-boundary.md` — strategy-in-packs / primitives-in-code boundary
+
+## Implemented artifacts (features 013/014)
+
+- `components/runtime/src/runtime/views.py` — Planning & Goals (`state/planning.{json,md}`) + Quick-Action Matrix (`state/actions.md`) renders; `decisions.jsonl` canonical per-poll dispatch records (fail-open, UR-VIEW-001..004)
+- `components/rimbrain/capability-catalog.yaml` — versioned audited inventory: 170 entries over 33 domains; every baseline bridge method mapped or declared `gap`; wiki-cited (UR-BRN-015..017)
+- `tools/capability_audit.py` — baseline/live bridge-surface diff vs catalog + per-domain coverage
+- `components/contracts/schemas/rimbrain/capability-catalog.schema.json` — schema forbids policy fields by construction; corpus 57/57
 
 ## Implemented artifacts (feature 008)
 
@@ -148,6 +160,7 @@ All documents created in this preparation pass are `READY` for review, not imple
 - [Initial architecture decisions](90-decisions/INITIAL-ADRS.md)
 - [ADR-013 — Bridge layer](90-decisions/ADR-013-bridge-layer.md) (zorrobyte HTTP primary, GABP diagnostics sidecar)
 - [ADR-014 — Model serving stack](90-decisions/ADR-014-model-serving-stack.md) (Laya/OpenRouter/LM Studio bindings)
+- [ADR-015 — Brain policy boundary](90-decisions/ADR-015-brain-policy-boundary.md) (gameplay policy in packs; engine exposes capability primitives only)
 - [Feature specification template](templates/FEATURE-SPEC-TEMPLATE.md)
 - [Contract template](templates/CONTRACT-TEMPLATE.md)
 - [ADR template](templates/ADR-TEMPLATE.md)
