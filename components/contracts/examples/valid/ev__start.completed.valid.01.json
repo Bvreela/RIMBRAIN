@@ -2,8 +2,9 @@
   "mode": "start",
   "colonists": 3,
   "conditions": {"shelter": true, "beds": true, "food": true,
-                 "recreation": true},
+                 "meals": true, "recreation": true},
   "phases_completed": ["site-select", "zone-create", "unforbid-all",
                        "build-shelter", "haul-all", "build-beds",
-                       "food-source", "build-recreation"]
+                       "food-source", "cook-station", "meals",
+                       "build-recreation"]
 }

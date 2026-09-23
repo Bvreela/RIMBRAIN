@@ -87,6 +87,7 @@ def run_loop(dispatcher: Dispatcher, game, *, iterations: int = 5,
     dispatcher._sink = _sink
     if ledger is not None:
         ledger._sink = _sink  # task transitions join the run event stream
+    _uni_state: dict = {}
     tick = 0
     for i in range(iterations):
         status = game.rpc("game.status")
@@ -114,6 +115,15 @@ def run_loop(dispatcher: Dispatcher, game, *, iterations: int = 5,
             if callable(getattr(game, "advance", None)):
                 game.advance(i)
             continue
+        # universal rules: pack-declared invariants before any model call
+        pack = (dispatcher.pack or {}).get("pack") or {}
+        if (pack.get("universal") or {}).get("rules"):
+            from .universal import apply_rules
+            fired = apply_rules(dispatcher, game, state, pack,
+                                _uni_state, tick=tick, poll=i)
+            if fired:
+                outcomes.append({"iteration": i, "kind": "universal.rules",
+                                 "fired": len(fired)})
         answer = (decider or _sim_decider)(state, i)
         res = dispatcher.dispatch_from_decision(answer, state,
                                                 decision_id=f"dec.sim-{i:03d}")
@@ -130,7 +140,8 @@ def run_loop(dispatcher: Dispatcher, game, *, iterations: int = 5,
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="runtime.loop", description=__doc__)
     p.add_argument("--pack", default="core-survival-v0")
-    p.add_argument("--mode", choices=["sim", "live", "start", "improve"],
+    p.add_argument("--mode", choices=["sim", "live", "start", "improve",
+                                      "combat", "cycle"],
                    default="sim")
     p.add_argument("--iterations", type=int, default=5)
     p.add_argument("--bridge", default="http://127.0.0.1:8765")
@@ -143,12 +154,14 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--feed", action="store_true",
                    help="narrate every emitted event into state/feed.md")
     args = p.parse_args(argv)
-    if args.mode == "start" and args.pack == "core-survival-v0":
+    if args.mode in ("start", "combat", "cycle") \
+            and args.pack == "core-survival-v0":
         args.pack = "start-mode-v0"  # the mode's own module
     if args.mode == "improve" and args.pack == "core-survival-v0":
         args.pack = "improve-v0"  # the mode's own module
 
-    if args.mode in ("live", "start") and not args.live:
+    if args.mode in ("live", "start", "combat", "cycle") \
+            and not args.live:
         print(json.dumps({"ok": False, "error": {
             "code": "loop.live_requires_confirmation",
             "message": f"--mode {args.mode} needs --live (operator smoke only)",
@@ -156,7 +169,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     store = None
-    if not args.no_store or args.mode == "improve":
+    if not args.no_store or args.mode in ("improve", "cycle"):
         from .store import EventStore
         store = EventStore()
     feed = None
@@ -193,12 +206,30 @@ def main(argv: list[str] | None = None) -> int:
             from .startmode import run_start
             from .tasks import TaskLedger
             ledger = ledger or TaskLedger()
-            cfg = (dispatcher.pack["pack"].get("start") or {})
             result = run_start(
-                dispatcher, game, ledger, cfg,
+                dispatcher, game, ledger, dispatcher.pack["pack"],
                 iterations=args.iterations,
                 sink=sink, speed=3)  # unpause so work actually lands;
                                      # prior speed/pause restored on exit
+        elif args.mode == "combat":
+            game = BridgeClient(args.bridge)
+            dispatcher = Dispatcher(game)
+            dispatcher.load_pack(args.pack)
+            from .combatmode import run_combat
+            from .tasks import TaskLedger
+            ledger = ledger or TaskLedger()
+            result = run_combat(
+                dispatcher, game, ledger, dispatcher.pack["pack"],
+                iterations=args.iterations,
+                sink=sink, speed=3)
+        elif args.mode == "cycle":
+            game = BridgeClient(args.bridge)
+            dispatcher = Dispatcher(game)
+            dispatcher.load_pack(args.pack)
+            from .cycle import run_cycle
+            result = run_cycle(
+                dispatcher, game, dispatcher.pack["pack"], store,
+                iterations=args.iterations, sink=sink, speed=3)
         elif args.mode == "improve":
             # read-only over canonical evidence — no game, no writes
             from .improve import run_improve

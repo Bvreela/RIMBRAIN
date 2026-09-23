@@ -42,13 +42,23 @@ def state_dir() -> Path:
 
 
 def write_atomic(path: str | Path, data: bytes) -> Path:
-    """All-or-nothing write: ``<path>.tmp`` then ``os.replace`` (SC-503)."""
+    """All-or-nothing write: ``<path>.tmp`` then ``os.replace`` (SC-503).
+    Windows AV/indexers transiently hold the target open (WinError 5) —
+    retry briefly rather than crash the loop on a phantom lock."""
+    import time
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".tmp")
     tmp.write_bytes(data)
-    os.replace(tmp, path)
-    return path
+    last = None
+    for _ in range(10):
+        try:
+            os.replace(tmp, path)
+            return path
+        except PermissionError as exc:
+            last = exc
+            time.sleep(0.1)
+    raise last
 
 
 class EventStore:

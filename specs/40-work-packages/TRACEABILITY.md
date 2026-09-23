@@ -24,6 +24,7 @@
 | UR-BRN-004..006 | Runtime, RimBrain | WP-300, WP-602 | scored freeze, proposal isolation, atomic activation/rollback |
 | UR-BRN-007..009 | RimBrain, Lab | WP-300, WP-501, WP-602 | hash/signature/trust and fixture-ratchet CI |
 | UR-BRN-010 | Runtime, Lab | WP-202, WP-602 | 100% due predictions scored/clustered without model call |
+| UR-BRN-011..014 | Runtime, RimBrain, Contracts | feature 012 (T155..T162), ADR-015 | `policy.py` engine + pack-driven start/combat/universal; pack-mutation tests (SC-1001..1003); `validate_policy` fail-closed; `policy_version` in pack schema; live: pack-driven start mode completed all exit conditions on a real colony (shelter/beds/food/meals/recreation), pack idle-rule assigned real jobs |
 | UR-DAT-001..003 | Runtime, Contracts | WP-101 | durability/torn-tail/atomic Windows tests |
 | UR-DAT-004..005 | Runtime, Lab | WP-104, WP-202, WP-500 | complete decision projection; unchosen-label check |
 | UR-DAT-006 | All | WP-002, WP-300, WP-500 | secret/path scans and malicious pack/export cases |

@@ -70,6 +70,10 @@
 - **UR-BRN-008:** Pack-provided executable code MUST NOT auto-apply.
 - **UR-BRN-009:** The fixture suite MUST be append-only by default and mandatory in release validation.
 - **UR-BRN-010:** Always-on prediction-error aggregation MUST create review obligations without requiring a model call.
+- **UR-BRN-011:** All gameplay strategy, tactics, priorities, and decision logic — start sequences, combat behavior, work scheduling, resource flow, and long-horizon planning — MUST be expressed as editable RimBrain pack data (configuration, decision matrices, or declarative policy files); it MUST NOT be embedded in source code.
+- **UR-BRN-012:** Runtime code MUST provide capability primitives only — generic predicates, selectors, phase/rule/step interpreters, and action templates — sufficient to execute any pack-defined strategy. Hardcoded gameplay direction, phase orderings, thresholds, or heuristics are forbidden.
+- **UR-BRN-013:** A pack MUST be able to redefine, reorder, extend, or disable any behavior the runtime executes — including start phases, combat steps, and universal rules — without code changes.
+- **UR-BRN-014:** The pack schema MUST version the policy primitive vocabulary so packs declare compatibility against the capabilities the runtime exposes.
 
 ## Persistence and evidence
 

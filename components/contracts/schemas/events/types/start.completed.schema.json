@@ -12,11 +12,12 @@
     "conditions": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["shelter", "beds", "food", "recreation"],
+      "required": ["shelter", "beds", "food", "meals", "recreation"],
       "properties": {
         "shelter": { "type": "boolean" },
         "beds": { "type": "boolean" },
         "food": { "type": "boolean" },
+        "meals": { "type": "boolean" },
         "recreation": { "type": "boolean" }
       }
     },
