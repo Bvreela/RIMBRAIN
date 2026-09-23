@@ -58,7 +58,18 @@ improve:
       event_type: colony.vitals
       where: {field: payload.extreme_risk, op: gte, value: 1}
       group_by: event_type
-      min_count: 2                    # mood under extreme threshold (~0.5d MTB)
+      min_count: 1                    # <5% mood -> break MTB ~0.5 days;
+                                    # waiting for a second sample is too late
+      remediation:
+        ops:
+          - {op: append, path: start.recreation.defs, value: BilliardsTable}
+          - {op: set_cfg, path: start.cooking.buffer, value: 6}
+    - id: extreme_break_alert
+      event_type: colony.vitals
+      where: {field: payload.alerts, op: contains, value: Extreme break risk}
+      group_by: event_type
+      min_count: 1                    # game's own red flag — corroborates
+                                    # extreme_risk, needs no per-pawn math
       remediation:
         ops:
           - {op: append, path: start.recreation.defs, value: BilliardsTable}
@@ -102,6 +113,17 @@ improve:
         ops:
           - {op: set_cfg, path: start.cooking.station_defs,
              value: [ElectricStove, FueledStove, Campfire]}
+    - id: starving_colonist
+      event_type: colony.vitals
+      where: {field: payload.starving, op: gte, value: 1}
+      group_by: event_type
+      min_count: 2                    # Food need <10% — between low buffer
+                                    # and Malnutrition onset
+      remediation:
+        ops:
+          - {op: set_cfg, path: start.cooking.buffer, value: 8}
+          - {op: set_cfg, path: start.food.zone_w, value: 9}
+          - {op: set_cfg, path: start.food.zone_h, value: 9}
     - id: starvation_onset
       event_type: colony.sickness
       where: {field: payload.hediff, op: eq, value: Malnutrition}
@@ -240,7 +262,8 @@ improve:
       event_type: colony.vitals
       where: {field: payload.medicine, op: lte, value: 0}
       group_by: event_type
-      min_count: 2                    # untreated infection loses the race
+      min_count: 3                    # fresh colonies legitimately start
+                                    # at zero — persistent zero is the defect
       remediation:
         ops:
           # keep medicine OUT of the overflow pile (real lever today);
@@ -266,6 +289,15 @@ improve:
           - {op: set_cfg, path: start.shelter.bed_defs,
              value: [Bed, DoubleBed, HospitalBed, SleepingSpot,
                      DoubleSleepingSpot]}
+    - id: recreation_deprivation
+      event_type: colony.vitals
+      where: {field: payload.bored, op: gte, value: 1}
+      group_by: event_type
+      min_count: 3                    # recreation<15% — the mood leak that
+                                    # ends in breaks, not just bad thoughts
+      remediation:
+        ops:
+          - {op: append, path: start.recreation.defs, value: PokerTable}
     - id: starvation_alert
       event_type: colony.vitals
       where: {field: payload.alerts, op: contains, value: Starvation}
