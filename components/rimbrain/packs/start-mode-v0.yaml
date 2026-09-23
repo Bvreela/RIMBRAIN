@@ -6,6 +6,7 @@
 schema_version: 0
 pack_id: pack.start-mode-v0
 revision: v0
+policy_version: 1
 
 templates:
   - id: set-anchor
@@ -128,6 +129,185 @@ templates:
         dry_run: {type: boolean}
     require: [def, at]
 
+  - id: add-bill
+    method: ui.add_bill
+    description: "Add a recipe bill to a work station (cook meals)."
+    params_schema:
+      type: object
+      required: [thing, recipe]
+      properties:
+        thing: {type: string}
+        recipe: {type: string}
+        mode: {enum: [RepeatCount, TargetCount, Forever]}
+        count: {type: integer}
+        radius: {type: integer}
+    require: [thing, recipe]
+
+
+  - id: equip-pawn
+    method: ui.job
+    description: "Equip a weapon on a pawn (job=Equip, target=weapon thing id)."
+    params_schema:
+      type: object
+      required: [pawn, job, target]
+      properties:
+        pawn: {type: string}
+        job: {const: Equip}
+        target: {type: string}
+    require: [pawn, job, target]
+
+  - id: wear-apparel
+    method: ui.job
+    description: "Force-wear apparel on a pawn (job=Wear, target=apparel id)."
+    params_schema:
+      type: object
+      required: [pawn, job, target]
+      properties:
+        pawn: {type: string}
+        job: {const: Wear}
+        target: {type: string}
+    require: [pawn, job, target]
+
+  - id: assign-job
+    method: ui.job
+    description: "Give an idle pawn a specific job (idle-correction fallback)."
+    params_schema:
+      type: object
+      required: [pawn, job]
+      properties:
+        pawn: {type: string}
+        job: {type: string}
+        target: {}
+        target_b: {}
+        count: {type: integer}
+        queue: {type: boolean}
+    require: [pawn, job]
+
+  - id: strip-pawn
+    method: ui.designate
+    description: "Strip a downed/dead hostile for untainted apparel and gear."
+    params_schema:
+      type: object
+      required: [designator, things]
+      properties:
+        designator: {const: strip}
+        things:
+          type: array
+          items: {type: string}
+    require: [designator, things]
+
+  - id: set-plant
+    method: ui.zone
+    description: "Set the crop on a growing zone (e.g. Plant_Rice)."
+    params_schema:
+      type: object
+      required: [action, label, plant]
+      properties:
+        action: {const: set_plant}
+        label: {type: string}
+        plant: {type: string}
+    require: [action, label, plant]
+
+  - id: edit-storage
+    method: ui.storage
+    description: "Edit a stockpile's filters/priority (reserve interior for food/medicine)."
+    params_schema:
+      type: object
+      properties:
+        zone: {type: string}
+        thing: {type: string}
+        priority: {enum: [Low, Normal, Preferred, Important, Critical]}
+        allow_all: {type: boolean}
+        disallow_all: {type: boolean}
+        allow:
+          type: array
+          items: {type: string}
+        disallow:
+          type: array
+          items: {type: string}
+    require: [zone]
+
+  - id: save-game
+    method: game.save
+    description: "Save the current game under a checkpoint name (cycle/test control)."
+    params_schema:
+      type: object
+      required: [name]
+      properties:
+        name: {type: string}
+    require: [name]
+
+  - id: load-game
+    method: game.load
+    description: "Load a saved game (async; caller polls game.status until playing)."
+    params_schema:
+      type: object
+      required: [name]
+      properties:
+        name: {type: string}
+    require: [name]
+
+  - id: spawn-incident
+    method: dev.incident
+    description: "Fire a bounded incident (RaidEnemy etc.) — combat test only."
+    params_schema:
+      type: object
+      required: [def]
+      properties:
+        def: {type: string}
+        points: {type: number}
+        faction: {type: string}
+    require: [def]
+
+  - id: spawn-hostile
+    method: dev.spawn_pawn
+    description: "Spawn a hostile pawn at a cell near the base — bounded combat test."
+    params_schema:
+      type: object
+      required: [kind, faction, cell]
+      properties:
+        kind: {type: string}
+        faction: {type: string}
+        cell:
+          type: array
+          items: {type: integer}
+          minItems: 2
+          maxItems: 2
+    require: [kind, faction, cell]
+
+  - id: draft-pawn
+    method: ui.draft
+    description: "Draft/undraft a colonist for combat defense."
+    params_schema:
+      type: object
+      required: [pawn, drafted]
+      properties:
+        pawn: {type: string}
+        drafted: {type: boolean}
+    require: [pawn, drafted]
+
+  - id: attack-target
+    method: ui.attack
+    description: "Order a drafted colonist to attack a hostile target."
+    params_schema:
+      type: object
+      required: [pawn, target]
+      properties:
+        pawn: {type: string}
+        target: {type: string}
+        melee: {type: boolean}
+    require: [pawn, target]
+
+  - id: heal-pawn
+    method: dev.heal
+    description: "Remove all injuries from a pawn (post-combat restore; assisted)."
+    params_schema:
+      type: object
+      required: [pawn]
+      properties:
+        pawn: {type: string}
+    require: [pawn]
+
   - id: roof-rect
     method: ui.designate
     description: "Roof designation over a rect (Designator_AreaBuildRoof classname)."
@@ -200,38 +380,371 @@ emergency:
       params: {pawn: "{state.first_colonist}", job: Firefight,
                target: "{state.map.fire_cell}"}
 
-# Start-mode configuration (FR-701/702/705): reviewable data.
+# ---------------------------------------------------------------------------
+# POLICY (feature 012; Constitution IX, UR-BRN-011..014): everything below is
+# gameplay strategy as data. The runtime interprets phases/rules/steps via
+# capability primitives (@fn:* resolvers, {field,op,value} predicates) and
+# never hardcodes a phase, threshold, or ordering. Edit, reorder, or delete
+# any entry — no code change needed.
+#
+# Resolver vocabulary: @cfg:path (this file), @obs:path (observation),
+# @var:name (mode vars: site, it, index, need, round), and functions:
+#   add/sub/mul/fdiv/mod/min/max, cell/rect, first/nth/count/ids,
+#   anchor(name), find_kind(kind,r), find_def(def), loose_ids/loose_id/
+#   loose_count, forbidden_ids, blueprints(defs), fertile(rect,step),
+#   stuff(prefs), home(), near_home(off), hostile_faction(), colonists(),
+#   colonist_ids(), best(skill), unarmed(), armor_ids(defs), armed_count(),
+#   weapons_avail(kinds), arm_pawn(kinds)/arm_weapon(kinds)/arm_pending(...),
+#   living_hostiles(), downed_ids(), fleeing_ids(), roofed(cell),
+#   enclosed_at(rect,min_cells), zone_named(label), rank_site(w,h,wi,wh)
+# Predicate ops: eq ne gt gte lt lte in not_in empty not_empty truthy falsy
+#   contains contains_any matches absent present + all/any/not combinators.
+# ---------------------------------------------------------------------------
+
+# Start-mode policy (FR-701..709, FR-905..908): an ordered phase list.
 start:
   site:
-    # open-rect search for the storage zone + shelter site
-    zone_w: 9
+    zone_w: 9          # storage zone footprint + open-rect search dims
     zone_h: 9
     radius: 60
-    weights:
-      items_proximity: 2.0   # prefer rects covering/near the item cluster
-      home_proximity: 1.0    # tiebreak: nearer home center
+    weights:           # rank_site scoring weights (items cluster, home)
+      items_proximity: 2.0
+      home_proximity: 1.0
     anchor_name: "start.storage"
   shelter:
     room_w: 7
     room_h: 7
-    min_room_cells: 9          # artifact 1-cell 'rooms' don't count as shelter
+    min_room_cells: 9          # artifact 1-cell 'rooms' don't count
     wall_def: Wall
     door_def: Door
     bed_def: Bed
+    bed_defs: [Bed, DoubleBed, SleepingSpot, DoubleSleepingSpot]
     stuff_preference: [WoodLog, Steel, BlocksGranite, BlocksLimestone]
-    fallback_bed: SleepingSpot
   food:
-    policy: growing_zone          # growing_zone | steward_stock
     zone_w: 7
     zone_h: 7
-    plant: Plant_Rice
-    steward_kind: foraging        # used when policy=steward_stock
-    steward_target: 10
+    plant: Plant_Rice          # fast, reliable staple for day one
+  cooking:
+    station_defs: [Campfire, FueledStove, ElectricStove]  # campfire first
+    recipe: CookMealSimple
+    bill_mode: TargetCount     # buffer above daily consumption (FR-906)
+    meals_per_day: 2           # RimWorld colonists eat ~2/day
+    buffer: 2                  # meals beyond daily need
+    meal_defs: [MealSimple, MealFine, MealLavish]
+  arm:                         # day-one arming (FR-905): skill-ranked
+    weapon_kinds:              # Equip preference order; skill picks the pawn
+      - {match: ranged, skill: Shooting,
+         defs: [Gun_Revolver, Gun_BoltActionRifle, Gun_MachinePistol,
+                Gun_Autopistol, Gun_PumpShotgun, Bow_Short, Bow_Great]}
+      - {match: melee, skill: Melee,
+         defs: [MeleeWeapon_Gladius, MeleeWeapon_Knife, MeleeWeapon_Spear,
+                MeleeWeapon_Club, MeleeWeapon_LongSword, MeleeWeapon_Axe]}
+    armor_defs: [Apparel_FlakVest, Apparel_FlakJacket, Apparel_PlateArmor,
+                 Apparel_Duster, Apparel_Jacket]
+    armored_skill: Melee       # armor goes on the front-line pawn
+  overflow:                    # second roofed stockpile (FR-908)
+    label: "start.overflow"
+    w: 6
+    h: 6
+    reserve_interior:          # categories kept OUT of overflow
+      [Foods, Medicine, Weapons, Apparel]
   recreation:
     defs: [HorseshoesPin, ChessTable, Telescope]
+  fertility:
+    sample_step: 3             # map.cell probe stride for @fn:fertile
+
+  phases:
+    - id: site
+      adopt: {site: {from_anchor: "@cfg:start.site.anchor_name"}}
+      set: {site: "@fn:rank_site(@cfg:start.site.zone_w, @cfg:start.site.zone_h, @cfg:start.site.weights.items_proximity, @cfg:start.site.weights.home_proximity)"}
+      resources: ["site:anchor"]
+      effect: {field: "@fn:anchor(@cfg:start.site.anchor_name)", op: present}
+      steps:
+        - template: set-anchor
+          when: {field: "@var:site.min", op: present}
+          params: {name: "@cfg:start.site.anchor_name",
+                   cell: "@var:site.min", rect: "@var:site.rect"}
+
+    - id: zone
+      requires: [site]
+      effect: {field: "@obs:zone_count", op: gte, value: 1}
+      steps:
+        - {template: create-stockpile,
+           params: {action: create_stockpile,
+                    label: "@cfg:start.site.anchor_name",
+                    rect: "@var:site.rect"}}
+
+    - id: unforbid
+      effect: {field: "@fn:forbidden_ids()", op: empty}
+      steps:
+        - {template: unforbid-items,
+           when: {field: "@fn:forbidden_ids()", op: not_empty},
+           params: {designator: unforbid, things: "@fn:forbidden_ids()"}}
+
+    - id: shelter
+      requires: [site]
+      lease_ticks: 12000       # real construction takes game-time, not polls
+      attempts: 8
+      effect: {field: "@fn:enclosed_at(@var:site.rect, @cfg:start.shelter.min_room_cells)",
+               op: gte, value: 1}
+      steps:
+        - template: build-layout
+          params:
+            stop_on_error: false
+            ops:
+              - {def: "@cfg:start.shelter.wall_def",
+                 rect: "@fn:rect(@var:site.min.0, @var:site.min.1, @cfg:start.shelter.room_w, @cfg:start.shelter.room_h)",
+                 stuff: "@fn:stuff(@cfg:start.shelter.stuff_preference)"}
+              - {def: "@cfg:start.shelter.door_def",
+                 at: "@fn:cell(@fn:add(@var:site.min.0, @fn:fdiv(@cfg:start.shelter.room_w, 2)), @var:site.min.1)",
+                 stuff: "@fn:stuff(@cfg:start.shelter.stuff_preference)"}
+
+    - id: roof
+      requires: [site]
+      lease_ticks: 8000
+      attempts: 5
+      effect: {field: "@fn:roofed(@var:site.min)", op: truthy}
+      steps:
+        - {template: roof-rect,
+           params: {designator: Designator_AreaBuildRoof,
+                    rect: "@var:site.rect"}}
+
+    - id: haul
+      lease_ticks: 8000
+      attempts: 6
+      effect: {field: "@fn:loose_count()", op: eq, value: 0}
+      steps:
+        - {template: haul-items,
+           when: {field: "@fn:loose_ids()", op: not_empty},
+           params: {designator: haul, things: "@fn:loose_ids()"}}
+
+    - id: arm                     # FR-905: guns->best shooters, melee->best
+      lease_ticks: 6000
+      attempts: 6
+      need: "@fn:max(1, @fn:min(@obs:colonists.count, @fn:weapons_avail(@cfg:start.arm.weapon_kinds)))"
+      effect: {field: "@fn:armed_count()", op: gte, value: "@var:need"}
+      repeat: {while: {field: "@fn:arm_pending(@cfg:start.arm.weapon_kinds, @cfg:start.arm.armor_defs)",
+                       op: truthy}}
+      steps:
+        - {template: equip-pawn, cooldown_polls: 60,
+           needs: "@fn:arm_weapon(@cfg:start.arm.weapon_kinds)",
+           params: {pawn: "@fn:arm_pawn(@cfg:start.arm.weapon_kinds)",
+                    job: Equip,
+                    target: "@fn:arm_weapon(@cfg:start.arm.weapon_kinds)"}}
+        - {template: wear-apparel, cooldown_polls: 60,
+           needs: "@fn:first(@fn:armor_ids(@cfg:start.arm.armor_defs))",
+           params: {pawn: "@fn:best(@cfg:start.arm.armored_skill)",
+                    job: Wear,
+                    target: "@fn:first(@fn:armor_ids(@cfg:start.arm.armor_defs))"}}
+
+    - id: beds
+      requires: [site]
+      lease_ticks: 12000
+      attempts: 8
+      need: "@obs:colonists.count"
+      effect: {field: "@obs:beds_total", op: gte, value: "@var:need"}
+      # re-dispatch while beds built+pending still fall short of need
+      repeat: {while: {field: "@fn:sub(@var:need, @fn:add(@obs:beds_total, @obs:bed_blueprints))",
+                       op: gt, value: 0}}
+      steps:
+        # free_cell dry-runs placement — picks a cell that actually builds,
+        # not a fixed offset that may be blocked (interaction spots etc.)
+        - {template: build-one,
+           needs: "@fn:free_cell(@cfg:start.shelter.bed_def, @var:site.rect, 1, @fn:stuff(@cfg:start.shelter.stuff_preference))",
+           params: {def: "@cfg:start.shelter.bed_def",
+                    at: "@fn:free_cell(@cfg:start.shelter.bed_def, @var:site.rect, 1, @fn:stuff(@cfg:start.shelter.stuff_preference))",
+                    stuff: "@fn:stuff(@cfg:start.shelter.stuff_preference)"}}
+
+    - id: food                    # FR-907: most fertile soil near shelter
+      requires: [site]
+      lease_ticks: 6000
+      attempts: 5
+      effect: {field: "@obs:food_source_present", op: truthy}
+      repeat: {while: {field: "@obs:food_source_present", op: falsy}}
+      steps:
+        - {template: create-growing,
+           when: {field: "@obs:zones_growing", op: eq, value: 0},
+           params: {action: create_growing, label: start.growing,
+                    rect: "@fn:fertile(@fn:rect(@fn:sub(@var:site.min.0, @cfg:start.food.zone_w, 1), @var:site.min.1, @cfg:start.food.zone_w, @cfg:start.food.zone_h), @cfg:start.fertility.sample_step)",
+                    plant: "@cfg:start.food.plant"}}
+        - {template: set-plant,
+           when: {any: [{field: "@obs:zones_growing", op: gte, value: 1},
+                        {field: "@var:last_ok", op: truthy}]},
+           params: {action: set_plant, label: start.growing,
+                    plant: "@cfg:start.food.plant"}}
+
+    - id: cookstation             # FR-906: campfire + buffered meal bill
+      requires: [site]
+      lease_ticks: 8000
+      attempts: 6
+      effect: {field: "@obs:cookstation_ready", op: truthy}
+      repeat: {while: {field: "@obs:cookstation_ready", op: falsy}}
+      steps:
+        - {template: build-one,
+           when: {all: [{field: "@obs:cookstation_ids", op: empty},
+                        {field: "@fn:blueprints(@cfg:start.cooking.station_defs)", op: eq, value: 0}]},
+           needs: "@fn:free_cell(@fn:first(@cfg:start.cooking.station_defs), @fn:rect(@fn:add(@var:site.min.0, @cfg:start.shelter.room_w, 1), @fn:add(@var:site.min.1, 1), 3, @fn:sub(@cfg:start.shelter.room_h, 2)), 0, @fn:stuff(@cfg:start.shelter.stuff_preference))",
+           params: {def: "@fn:first(@cfg:start.cooking.station_defs)",
+                    at: "@fn:free_cell(@fn:first(@cfg:start.cooking.station_defs), @fn:rect(@fn:add(@var:site.min.0, @cfg:start.shelter.room_w, 1), @fn:add(@var:site.min.1, 1), 3, @fn:sub(@cfg:start.shelter.room_h, 2)), 0, @fn:stuff(@cfg:start.shelter.stuff_preference))",
+                    stuff: "@fn:stuff(@cfg:start.shelter.stuff_preference)"}}
+        - {template: add-bill,
+           when: {all: [{field: "@obs:cookstation_ids", op: not_empty},
+                        {field: "@obs:cookbill_configured", op: falsy}]},
+           params: {thing: "@fn:first(@obs:cookstation_ids)",
+                    recipe: "@cfg:start.cooking.recipe",
+                    mode: "@cfg:start.cooking.bill_mode",
+                    count: "@fn:add(@fn:mul(@obs:colonists.count, @cfg:start.cooking.meals_per_day), @cfg:start.cooking.buffer)"}}
+
+    - id: meals                   # passive: pawns cook from the bill
+      lease_ticks: 12000          # cooking takes real game time
+      attempts: 6
+      effect: {field: "@obs:meals_present", op: truthy}
+      steps: []
+
+    - id: recreation              # beside the shelter, east of the room
+      requires: [site]
+      lease_ticks: 8000
+      attempts: 6
+      effect: {field: "@obs:recreation_present", op: truthy}
+      steps:
+        - {template: build-one,
+           when: {all: [{field: "@obs:recreation_present", op: falsy},
+                        {field: "@fn:blueprints(@cfg:start.recreation.defs)", op: eq, value: 0}]},
+           needs: "@fn:free_cell(@fn:first(@cfg:start.recreation.defs), @fn:rect(@fn:add(@var:site.min.0, @cfg:start.shelter.room_w, 1), @var:site.min.1, 3, @cfg:start.shelter.room_h), 0, @fn:stuff(@cfg:start.shelter.stuff_preference))",
+           params: {def: "@fn:first(@cfg:start.recreation.defs)",
+                    at: "@fn:free_cell(@fn:first(@cfg:start.recreation.defs), @fn:rect(@fn:add(@var:site.min.0, @cfg:start.shelter.room_w, 1), @var:site.min.1, 3, @cfg:start.shelter.room_h), 0, @fn:stuff(@cfg:start.shelter.stuff_preference))",
+                    stuff: "@fn:stuff(@cfg:start.shelter.stuff_preference)"}}
+
+    - id: overflow                # FR-908: roofed stockpile outside shelter
+      requires: [site]
+      lease_ticks: 4000
+      attempts: 4
+      effect: {field: "@fn:zone_named(@cfg:start.overflow.label)",
+               op: truthy}
+      steps:
+        - {template: create-stockpile,
+           params: {action: create_stockpile,
+                    label: "@cfg:start.overflow.label",
+                    rect: "@fn:rect(@var:site.min.0, @fn:add(@var:site.min.1, @cfg:start.shelter.room_h, 1), @cfg:start.overflow.w, @cfg:start.overflow.h)"}}
+        - {template: roof-rect,
+           when: {field: "@var:last_ok", op: truthy},
+           params: {designator: Designator_AreaBuildRoof,
+                    rect: "@fn:rect(@var:site.min.0, @fn:add(@var:site.min.1, @cfg:start.shelter.room_h, 1), @cfg:start.overflow.w, @cfg:start.overflow.h)"}}
+        - {template: edit-storage,
+           when: {field: "@var:last_ok", op: truthy},
+           params: {zone: "@cfg:start.overflow.label",
+                    disallow: "@cfg:start.overflow.reserve_interior"}}
+
   exit:
-    # all must hold for EVERY colonist before start.completed
-    shelter: {field: base.rooms_enclosed, op: gte, value: 1}
-    beds: {field: beds_in_rooms, op: gte_colonists, value: 1}
-    food: {field: food_source_present, op: eq, value: true}
-    recreation: {field: recreation_present, op: eq, value: true}
+    # every condition must hold before start.completed (FR-705); `fix`
+    # maps an unmet condition to the phase that can repair it
+    conditions:
+      shelter: {field: "@fn:enclosed_at(@var:site.rect, @cfg:start.shelter.min_room_cells)",
+                op: gte, value: 1}
+      beds: {field: "@obs:beds_total", op: gte,
+             value: "@obs:colonists.count"}
+      food: {field: "@obs:food_source_present", op: truthy}
+      meals: {field: "@obs:meals_present", op: truthy}
+      recreation: {field: "@obs:recreation_present", op: truthy}
+    fix:
+      meals:
+        - {phase: cookstation,
+           when: {field: "@obs:cookstation_ready", op: falsy}}
+        - meals
+
+# Universal rules (feature 011/012) — pack-declared invariants evaluated
+# every poll in every mode, after reflexes. Delete a rule to opt out.
+universal:
+  idle_patterns: [idle, wander, standing, wait]
+  chase_skill: Melee            # which skill picks the fleeing-chase pawn
+  rules:
+    - id: idle-work             # FR-902: no colonist stands idle
+      for_each: colonists
+      when: {field: "@var:it.job", op: contains_any,
+             values: "@cfg:universal.idle_patterns"}
+      cooldown: {polls: 20}
+      try:
+        - {template: assign-job, needs: "@fn:loose_id()",
+           params: {pawn: "@var:it.id", job: HaulToCell,
+                    target: "@fn:loose_id()",
+                    target_b: "@var:site.min"}}
+        - {template: assign-job, needs: "@fn:find_kind(tree, 60)",
+           when: {field: "@fn:blueprints_pending()", op: eq, value: 0},
+           params: {pawn: "@var:it.id", job: CutPlant,
+                    target: "@fn:find_kind(tree, 60)"}}
+        - {template: assign-job, needs: "@fn:find_kind(resource_rock, 60)",
+           when: {field: "@fn:blueprints_pending()", op: eq, value: 0},
+           params: {pawn: "@var:it.id", job: Mine,
+                    target: "@fn:find_kind(resource_rock, 60)"}}
+        - {template: assign-job,
+           params: {pawn: "@var:it.id", job: LayDown}}
+    - id: chase-fleeing         # FR-903: melee pawn runs down routers
+      for_each: fleeing_hostiles
+      cooldown: {polls: 40}
+      try:
+        - {template: attack-target, needs: "@fn:best(@cfg:universal.chase_skill)",
+           params: {pawn: "@fn:best(@cfg:universal.chase_skill)",
+                    target: "@var:it.id", melee: true}}
+    - id: strip-downed          # FR-904: untainted gear before they die
+      cooldown: {polls: 30}
+      when: {field: "@fn:downed_ids()", op: not_empty}
+      try:
+        - {template: strip-pawn,
+           params: {designator: strip, things: "@fn:downed_ids()"}}
+
+# Combat script (feature 010/012) — runs strictly after start.completed.
+# setup/spawn/cleanup are step lists; engage is a rule-loop until the
+# pack predicate holds or budgets expire.
+combat:
+  checkpoint: rimbrain-combat-checkpoint
+  prereq: start_completed       # 'none' disables the gate (tests)
+  rounds: 2
+  hostile_count: 2
+  pawn_kind: WildMan            # unarmed melee: charges, fights to the
+                              # death; ranged kinds flee and linger
+  spawn_offset: [6, 6]          # cells from home_center
+  setup:
+    - {template: save-game, params: {name: "@cfg:combat.checkpoint"}}
+  spawn:
+    - {template: spawn-hostile, times: "@cfg:combat.hostile_count",
+       params: {kind: "@cfg:combat.pawn_kind",
+                faction: "@fn:hostile_faction()",
+                cell: "@fn:near_home(@cfg:combat.spawn_offset)"}}
+  engage:
+    until: {field: "@fn:living_hostiles()", op: empty}
+    tick_budget: 24000          # fled raiders take ~10k+ ticks to exit
+    spawn_grace_ticks: 3000     # no hostiles by then -> no-spawn round
+    speed_reassert: true        # raid letters auto-pause the game
+    universal_rules: true       # chase/strip rules apply during combat
+    attack_cooldown_polls: 20
+    rules:
+      - id: draft-all
+        for_each: colonists
+        cooldown: {polls: 60}
+        try:
+          - {template: draft-pawn,
+             params: {pawn: "@var:it.id", drafted: true}}
+      - id: engage-living       # FR-903: living hostiles only — downed
+        for_each: living_hostiles   # are never valid targets
+        cooldown: {polls: "@cfg:combat.engage.attack_cooldown_polls"}
+        try:
+          - {template: attack-target,
+             needs: "@fn:nth(@fn:colonist_ids(), @fn:mod(@var:index, @obs:colonists.count))",
+             params: {pawn: "@fn:nth(@fn:colonist_ids(), @fn:mod(@var:index, @obs:colonists.count))",
+                      target: "@var:it.id"}}
+  cleanup:
+    - {template: strip-pawn,
+       when: {field: "@fn:downed_ids()", op: not_empty},
+       params: {designator: strip, things: "@fn:downed_ids()"}}
+    - {for_each: colonists, template: heal-pawn,
+       params: {pawn: "@var:it.id"}}
+    - {for_each: colonists, template: draft-pawn,
+       params: {pawn: "@var:it.id", drafted: false}}
+    - {template: load-game, params: {name: "@cfg:combat.checkpoint"}}
+
+# Save-reset improvement cycle (feature 010).
+cycle:
+  checkpoint: rimbrain-cycle
+  order: [start, combat, improve]
+  start_iterations: 2000   # construction takes game-hours at speed 3
+  combat_iterations: 2000  # enough polls to reach tick_budget live

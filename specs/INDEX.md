@@ -80,9 +80,20 @@ All documents created in this preparation pass are `READY` for review, not imple
 - Contracts: `selfcheck.diagnosed`, `audit.verdict`, `improvement.promoted`, `improvement.rejected`, `episode.metrics` schemas + event-map + corpus (50/50)
 - `loop.py` — `--mode improve` (read-only over evidence; no `--live` needed) + `--feed`
 
+## Implemented artifacts (features 010/011/012)
+
+- `components/runtime/src/runtime/policy.py` — capability-primitive policy engine: resolvers, predicates, selectors, step/rule runners, `validate_policy` (ADR-015)
+- `components/runtime/src/runtime/startmode.py` — generic phase interpreter over `pack.start.phases[]` (no gameplay policy in code)
+- `components/runtime/src/runtime/combatmode.py` — declarative `pack.combat` script executor (checkpoint, spawn, engage rules, cleanup)
+- `components/runtime/src/runtime/universal.py` — thin `apply_rules` wrapper over `pack.universal.rules[]`
+- `components/runtime/src/runtime/cycle.py` — save→start→combat→improve iterated cycles (`cycle.completed` contract)
+- `components/rimbrain/packs/start-mode-v0.yaml` — full declarative policy: 13 start phases, exit conditions, universal rules, combat script; `policy_version: 1`
+- `components/contracts` — `combat.completed`, `cycle.completed` schemas; `pack.schema.json` policy sections; corpus 54/54
+- `specs/90-decisions/ADR-015-brain-policy-boundary.md` — strategy-in-packs / primitives-in-code boundary
+
 ## Implemented artifacts (feature 008)
 
-- `components/runtime/src/runtime/startmode.py` — `StartMode` phase driver over `TaskLedger` (site ranking over `map.open_rects`, `anchor.set` persistence, per-phase effect specs, repeat-dispatch beds, established-colony skip, `exit_eval` baseline contract), `observe_start`, `run_start`
+- `components/runtime/src/runtime/startmode.py` — `StartMode` phase driver over `TaskLedger` (superseded by feature 012 pack-driven interpreter)
 - `components/rimbrain/packs/start-mode-v0.yaml` — bootstrap templates (`set-anchor`, `create-stockpile`, `create-growing`, `unforbid-all`, `haul-all`, `build-shelter`, `build-one`, `roof-rect`) + `start` config (site weights, exit defs); all methods inventory-cross-checked
 - `components/contracts/schemas/events/types/start.completed.schema.json` + event-map entry + corpus cases
 - `components/runtime/tests/test_startmode.py` — `StartSim` scripted stub; ordered trace to `start.completed`, restart resume, established-colony zero writes, partial coverage, site-ranking determinism

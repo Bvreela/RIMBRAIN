@@ -60,6 +60,9 @@ class TaskLedger:
         self._sink = sink
         self._clock = clock or (lambda: "2026-01-01T00:00:00Z")
         self._events = 0
+        # optional pack-predicate evaluator (feature 012): effects of the
+        # form {"pred": <policy predicate>} delegate to the policy engine
+        self._effect_eval = None
         self.tasks: dict[str, dict] = {}
         self.locks: dict[str, dict] = {}  # resource -> {task_id, expires_tick}
         for env in self._store.load()["events"]:
@@ -154,6 +157,9 @@ class TaskLedger:
         eff = task.get("effect")
         if not eff:
             return None
+        if isinstance(eff, dict) and "pred" in eff \
+                and self._effect_eval is not None:
+            return bool(self._effect_eval(eff, observed))
         val = _dotted(observed, eff["field"])
         if val is None:
             return None

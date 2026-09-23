@@ -1,14 +1,17 @@
-"""Start-mode driver (feature 008; FR-701..709).
+"""Start-mode interpreter (feature 008/012; FR-701..709, UR-BRN-011..013).
 
-Deterministic fresh-start bootstrap over the TaskLedger:
+The mode is a generic phase interpreter: the pack's ``start.phases[]`` is
+an ordered list of ``{id, effect, steps, requires?, need?, repeat?,
+adopt?, set?}`` objects. Phase order, effects, dispatch steps, thresholds,
+and placement arithmetic are pack data; this module only:
 
-    site -> zone -> unforbid -> shelter -> roof -> haul -> baseline loop
-    (beds / food source / recreation) -> start.completed -> disengage
+- measures the world (``observe_start`` — capability metrics),
+- proposes/locks/verifies ledger tasks per phase,
+- evaluates pack predicates/resolvers via ``policy.py``,
+- evaluates the pack's ``start.exit.conditions`` map.
 
-Every phase is a ledger task whose effect spec is verified against
-OBSERVED state (never dispatch ok). Site selection is deterministic
-scoring of map.open_rects by pack-declared weights — no model places
-structures. Engages only when the caller wires it (--mode start).
+Delete or reorder phases in the pack and behavior changes with zero code
+edits. Established colonies skip phases whose effect already holds.
 """
 
 from __future__ import annotations
@@ -16,19 +19,19 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from .dispatch import _dotted, _op_holds
+from . import policy
 from .planloop import observe
 from .store import write_atomic
 
-BOOTSTRAP = ["site", "zone", "unforbid", "shelter", "roof", "haul"]
-BASELINE = ["beds", "food", "recreation"]
+TERMINAL = ("succeeded", "failed", "expired")
 
 
 def observe_start(game, cfg: dict | None = None) -> dict:
-    """Start-mode observation: enriched state + storage/rooms/stocks/base +
-    loose+forbidden items + blueprints + open rects + food/recreation flags
-    (per pack defs). Missing rpcs degrade to empty — effect checks then read
-    as inconclusive (fail-closed)."""
+    """Observation surface for pack predicates: enriched state + storage/
+    rooms/stocks/base + loose+forbidden items + blueprints + open rects +
+    measured fields (beds, food, meals, recreation, cookstation) whose def
+    lists come from pack cfg. Missing rpcs degrade to empty — predicates
+    then read as not-held (fail-closed)."""
     obs = observe(game)
     for name, rpc in (("storage", "state.storage"),
                       ("rooms", "state.rooms"),
@@ -46,22 +49,26 @@ def observe_start(game, cfg: dict | None = None) -> dict:
     obs["blueprints"] = bp.get("result") if bp.get("ok") else {}
     rects = game.rpc("map.open_rects", {"w": 9, "h": 9})
     obs["open_rects"] = rects.get("result") if rects.get("ok") else []
-    # anchors + home center come from state.base when present
     base = obs.get("base") or {}
     if isinstance(base, dict):
         if isinstance(base.get("anchors"), dict):
             obs["anchors"] = dict(base["anchors"])
+        elif isinstance(base.get("anchors"), list):
+            obs["anchors"] = list(base["anchors"])
         if base.get("home_center"):
             obs["home_center"] = base["home_center"]
-    # food/recreation/bed flags from observed zones/things (cfg-declared defs)
-    cfg = cfg or {}
+    storage = obs.get("storage")
+    obs["zone_count"] = len(storage) if isinstance(storage, list) \
+        else len(_things(storage or {}))
     zones = obs.get("storage") or []
     if isinstance(zones, dict):
         zones = zones.get("zones") or zones.get("stockpiles") or []
     obs["zones_growing"] = sum(
         1 for z in zones if isinstance(z, dict)
         and (z.get("plant") or "grow" in str(z.get("label", "")).lower()))
-    for d in (cfg.get("recreation", {}) or {}).get("defs", ["HorseshoesPin"]):
+    cfg = cfg or {}
+    for d in (cfg.get("recreation", {}) or {}).get("defs",
+                                                  ["HorseshoesPin"]):
         r = game.rpc("map.find", {"def": d})
         if r.get("ok") and (r.get("result") or {}).get("count", 0) > 0:
             obs["recreation_present"] = True
@@ -69,183 +76,112 @@ def observe_start(game, cfg: dict | None = None) -> dict:
     obs.setdefault("recreation_present", False)
     obs["food_source_present"] = obs["zones_growing"] > 0
     if not obs["food_source_present"]:
-        # live fallback: planted cells of the cfg crop count as a source
         plant = (cfg.get("food", {}) or {}).get("plant")
         if plant:
             r = game.rpc("map.find", {"def": plant})
             if r.get("ok") and (r.get("result") or {}).get("count", 0) > 0:
                 obs["food_source_present"] = True
-    # built beds (any bed-ish def) — rooms[].beds is a sim-only field
+    bed_defs = (cfg.get("shelter", {}) or {}).get(
+        "bed_defs", ["Bed", "DoubleBed", "SleepingSpot",
+                     "DoubleSleepingSpot"])
     beds = 0
-    for d in ("Bed", "DoubleBed", "SleepingSpot", "DoubleSleepingSpot"):
+    for d in bed_defs:
         r = game.rpc("map.find", {"def": d})
         if r.get("ok"):
             beds += int((r.get("result") or {}).get("count", 0) or 0)
     obs["beds_in_rooms"] = beds
+    rooms = obs.get("rooms") or []
+    if isinstance(rooms, dict):
+        rooms = rooms.get("rooms") or []
+    obs["beds_total"] = max(
+        beds, sum(int(r.get("beds", 0) or 0) for r in rooms
+                  if isinstance(r, dict)))
+    obs["bed_blueprints"] = sum(
+        1 for t in _things(obs.get("blueprints") or {})
+        if isinstance(t, dict)
+        and any(d in str(t.get("def") or "") for d in bed_defs))
+    cook = cfg.get("cooking") or {}
+    obs["cookstation_ids"] = []
+    for d in cook.get("station_defs") or ["CookingSpot"]:
+        r = game.rpc("map.find", {"def": d})
+        if r.get("ok"):
+            obs["cookstation_ids"] += [t.get("id") for t in
+                                       _things(r.get("result") or {})
+                                       if t.get("id")]
+    obs["meals_present"] = False
+    for d in cook.get("meal_defs") or ["MealSimple"]:
+        r = game.rpc("map.find", {"def": d})
+        if r.get("ok") and (r.get("result") or {}).get("count", 0) > 0:
+            obs["meals_present"] = True
+            break
+    billed = False
+    if obs["cookstation_ids"]:
+        r = game.rpc("state.bills", {"thing": obs["cookstation_ids"][0]})
+        res = r.get("result") if r.get("ok") else None
+        bills = (res.get("bills") if isinstance(res, dict)
+                 else res if isinstance(res, list) else None) or []
+        recipe = cook.get("recipe", "CookMealSimple")
+        billed = any(recipe in str(b.get("recipe") if isinstance(b, dict)
+                                     else b) for b in bills)
+    obs["cookbill_configured"] = billed
+    obs["cookstation_ready"] = bool(obs["cookstation_ids"]) and billed
     return obs
 
 
-def _things(res: dict) -> list:
+def _things(res) -> list:
     t = res.get("things") if isinstance(res, dict) else None
     return t if isinstance(t, list) else []
 
 
-_BED_DEFS = ("Bed", "DoubleBed", "SleepingSpot", "DoubleSleepingSpot")
-
-
-def _bed_blueprints(obs: dict) -> int:
-    """Pending bed-ish blueprints (construction in progress counts toward
-    the quota so repeat-dispatch doesn't stack duplicates on one cell)."""
-    n = 0
-    for t in _things(obs.get("blueprints") or {}):
-        d = str(t.get("def") or "")
-        if any(b in d for b in _BED_DEFS):
-            n += 1
-    return n
-
-
-def _in_rect(pos, rect) -> bool:
-    """pos inside [x, z, w, h] — 'in storage' for the haul verifier."""
-    if not (isinstance(pos, (list, tuple)) and len(pos) >= 2
-            and isinstance(rect, (list, tuple)) and len(rect) >= 4):
-        return False
-    return rect[0] <= pos[0] < rect[0] + rect[2] \
-        and rect[1] <= pos[1] < rect[1] + rect[3]
-
-
-def rank_site(obs: dict, cfg: dict) -> dict | None:
-    """Score open rects by pack weights: nearer the item cluster and home
-    center wins. Deterministic — same obs => same site."""
-    rects = obs.get("open_rects") or []
-    if isinstance(rects, dict):
-        rects = rects.get("rects") or []
-    if not rects:
-        return None
-    items = _things(obs.get("items") or {})
-    if items:
-        cx = sum(t.get("pos", [0, 0])[0] for t in items) / len(items)
-        cz = sum(t.get("pos", [0, 0])[1] for t in items) / len(items)
-    else:
-        cx, cz = 0, 0
-    home = obs.get("home_center")
-    if not isinstance(home, (list, tuple)) or len(home) < 2:
-        home = [cx, cz]
-    w = cfg.get("weights") or {}
-    wi, wh = w.get("items_proximity", 2.0), w.get("home_proximity", 1.0)
-
-    def _cell(rect):
-        if isinstance(rect, dict):
-            return (rect.get("min") or rect.get("at")
-                    or rect.get("cell") or [0, 0])
-        return rect
-
-    def score(rect) -> float:
-        cell = _cell(rect)
-        x, z = cell[0], cell[1]
-        return wi * -((x - cx) ** 2 + (z - cz) ** 2) ** 0.5 \
-            + wh * -((x - home[0]) ** 2 + (z - home[1]) ** 2) ** 0.5
-
-    best = max(rects, key=score)
-    cell = _cell(best)
-    sc = cfg.get("site", {})
-    w_, h_ = sc.get("zone_w", 9), sc.get("zone_h", 9)
-    return {"min": list(cell)[:2], "rect": [cell[0], cell[1], w_, h_],
-            "score": score(best)}
-
-
-def exit_eval(obs: dict, cfg: dict, colonists: int) -> dict:
-    """Per-colonist baseline check (FR-705). Returns the four condition
-    booleans + complete flag. Reads normalized obs fields; missing data
-    counts as not-held (fail-closed)."""
-    min_cells = int((cfg.get("shelter", {}) or {})
-                    .get("min_room_cells", 9))
-    site_rect = obs.get("site_rect")
-
-    def _xy(v):
-        return (v[0], v[1]) if isinstance(v, (list, tuple)) \
-            and len(v) >= 2 else None
-
-    def _pos(r: dict):
-        rect = r.get("rect")
-        if isinstance(rect, dict):
-            lo, hi = _xy(rect.get("min")), _xy(rect.get("max"))
-            if lo and hi:
-                return (lo, hi)
-        at = _xy(r.get("at")) or _xy(r.get("cell"))
-        return (at, at) if at else None
-
-    def _at_site(r: dict) -> bool:
-        """Room must overlap the selected site when positions are known —
-        a Tomb/ruin across the map is not shelter for our colonists."""
-        pos = _pos(r)
-        if pos is None or not (isinstance(site_rect, (list, tuple))
-                               and len(site_rect) >= 4):
-            return True  # no position evidence -> can't disprove
-        (x0, z0), (x1, z1) = pos
-        sx, sz, sw, sh = site_rect[:4]
-        return x0 < sx + sw and x1 >= sx and z0 < sz + sh and z1 >= sz
-
-    rooms = obs.get("rooms") or []
-    if isinstance(rooms, dict):
-        rooms = rooms.get("rooms") or []
-    def _usable(r) -> bool:
-        if not isinstance(r, dict) or (r.get("problems") or []):
-            return False
-        cells = r.get("cells") or r.get("free_floor")
-        if cells is None:  # sim rooms have no cells field — count them
-            return _at_site(r)
-        return int(cells) >= min_cells and not r.get("outdoors") \
-            and _at_site(r)
-    enclosed = sum(1 for r in rooms if _usable(r))
-    base = obs.get("base") or {}
-    if isinstance(base, dict) and base.get("rooms"):
-        enclosed = max(enclosed,
-                       sum(1 for r in base["rooms"] if _usable(r)))
-    beds = 0
-    for r in rooms:
-        if isinstance(r, dict):
-            beds += int(r.get("beds", 0) or 0)
-    beds = max(beds, int(obs.get("beds_in_rooms", 0) or 0))
-    food = bool(obs.get("food_source_present"))
-    if not food:
-        # growing zone or planted cells or a steward stock job count
-        food = bool((obs.get("zones_growing") or 0) > 0
-                    or (obs.get("steward_food_job")))
-    rec = bool(obs.get("recreation_present"))
-    cond = {
-        "shelter": enclosed >= 1,  # a barracks counts; beds-in-room covers per-colonist
-        "beds": beds >= colonists,
-        "food": food,
-        "recreation": rec,
-    }
-    return {**cond, "complete": all(cond.values()),
-            "enclosed_rooms": enclosed, "beds_count": beds}
-
-
 class StartMode:
-    """Drives the bootstrap graph + baseline loop through the ledger."""
+    """Interprets the pack's ``start.phases`` through the ledger."""
 
-    def __init__(self, pack_cfg: dict, ledger, *,
+    def __init__(self, pack: dict, ledger, *,
                  sink=None, clock=None):
-        self.cfg = pack_cfg
+        self.pack = pack
+        self.cfg = pack.get("start") or {}
         self.ledger = ledger
         self._sink = sink
         self._clock = clock or (lambda: "2026-01-01T00:00:00Z")
         self.completed = False
+        self.vars: dict = {}
+        self._rule_state: dict = {}
+        self._game = None
+        self._poll = 0
         self._mode_path = ledger._path.parent / "startmode.json"
-        self.site: dict | None = None
+        ledger._effect_eval = self._eval_effect
         if self._mode_path.is_file():
             try:
                 saved = json.loads(self._mode_path.read_text())
-                self.site = saved.get("site")
+                self.vars = dict(saved.get("vars") or {})
+                if "site" not in self.vars and saved.get("site"):
+                    self.vars["site"] = saved["site"]  # legacy shape
                 self.completed = bool(saved.get("completed"))
             except (json.JSONDecodeError, OSError):
                 pass  # corrupt mode file -> re-derive from observation
 
+    @property
+    def site(self):
+        return self.vars.get("site")
+
     def _save_mode(self) -> None:
         write_atomic(self._mode_path, json.dumps(
-            {"site": self.site, "completed": self.completed},
+            {"vars": self.vars, "completed": self.completed},
             sort_keys=True).encode() + b"\n")
+
+    def _ctx(self, obs, tick=0) -> policy.Ctx:
+        return policy.Ctx(cfg=self.pack, obs=obs, game=self._game,
+                          state=self._rule_state, persist=self.vars,
+                          tick=tick)
+
+    def _eval_effect(self, eff: dict, obs: dict) -> bool:
+        """Ledger effect hook — evaluates the phase's pack predicate with
+        the task's frozen `need` bound."""
+        ctx = policy.Ctx(cfg=self.pack, obs=obs, game=self._game,
+                         state=self._rule_state, persist=self.vars,
+                         vars={"need": eff.get("need")},
+                         tick=obs.get("tick") or 0)
+        return bool(policy.check(eff["pred"], ctx))
 
     # -- phase plumbing --------------------------------------------------------
 
@@ -253,170 +189,77 @@ class StartMode:
         return f"start.{phase}"
 
     def _propose(self, phase: str, effect: dict, resources: list,
-                 tick: int) -> None:
+                 tick: int, ph: dict | None = None) -> None:
+        ph = ph or {}
         self.ledger.propose({
             "task_id": self._tid(phase), "kind": f"start.{phase}",
             "action": {"template_id": None, "params": {}},
             "resources": resources, "effect": effect,
-            "lease_ticks": 200, "max_attempts": 3}, tick=tick)
+            "lease_ticks": int(ph.get("lease_ticks") or 200),
+            "max_attempts": int(ph.get("attempts") or 3)}, tick=tick)
 
-    def _phase_effect(self, phase: str, obs: dict) -> dict:
-        """Effect spec for a phase, with dynamic values (beds per colonist)."""
-        eff = dict(self._effect_of(phase))
-        if phase == "beds":
-            col = obs.get("colonists")
-            eff["value"] = (col.get("count", 1)
-                            if isinstance(col, dict) else col or 1)
-        return eff
-
-    def _effect_of(self, phase: str) -> dict:
-        """Declared effect spec per phase (verified on obs, never on ok)."""
-        return {
-            "site": {"field": "anchors.start", "op": "ne", "value": None},
-            "zone": {"field": "zone_count", "op": "gte", "value": 1},
-            "unforbid": {"field": "forbidden.count", "op": "eq", "value": 0},
-            "shelter": {"field": "room_count", "op": "gte", "value": 1},
-            "roof": {"field": "roofed_count", "op": "gte", "value": 1},
-            "haul": {"field": "items.count", "op": "eq", "value": 0},
-            "beds": {"field": "beds_total", "op": "gte", "value": 1},
-            "food": {"field": "food_source_present", "op": "eq",
-                     "value": True},
-            "recreation": {"field": "recreation_present", "op": "eq",
-                           "value": True},
-        }[phase]
-
-    def _dispatch(self, dispatcher, phase: str, obs: dict) -> dict:
-        """Phase-specific write through the single writer. Params are computed
-        here from obs + pack cfg — the pack declares the template/method, the
-        mode supplies observed values."""
-        cfg = self.cfg
-        if phase == "site":
-            site = rank_site(obs, cfg.get("site", {}))
-            if site is None:
-                return {"ok": False, "error": {"code": "start.no_site"}}
-            self.site = site
+    def _apply_vars(self, ph: dict, ctx) -> None:
+        """Bind pack-declared vars: `adopt` restores persisted world state
+        (anchors) after a checkpoint reload and refreshes stale bindings —
+        the in-game anchor is truth, our mode file is only a cache. `set`
+        resolves once when the var remains unset (sticky — e.g. site
+        selection)."""
+        changed = False
+        for var, spec in (ph.get("adopt") or {}).items():
+            if isinstance(spec, dict) and spec.get("from_anchor"):
+                name = policy.resolve(spec["from_anchor"], ctx)
+                anch = policy.FN["anchor"](ctx, name) if name else None
+                if anch is not None and anch != self.vars.get(var):
+                    self.vars[var] = anch
+                    changed = True
+        for var, spec in (ph.get("set") or {}).items():
+            if self.vars.get(var) is None:
+                v = policy.resolve(spec, ctx)
+                if v is not None:
+                    self.vars[var] = v
+                    changed = True
+        if changed:
             self._save_mode()
-            return dispatcher.dispatch("set-anchor", {
-                "name": cfg["site"].get("anchor_name", "start.storage"),
-                "cell": site["min"], "rect": site["rect"]})
-        if phase == "zone":
-            return dispatcher.dispatch("create-stockpile", {
-                "action": "create_stockpile",
-                "label": cfg["site"].get("anchor_name", "start.storage"),
-                "rect": self.site["rect"]})
-        if phase == "unforbid":
-            ids = [t.get("id") for t in _things(obs.get("forbidden") or {})
-                   if t.get("id")]
-            if not ids:
-                return {"ok": True, "result": {"things": []}}
-            return dispatcher.dispatch("unforbid-items", {
-                "designator": "unforbid", "things": ids})
-        if phase == "shelter":
-            s = cfg.get("shelter", {})
-            x, z = self.site["min"]
-            w, h = s.get("room_w", 5), s.get("room_h", 5)
-            stuff = self._pick_stuff(obs, s.get("stuff_preference"))
-            ops = [
-                {"def": s.get("wall_def", "Wall"),
-                 "rect": [x, z, w, h], "stuff": stuff},
-                {"def": s.get("door_def", "Door"),
-                 "at": [x + w // 2, z], "stuff": stuff},
-            ]
-            return dispatcher.dispatch("build-layout",
-                                       {"ops": ops, "stop_on_error": False})
-        if phase == "roof":
-            return dispatcher.dispatch("roof-rect", {
-                "designator": "Designator_AreaBuildRoof",
-                "rect": self.site["rect"]})
-        if phase == "haul":
-            ids = [t.get("id") for t in _things(obs.get("items") or {})
-                   if t.get("id")]
-            if not ids:
-                return {"ok": True, "result": {"things": []}}
-            return dispatcher.dispatch("haul-items", {
-                "designator": "haul", "things": ids})
-        # baseline phases
-        if phase == "beds":
-            s = cfg.get("shelter", {})
-            x, z = self.site["min"]
-            # slot = built beds + pending bed blueprints -> distinct cells
-            i = int(obs.get("beds_total", 0) or 0) \
-                + _bed_blueprints(obs)
-            return dispatcher.dispatch("build-one", {
-                "def": s.get("bed_def", "Bed"),
-                "at": [x + 1 + 2 * i, z + 1],
-                "stuff": self._pick_stuff(obs, s.get("stuff_preference"))})
-        if phase == "food":
-            f = cfg.get("food", {})
-            x, z = self.site["min"]
-            return dispatcher.dispatch("create-growing", {
-                "action": "create_growing",
-                "rect": [x - f.get("zone_w", 7) - 1, z,
-                         f.get("zone_w", 7), f.get("zone_h", 7)],
-                "plant": f.get("plant", "Plant_Rice")})
-        if phase == "recreation":
-            x, z = self.site["min"]
-            # east of the room, outside the growing zone to the west
-            at = [x + int(cfg.get("shelter", {}).get("room_w", 7)) + 1,
-                  z + 1]
-            return dispatcher.dispatch("build-one", {
-                "def": (cfg.get("recreation", {}).get("defs")
-                        or ["HorseshoesPin"])[0],
-                "at": at,
-                "stuff": self._pick_stuff(
-                    obs, cfg.get("shelter", {}).get("stuff_preference"))})
-        return {"ok": False, "error": {"code": "start.unknown_phase"}}
 
-    def _pick_stuff(self, obs: dict, prefs) -> str:
-        """First preferred stuff def that's actually available — counted
-        stocks first, then loose items (fail-open to prefs[0])."""
-        prefs = prefs or ["WoodLog"]
-        stocks = obs.get("stocks") or {}
-        counted = stocks.get("counted") if isinstance(stocks, dict) else None
-        if isinstance(counted, dict):
-            for d in prefs:
-                if (counted.get(d) or 0) > 0:
-                    return d
-        loose = {str(t.get("def")) for t in _things(obs.get("items") or {})}
-        for d in prefs:
-            if d in loose:
-                return d
-        return prefs[0]
-
-    # -- main step -------------------------------------------------------------
+    # -- main step --------------------------------------------------------------
 
     def step(self, dispatcher, game, obs: dict, tick: int) -> dict:
-        """One poll of start-mode progression AFTER reflexes (caller order:
-        observe -> reconcile -> reflex -> step). Returns an outcome dict."""
-        storage = obs.get("storage")
-        obs.setdefault("zone_count",
-                       len(storage) if isinstance(storage, list)
-                       else len(_things(storage or {})))
-        obs.setdefault("anchors", {})
-        if self.site is not None:
-            obs["site_rect"] = self.site["rect"]
-        phases = BOOTSTRAP + BASELINE
-        # sequential graph: current phase = first not terminal
-        for phase in phases:
-            tid = self._tid(phase)
-            task = self.ledger.tasks.get(tid)
-            if task and task.get("state") in ("succeeded", "failed",
-                                              "expired"):
+        """One poll: first non-terminal phase proposes/dispatches/verifies;
+        all terminal -> pack exit evaluation."""
+        self._game = game
+        self._poll += 1
+        ctx = self._ctx(obs, tick)
+        ctx.poll = self._poll
+        for ph in self.cfg.get("phases") or []:
+            pid = ph.get("id")
+            if not pid:
                 continue
+            tid = self._tid(pid)
+            task = self.ledger.tasks.get(tid)
+            # var bindings track the world even when the phase's own task
+            # is terminal — a reloaded save or stale mode file must not
+            # leave downstream phases reading dead coordinates
+            self._apply_vars(ph, ctx)
+            if task and task.get("state") in TERMINAL:
+                continue
+            missing = [v for v in ph.get("requires") or []
+                       if self.vars.get(v) is None]
             if task is None:
-                if phase == "site" or self.site is not None:
-                    self._propose(phase, self._phase_effect(phase, obs),
-                                  ["site:anchor"] if phase == "site" else [],
-                                  tick)
-                    task = self.ledger.tasks[tid]
-                else:
-                    return {"phase": phase, "state": "blocked",
-                            "reason": "no_site"}
+                if missing:
+                    return {"phase": pid, "state": "blocked",
+                            "reason": "missing:" + ",".join(missing)}
+                need = policy.resolve(ph.get("need"), ctx) \
+                    if "need" in ph else None
+                self._propose(pid, {"pred": ph.get("effect"),
+                                    "need": need},
+                              ph.get("resources") or [], tick, ph)
+                task = self.ledger.tasks[tid]
+            ctx.vars["need"] = (task.get("effect") or {}).get("need")
             st = task["state"]
-            self._inject(obs, phase, game)
+            effect_holds = self.ledger._check_effect(task, obs) is True
             if st == "proposed":
-                # established-colony skip: effect already holds -> no write
-                if self.ledger._check_effect(task, obs) is True:
+                if effect_holds:
+                    # established-colony skip: effect already holds
                     self.ledger.acquire(tid, tick)
                     self.ledger._transition(tid, "dispatched",
                                             "skipped_effect_present", tick)
@@ -425,102 +268,88 @@ class StartMode:
                 self.ledger.acquire(tid, tick)
                 st = task["state"]
             if st == "locked":
-                if self.ledger._check_effect(task, obs) is True:
+                if effect_holds:
                     self.ledger._transition(tid, "dispatched",
                                             "skipped_effect_present", tick)
                     st = task["state"]
                 else:
-                    res = self._dispatch(dispatcher, phase, obs)
+                    res = policy.run_steps(ph.get("steps"), dispatcher,
+                                           ctx)
                     self.ledger.mark_dispatched(
                         tid, ok=bool(res.get("ok")), tick=tick)
                     st = task["state"]
                     if not res.get("ok"):
-                        return {"phase": phase, "state": st,
-                                "error": res.get("error", {}).get("code")}
+                        return {"phase": pid, "state": st,
+                                "error": (res.get("error") or {})
+                                .get("code")}
+                    # just dispatched — verify against this obs and return;
+                    # the repeat guard only fires on later polls so a
+                    # non-idempotent step isn't re-run against stale state
+                    v = self.ledger.verify(tid, obs, tick)
+                    return {"phase": pid, "state": task["state"],
+                            "verdict": v.get("verdict", "transitioned")}
             if st in ("dispatched", "verifying"):
-                # repeat-dispatch phases (beds): while the effect is absent
-                # keep issuing the unit build — the verifier still decides.
-                # Don't spam: skip while enough blueprints already cover
-                # the remaining deficit (construction takes game-time).
-                if phase in ("beds",) and \
-                        self.ledger._check_effect(task, obs) is False:
-                    need = int(task.get("effect", {})
-                               .get("value", 1)) \
-                        - int(obs.get("beds_total", 0) or 0)
-                    if need - _bed_blueprints(obs) > 0:
-                        self._dispatch(dispatcher, phase, obs)
+                # pack-declared repeat guard: keep issuing the unit work
+                # while the effect is absent and the guard holds
+                rep = ph.get("repeat") or {}
+                if rep and self.ledger._check_effect(task, obs) is False \
+                        and (not rep.get("while")
+                             or policy.check(rep["while"], ctx)):
+                    policy.run_steps(ph.get("steps"), dispatcher, ctx)
                 v = self.ledger.verify(tid, obs, tick)
-                return {"phase": phase, "state": task["state"],
+                return {"phase": pid, "state": task["state"],
                         "verdict": v.get("verdict", "transitioned")}
-            return {"phase": phase, "state": st}
-        # all phases terminal: exit evaluation
-        colonists = int(obs.get("colonists", {}).get("count", 0)
-                        if isinstance(obs.get("colonists"), dict)
-                        else obs.get("colonists") or 0)
-        ev = exit_eval(obs, self.cfg, max(colonists, 1))
-        if ev["complete"] and not self.completed:
+            return {"phase": pid, "state": st}
+        # all phases terminal: pack exit evaluation
+        ev = self._exit_eval(obs, ctx)
+        if ev["complete"]:
+            first = not self.completed
             self.completed = True
             self._save_mode()
-            return {"phase": "exit", "state": "completed", "eval": ev}
-        # unmet baseline condition -> re-propose that phase (terminal ids
-        # may be re-proposed; the new lineage restarts its attempts budget)
-        for phase, flag in (("beds", "beds"), ("food", "food"),
-                            ("recreation", "recreation")):
-            if not ev.get(flag):
-                tid = self._tid(phase)
-                if self.ledger.tasks.get(tid, {}).get("state") in \
-                        ("succeeded", "failed", "expired"):
-                    self._propose(phase, self._phase_effect(phase, obs),
-                                  [], tick)
+            return {"phase": "exit", "state": "completed", "eval": ev,
+                    "first": first}
+        # unmet condition -> re-propose a fix phase. `exit.fix` maps a
+        # condition to an ordered fallback chain of {phase, when?} (bare
+        # strings allowed); the first whose `when` holds is re-proposed.
+        fix = (self.cfg.get("exit", {}) or {}).get("fix") or {}
+        phase_ids = {ph.get("id") for ph in self.cfg.get("phases") or []}
+        for cond, held in ev["conditions"].items():
+            if held:
+                continue
+            chain = fix.get(cond, [cond])
+            if not isinstance(chain, list):
+                chain = [chain]
+            for entry in chain:
+                if isinstance(entry, dict):
+                    if entry.get("when") \
+                            and not policy.check(entry["when"], ctx):
+                        continue
+                    target = entry.get("phase")
+                else:
+                    target = entry
+                if target not in phase_ids:
+                    continue
+                tid = self._tid(target)
+                if self.ledger.tasks.get(tid, {}).get("state") in TERMINAL:
+                    ph = next(p for p in self.cfg["phases"]
+                              if p.get("id") == target)
+                    need = policy.resolve(ph.get("need"), ctx) \
+                        if "need" in ph else None
+                    self._propose(target, {"pred": ph.get("effect"),
+                                           "need": need}, [], tick, ph)
                 break
+            break
         return {"phase": "baseline", "state": "waiting", "eval": ev}
 
-    def _inject(self, obs: dict, phase: str, game=None) -> None:
-        """Normalize obs fields the effect specs read (fail-closed)."""
-        if phase == "site":
-            obs.setdefault("anchors", {})
-            if self.site is not None:
-                obs["anchors"]["start"] = self.site["min"]
-        elif phase == "unforbid":
-            obs.setdefault("forbidden", {})
-            obs["forbidden"]["count"] = len(
-                _things(obs.get("forbidden") or {}))
-        elif phase == "shelter":
-            obs["room_count"] = exit_eval(obs, self.cfg, 1)["enclosed_rooms"]
-        elif phase == "roof":
-            # roofed cells are sampled at the site corner via map.cell when
-            # the game is available; absent evidence stays 0 (inconclusive
-            # would stall forever — a missing roof read counts as unroofed)
-            obs.setdefault("roofed_count", 0)
-            if game is not None and self.site is not None:
-                r = game.rpc("map.cell", {"cell": self.site["min"]})
-                res = r.get("result") if r.get("ok") else None
-                if isinstance(res, dict) and res.get("roof"):
-                    obs["roofed_count"] = 1
-        elif phase == "haul":
-            obs.setdefault("items", {})
-            rect = (self.site or {}).get("rect")
-            loose = [t for t in _things(obs.get("items") or {})
-                     if not t.get("forbidden")
-                     and not _in_rect(t.get("pos"), rect)]
-            # an item already inside ANY zone is hauled — the site rect is
-            # not the stockpile; check real zone membership (bounded)
-            count = max(0, len(loose) - 24)
-            for t in loose[:24]:
-                pos = t.get("pos")
-                if game is None:
-                    count += 1
-                    continue
-                r = game.rpc("map.cell", {"cell": pos})
-                res = r.get("result") if r.get("ok") else None
-                if not (isinstance(res, dict) and res.get("zone")):
-                    count += 1
-            obs["items"]["count"] = count
-        elif phase in BASELINE:
-            flags = exit_eval(obs, self.cfg, 1)
-            obs["beds_total"] = flags["beds_count"]
-            obs["food_source_present"] = flags["food"]
-            obs["recreation_present"] = flags["recreation"]
+    def _exit_eval(self, obs: dict, ctx) -> dict:
+        """Evaluate the pack's start.exit.conditions map generically —
+        keys are pack-chosen names; conditions the pack doesn't declare
+        are not required."""
+        conds = (self.cfg.get("exit", {}) or {}).get("conditions") or {}
+        out = {name: bool(policy.check(pred, ctx))
+               for name, pred in conds.items()}
+        return {"conditions": out, "complete": bool(out) and all(
+            out.values())}
 
     def completed_event(self, obs: dict, ev: dict) -> dict:
         """start.completed envelope (FR-705/707)."""
@@ -540,23 +369,38 @@ class StartMode:
             "payload": {
                 "mode": "start",
                 "colonists": max(colonists, 1),
-                "conditions": {k: bool(ev[k]) for k in
-                               ("shelter", "beds", "food", "recreation")},
-                "phases_completed": BOOTSTRAP + BASELINE,
+                "conditions": {k: bool(v)
+                               for k, v in ev["conditions"].items()},
+                "phases_completed": [ph.get("id") for ph in
+                                     self.cfg.get("phases") or []],
             },
             "privacy": {"classification": "internal", "redactions": []},
         }
 
 
-def run_start(dispatcher, game, ledger, cfg: dict, *,
+def wire_sink(dispatcher, sink) -> None:
+    """Route dispatcher evidence through `sink`, composing with any prior
+    sink so resumed runs don't double-write."""
+    if sink is None:
+        return
+    prev = getattr(dispatcher, "_sink", None)
+    if prev is None or prev is sink:
+        dispatcher._sink = sink
+    else:
+        def _s(env: dict) -> None:
+            prev(env)
+            sink(env)
+        dispatcher._sink = _s
+
+
+def run_start(dispatcher, game, ledger, pack: dict, *,
               iterations: int = 12, sink=None, clock=None,
               speed: int | None = None) -> dict:
     """Drive Start Mode: observe -> reconcile -> reflex -> phase step.
 
-    Spine order holds (reconcile precedes attend; emergencies precede all
-    start work). Returns when start.completed emits, iterations exhaust,
-    or a phase hard-fails. `speed` sets game speed for the run (live only)
-    and restores the prior pause/speed state on exit.
+    `pack` is the full pack dict — phases come from ``pack['start']``,
+    universal rules from ``pack['universal']``. `speed` sets game speed
+    for the run (live only) and restores prior pause/speed on exit.
     """
     prev = None
     if speed is not None:
@@ -564,46 +408,57 @@ def run_start(dispatcher, game, ledger, cfg: dict, *,
         prev = st.get("result") if st.get("ok") else None
         game.rpc("game.speed", {"speed": speed})
     try:
-        return _run_start(dispatcher, game, ledger, cfg,
-                          iterations=iterations, sink=sink, clock=clock)
+        return _run_start(dispatcher, game, ledger, pack,
+                          iterations=iterations, sink=sink, clock=clock,
+                          speed=speed)
     finally:
         if prev is not None:
             game.rpc("game.speed", {"speed": prev.get("speed", 0)})
-            game.rpc("game.pause", {"paused": bool(prev.get("paused", True))})
+            game.rpc("game.pause",
+                     {"paused": bool(prev.get("paused", True))})
 
 
-def _run_start(dispatcher, game, ledger, cfg: dict, *,
-               iterations: int = 12, sink=None, clock=None) -> dict:
-    mode = StartMode(cfg, ledger, sink=sink, clock=clock)
+def _run_start(dispatcher, game, ledger, pack: dict, *,
+               iterations: int = 12, sink=None, clock=None,
+               speed: int | None = None) -> dict:
+    uni_state: dict = {}
+    mode = StartMode(pack, ledger, sink=sink, clock=clock)
     outcomes = []
+    wire_sink(dispatcher, sink)
     if sink is not None:
-        # start mode's actions/transitions belong in the same evidence
-        # stream as the loop's — compose only when the sink differs so a
-        # resumed run doesn't double-write
-        prev = getattr(dispatcher, "_sink", None)
-        if prev is None:
-            dispatcher._sink = ledger._sink = sink
-        elif prev is not sink:
-            def _s(env: dict) -> None:
-                prev(env)
-                sink(env)
-            dispatcher._sink = ledger._sink = _s
+        ledger._sink = getattr(dispatcher, "_sink", sink)
     seq = max(ledger._events, getattr(dispatcher, "_events", 0))
     for i in range(iterations):
-        obs = observe_start(game, cfg)
+        # pause-on-load / event letters can re-pause mid-run — re-assert
+        # speed periodically so construction actually advances
+        if speed is not None and i % 10 == 0:
+            st = game.rpc("game.status")
+            res = st.get("result") if st.get("ok") else {}
+            if res.get("paused"):
+                game.rpc("game.speed", {"speed": speed})
+        obs = observe_start(game, pack.get("start") or {})
         tick = obs.get("tick") or i
+        dispatcher._last_tick = tick  # evidence carries the live tick
         ledger.reconcile(obs, tick)
         dispatcher.reflex(obs)
+        # pack-declared universal rules run every poll, after reflexes
+        uni_ctx = policy.Ctx(cfg=pack, obs=obs, game=game,
+                             state=uni_state, persist=mode.vars,
+                             tick=tick, poll=i)
+        policy.run_rules(
+            ((pack.get("universal") or {}).get("rules") or []),
+            dispatcher, uni_ctx)
         out = mode.step(dispatcher, game, obs, tick)
         outcomes.append({"iteration": i, **out})
         if out.get("state") == "completed":
-            seq += 1
-            env = mode.completed_event(obs, out["eval"])
-            env["sequence"] = seq
-            env["event_id"] = f"evt.start-{seq:06d}"
-            emit = sink or getattr(dispatcher, "_sink", None)
-            if emit is not None:
-                emit(env)
+            if out.get("first"):
+                seq += 1
+                env = mode.completed_event(obs, out["eval"])
+                env["sequence"] = seq
+                env["event_id"] = f"evt.start-{seq:06d}"
+                emit = sink or getattr(dispatcher, "_sink", None)
+                if emit is not None:
+                    emit(env)
             break
         if callable(getattr(game, "advance", None)):
             game.advance(i)

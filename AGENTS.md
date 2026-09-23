@@ -34,6 +34,7 @@ If documents conflict, use that order and fix the lower-priority document.
 - Flat-file canonical records are authoritative; indexes are disposable.
 - Runtime, policy, evidence, and export data have separate ownership roots.
 - RimBridge remains generic. Agent-specific deterministic policy belongs in Steward or runtime.
+- **All gameplay policy lives in RimBrain packs.** Strategy, tactics, priorities, phase orderings, thresholds, and decision rules are pack data — never source code. Runtime code provides only capability primitives (generic predicates, selectors, interpreters, action templates) able to execute any pack-defined strategy; a pack can redefine, reorder, extend, or disable any behavior without code changes. Hardcoded gameplay direction is an antipattern.
 - Legacy upstream mode remains available during migration but is not permitted in scored framework runs.
 - Submodules are pinned to exact commits for releases.
 

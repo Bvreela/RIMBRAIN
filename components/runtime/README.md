@@ -44,9 +44,13 @@ One round: state -> `rimbrain.plan` proposal (schema-validated JSON) -> determin
 
 `tasks.py`: `TaskLedger` manages work through a declared lifecycle (`proposed -> locked -> dispatched -> verifying -> succeeded | failed | expired`, `requeued` loops to `proposed`). Only `verify()` can mark `succeeded`, and only when the task's `{field, op, value}` effect spec holds against observed state — dispatch `ok` is never proof. `acquire()` takes all declared `resources` or none; leases expire by game tick. Every transition appends a `task.transition` envelope to `state/tasks.jsonl`; a fresh ledger folds the log to rebuild. `reconcile(observed, tick)` re-verifies open tasks past lease before retry (succeeded / requeued / failed) and stamps `cursor.json`. `run_loop(..., ledger=...)` reconciles before attend each poll.
 
-## Start mode (feature 008)
+## Start mode (features 008/011/012)
 
-`startmode.py` drives the fresh-start bootstrap as ledger tasks: `site -> zone -> unforbid -> shelter -> roof -> haul -> beds/food/recreation -> start.completed`. Every phase's effect is verified against observed state; an already-established colony skips with zero designations. Site choice is deterministic scoring of `map.open_rects` by pack-declared weights, persisted via `anchor.set` + `startmode.json` (restart-safe). Beds dispatch one build per poll until `beds >= colonists`. Engage via `python -m runtime loop --mode start --live` (live-gated — sims need the start rpc surface). `start.completed` emits only when `exit_eval` verifies shelter + per-colonist beds + food source + recreation.
+`startmode.py` is a generic pack-driven phase interpreter: it iterates `pack.start.phases[]`, proposes a ledger task per phase with the declared `effect`, dispatches the phase's `steps` through `policy.run_steps`, and verifies via the predicate evaluator. Every phase's effect is verified against observed state; an already-satisfied phase skips with zero writes. All ordering, conditions, and heuristics live in `start-mode-v0.yaml` — the interpreter holds no gameplay policy. Engage via `python -m runtime loop --mode start --live` (live-gated). `start.completed` emits only when every `start.exit.conditions` predicate verifies.
+
+## Policy engine + universal/combat modes (features 010/011/012)
+
+`policy.py` is the sole policy interpreter — a versioned capability vocabulary (`policy_version: 1`): resolvers (`@cfg:`/`@obs:`/`@var:`/`@fn:`), predicates (`eq/gte/.../contains_any` + `all/any/not`), selectors, and a step/rule runner (`when`/`needs`/`for_each`/`try`/`cooldown_polls`/`last_ok`). All writes go through the dispatcher; unknown refs fail closed (`validate_policy` runs at pack load). `universal.py` = `apply_rules` over `pack.universal.rules[]` (idle correction, flee-chase, strip-downed — all pack-defined). `combatmode.py` executes the `pack.combat` script (setup/spawn/engage/cleanup) as data. `cycle.py` runs save→start→combat→improve iterations. Gameplay direction lives exclusively in `components/rimbrain/packs/` — see ADR-015.
 
 ## Self-improvement + thought feed (feature 009)
 

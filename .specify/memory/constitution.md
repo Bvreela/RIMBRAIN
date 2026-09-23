@@ -1,6 +1,6 @@
 <!--
 Sync Impact Report (temporary — remove before commit)
-- Version change: none → 1.0.0 (initial ratification)
+- Version change: none → 1.0.0 (initial ratification); 1.0.0 → 1.1.0 (added Principle IX)
 - Principles: 8 established, consolidated from specs/00-foundation/ENGINEERING-PRINCIPLES.md P1–P15
   and the architectural invariants in AGENTS.md
 - Added sections: Safety and Operational Constraints; Development Workflow and Quality Gates; Governance
@@ -67,6 +67,15 @@ Upstream legacy play remains an opt-in recovery and baseline-comparison mode whi
 matures. It must never share write authority with framework mode and can never qualify as a
 scored framework run.
 
+### IX. Policy Is Data; Code Is Capability (NON-NEGOTIABLE)
+
+All gameplay strategy, tactics, priorities, and decision logic — start sequences, combat rules,
+work scheduling, resource policy, and long-horizon planning — live exclusively in human-editable,
+schema-validated RimBrain packs. Runtime code provides only capability primitives: generic
+predicates, selectors, phase/rule/step interpreters, and action templates. Hardcoding how the
+colony starts, fights, or prioritizes is an antipattern; a pack must be able to redefine, reorder,
+extend, or disable any executed behavior without code changes.
+
 ## Safety and Operational Constraints
 
 - RimBridge stays generic; agent-specific deterministic policy lives in Steward or the runtime.
@@ -107,4 +116,4 @@ scored framework run.
 - Use `AGENTS.md` for runtime development guidance and `specs/INDEX.md` for the authoritative
   document inventory.
 
-**Version**: 1.0.0 | **Ratified**: 2026-09-22 | **Last Amended**: 2026-09-22
+**Version**: 1.1.0 | **Ratified**: 2026-09-22 | **Last Amended**: 2026-09-23

@@ -31,6 +31,11 @@
       "maxLength": 128,
       "description": "Human-readable revision tag; the canonical-JSON hash is authoritative (feature 001)."
     },
+    "policy_version": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Policy primitive vocabulary version (feature 012; UR-BRN-014): the runtime interpreter validates @fn/selector/op names against this version. Absent = pre-engine pack (no phases/rules)."
+    },
     "templates": {
       "type": "array",
       "minItems": 1,
@@ -203,6 +208,21 @@
       "type": "object",
       "additionalProperties": true,
       "description": "Self-improvement cycle config (feature 009): defect patterns, metric weights, audit gate list, cadence. Absent on non-improvement packs."
+    },
+    "combat": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Combat-test config (feature 010): checkpoint name, incident def, bounded points/rounds/tick budget. Test mode only, never scored."
+    },
+    "cycle": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Save-reset cycle config (feature 010): checkpoint name, phase ordering, per-phase budgets."
+    },
+    "universal": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Universal pawn rules (feature 011): idle-job fallbacks, combat target discipline, post-combat strip. Applies in every mode."
     }
   },
   "$defs": {

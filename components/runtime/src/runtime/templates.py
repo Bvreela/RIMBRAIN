@@ -148,6 +148,16 @@ def load_pack(pack_id: str) -> dict:
             f"pack '{pack_id}' references methods absent from the bridge "
             f"inventory: {unknown}",
             {"pack": pack_id, "unknown_methods": unknown}))
+    if doc.get("policy_version") is not None:
+        # feature 012: packs declaring the policy vocabulary are audited
+        # fail-closed — unknown @fn/selector/op/template is a load error
+        from .policy import validate_policy
+        problems = validate_policy(doc)
+        if problems:
+            raise PackError(err(
+                "pack.policy_invalid",
+                f"pack '{pack_id}' failed policy validation",
+                {"pack": pack_id, "issues": problems}))
     return {"pack": doc, "hash": _hash_of(doc), "path": str(path)}
 
 

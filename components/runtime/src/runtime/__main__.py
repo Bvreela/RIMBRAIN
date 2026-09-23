@@ -24,7 +24,8 @@ def main(argv: list[str] | None = None) -> int:
     sp.add_argument("role"); sp.add_argument("--live", action="store_true")
     sp = sub.add_parser("loop", help="dispatcher poll loop (sim deterministic)")
     sp.add_argument("--pack", default="core-survival-v0")
-    sp.add_argument("--mode", choices=["sim", "live", "start", "improve"],
+    sp.add_argument("--mode", choices=["sim", "live", "start", "improve",
+                                       "combat", "cycle"],
                     default="sim")
     sp.add_argument("--iterations", type=int, default=5)
     sp.add_argument("--bridge", default="http://127.0.0.1:8765")
