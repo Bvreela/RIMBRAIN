@@ -28,6 +28,7 @@ misread.
 from __future__ import annotations
 
 import json
+import sys
 from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
@@ -53,7 +54,11 @@ __all__ = [
     "error_envelope",
 ]
 
-CONTRACTS_DIR = Path(__file__).resolve().parents[2]
+CONTRACTS_DIR = (Path(getattr(sys, "_MEIPASS", None)
+                      or Path(__file__).resolve().parents[2])
+                 / "components" / "contracts"
+                 if getattr(sys, "frozen", False)
+                 else Path(__file__).resolve().parents[2])
 REGISTRY_PATH = CONTRACTS_DIR / "registry" / "event-map.yaml"
 SCHEMAS_DIR = CONTRACTS_DIR / "schemas"
 ENVELOPE_SCHEMA_PATH = SCHEMAS_DIR / "events" / "envelope.schema.json"

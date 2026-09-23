@@ -78,6 +78,14 @@ class TaskLedger:
             return
         self._events = max(self._events, env.get("sequence", 0))
         to_state = p["to_state"]
+        if to_state == "reset":
+            # brain-reset tombstone (UR-BRN-020): the task and its locks
+            # fold away — the row replays identically on process restart
+            self.tasks.pop(tid, None)
+            for r in [r for r, l in self.locks.items()
+                      if l["task_id"] == tid]:
+                del self.locks[r]
+            return
         task = self.tasks.setdefault(tid, {"task_id": tid})
         if p.get("spec"):  # propose carries the full task spec
             task.update(p["spec"])
@@ -296,3 +304,17 @@ class TaskLedger:
             self.locks, sort_keys=True).encode() + b"\n")
         return {"ok": True, "outcomes": outcomes,
                 "tick": tick, "seq": self._events}
+
+    def reset_ns(self, *prefixes: str, tick: int | None = None) -> int:
+        """Tombstone every task under the given id namespaces (UR-BRN-020
+        brain reset). Each emits a durable `to_state: reset` row — the
+        tombstone folds in `_apply`, so the task and its locks vanish now
+        AND on every replay after process restart. The next `propose`
+        under the same id starts a clean lifecycle."""
+        n = 0
+        for tid in [t for t in self.tasks if t.startswith(prefixes)]:
+            task = self.tasks[tid]
+            self._emit(task, task.get("state"), "reset", "brain.reset",
+                       tick)
+            n += 1
+        return n

@@ -178,8 +178,10 @@ def test_no_strip_step_means_no_strip(rig):
 
 
 def test_fleeing_hostile_chased_by_melee(rig):
-    """FR-903: a receding hostile gets a melee chase order from the
-    pack's chase_skill pick (c1 has Melee 7 vs c0 Shooting 8)."""
+    """FR-903: a receding hostile gets a chase order from the pack's
+    chase_skill pick (c1 has Melee 7 vs c0 Shooting 8). The melee flag
+    is left unset so ui.attack auto-picks shoot-vs-close per weapon —
+    a gun-armed chaser shoots instead of fist-fighting."""
     d, game, ledger, pack, events, tmp = rig
     state = {}
     for d_home in (10, 20, 30):
@@ -191,7 +193,27 @@ def test_fleeing_hostile_chased_by_melee(rig):
     chase = [f for f in fired if f["rule"] == "chase-fleeing"]
     assert chase and chase[0]["params"]["pawn"] == "c1"
     assert chase[0]["params"]["target"] == "h1"
-    assert chase[0]["params"]["melee"] is True
+    assert "melee" not in chase[0]["params"]
+
+
+def test_all_armed_defend_together(rig):
+    """Every armed colonist attacks the nearest living hostile in the
+    same poll — one pawn chasing while the rifleman idles is bad
+    tactics. melee is omitted: ui.attack auto-detects ranged vs melee
+    from the pawn's weapon."""
+    d, game, ledger, pack, events, tmp = rig
+    state = {}
+    game.hostiles = [{"id": "h1", "dist_home": 30, "health": 80.0}]
+    game.pawns[0]["weapon"] = "w-gun"
+    game.pawns[1]["weapon"] = "w-melee"
+    fired = universal.apply_rules(d, game, {}, pack, state, poll=0)
+    defend = [f for f in fired if f["rule"] == "defend-colony"]
+    pairs = {(f["params"]["pawn"], f["params"]["target"])
+             for f in defend}
+    assert ("c0", "h1") in pairs and ("c1", "h1") in pairs
+    assert all("melee" not in f["params"] for f in defend)
+    # unarmed c2 stays out of the fight
+    assert not any(f["params"]["pawn"] == "c2" for f in defend)
 
 
 def test_arm_phase_ranks_by_skill(rig):

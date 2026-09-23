@@ -58,10 +58,17 @@ predicate vocabulary for goals exists yet (see open questions).
 
 ## Open questions
 
-- Should goals reference concrete template ids (e.g. `build-layout`,
-  `add-bill`) from `start-mode-v0`/`core-survival-v0`, or stay capability-free
-  strategy that a separate mapping layer binds to templates? Currently the
-  latter — no `templates:` block in this pack.
+- ~~Should goals reference concrete template ids, or stay capability-free
+  strategy?~~ **Resolved (feature 015):** the catalog stays capability-free;
+  `govern.goals` entries in `start-mode-v0`/`dev-lab-v0` carry an `option:`
+  field linking each executable standing goal back to its catalog id.
+  Promoted: shelter, food, arming, chokepoint traps, medicine plot, mood,
+  power, research (bench + progress), mission offers. Still awaiting
+  capabilities/obs signals before promotion: recruitment (prisoner surface),
+  compound wall / killbox / turret screen (layout geometry + turret
+  placement), components / trade routes / export goods (trade surface),
+  wealth caps (needs a `state.wealth` signal), post-raid reserve accounting,
+  ship endgame.
 - Is `phase` the right granularity, or should entries carry predicate
   conditions (`{field,op,value}`) so the planner can gate goals on observed
   state (e.g. "threat_scale ≥ 1.55", "days since last downing > 30")?

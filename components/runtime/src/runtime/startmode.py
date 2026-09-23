@@ -47,8 +47,38 @@ def observe_start(game, cfg: dict | None = None) -> dict:
     obs["forbidden"] = forb.get("result") if forb.get("ok") else {}
     bp = game.rpc("map.find", {"kind": "blueprint"})
     obs["blueprints"] = bp.get("result") if bp.get("ok") else {}
-    rects = game.rpc("map.open_rects", {"w": 9, "h": 9})
-    obs["open_rects"] = rects.get("result") if rects.get("ok") else []
+    # frames are construction-in-progress — a separate entity kind, but
+    # still pending build work the pack must see (FR-1315)
+    fr = game.rpc("map.find", {"kind": "frame"})
+    if fr.get("ok"):
+        rows = _things(fr.get("result") or {})
+        if rows:
+            tgt = obs["blueprints"]
+            if isinstance(tgt, dict):
+                tgt = dict(tgt)
+                tgt["things"] = _things(tgt) + rows
+                tgt["count"] = int(tgt.get("count") or 0) + len(rows)
+            else:
+                tgt = {"count": len(rows), "things": rows}
+            obs["blueprints"] = tgt
+    site_cfg = (cfg or {}).get("site") or {}
+    sw = int(site_cfg.get("search_w") or site_cfg.get("zone_w") or 9)
+    sh = int(site_cfg.get("search_h") or site_cfg.get("zone_h") or 9)
+    # Footprint-aware anchor: candidates are open rects big enough for
+    # the whole base plan; anchor_off shifts site.min inside the patch
+    # so the plan's negative-offset geometry still lands on open ground.
+    rects = game.rpc("map.open_rects", {"w": sw, "h": sh})
+    rows = rects.get("result") if rects.get("ok") else []
+    off = [int(site_cfg.get("anchor_dx") or 0),
+           int(site_cfg.get("anchor_dy") or 0)]
+    if not rows and (sw, sh) != (9, 9):
+        rects = game.rpc("map.open_rects", {"w": 9, "h": 9})
+        rows = rects.get("result") if rects.get("ok") else []
+        off = [0, 0]
+    for r in (rows if isinstance(rows, list) else []):
+        if isinstance(r, dict):
+            r["anchor_off"] = off
+    obs["open_rects"] = rows
     base = obs.get("base") or {}
     if isinstance(base, dict):
         if isinstance(base.get("anchors"), dict):
@@ -99,7 +129,10 @@ def observe_start(game, cfg: dict | None = None) -> dict:
     obs["bed_blueprints"] = sum(
         1 for t in _things(obs.get("blueprints") or {})
         if isinstance(t, dict)
-        and any(d in str(t.get("def") or "") for d in bed_defs))
+        and any(d in str(t.get("def") or t.get("build_def")
+                        or t.get("entity_def") or t.get("defName")
+                        or "")
+                for d in bed_defs))
     cook = cfg.get("cooking") or {}
     obs["cookstation_ids"] = []
     for d in cook.get("station_defs") or ["CookingSpot"]:
@@ -268,14 +301,24 @@ class StartMode:
                 return {"phase": pid, "state": task["state"],
                         "verdict": v.get("verdict", "transitioned")}
         if st in ("dispatched", "verifying"):
+            absent = self.ledger._check_effect(task, obs) is False
             # pack-declared repeat guard: keep issuing the unit work
             # while the effect is absent and the guard holds
             rep = spec.get("repeat") or {}
-            if rep and self.ledger._check_effect(task, obs) is False \
+            if rep and absent \
                     and (not rep.get("while")
                          or policy.check(rep["while"], ctx)):
                 policy.run_steps(spec.get("steps"), dispatcher, ctx,
                                  source=source)
+            # pack-declared escalation: after `after_attempts` failed
+            # verify cycles the blocker is structural, not slow work —
+            # run remediation steps (each step's `when` keeps it
+            # idempotent: e.g. expand storage when hauling can't land)
+            esc = spec.get("escalate") or {}
+            if esc and absent and int(task.get("attempts") or 0) \
+                    >= int(esc.get("after_attempts") or 2):
+                policy.run_steps(esc.get("steps"), dispatcher, ctx,
+                                 source=f"{source}:escalate")
             v = self.ledger.verify(tid, obs, tick)
             return {"phase": pid, "state": task["state"],
                     "verdict": v.get("verdict", "transitioned")}
@@ -300,6 +343,17 @@ class StartMode:
             if task and task.get("state") in TERMINAL:
                 if self.ledger._check_effect(task, obs) is not False:
                     continue  # standing satisfied — leave it be
+                if task.get("state") != "succeeded":
+                    # failed goals back off before re-arming — a
+                    # permanently-blocked goal must not starve every
+                    # lower-priority goal in the declared order
+                    retry = int(policy.resolve(
+                        g.get("retry_polls"), ctx) or 25)
+                    last = self._rule_state.setdefault(
+                        "govern_retry", {}).get(gid, -10 ** 9)
+                    if ctx.poll - last < retry:
+                        continue
+                    self._rule_state["govern_retry"][gid] = ctx.poll
                 task = None  # effect lapsed -> re-arm below
             if task is None:
                 missing = [v for v in g.get("requires") or []
@@ -515,33 +569,49 @@ def _run_start(dispatcher, game, ledger, pack: dict, *,
         tick = obs.get("tick") or i
         dispatcher._last_tick = tick  # evidence carries the live tick
         prev = len(decisions)
-        # FR-1107: brain-reset request — reload pack, wipe planning state,
-        # re-derive goals from the colony as-observed. Honored only under
-        # --live-brain; scored runs never set the flag.
+        # FR-1107/FR-1309: brain request — {} refreshes the active pack,
+        # {pack: id} swaps, {unload: true} halts the brain. Every path
+        # does a full reinit (UR-BRN-020): ledger pack namespaces
+        # tombstoned, mode vars/rule/cooldown/vitals state dropped, so
+        # goals re-derive from the colony as-observed. Honored only
+        # under --live-brain; scored runs never set the flag.
         req = brain.poll_request(state_dir, live_brain)
         if req is not None:
             err = None
-            try:
-                loaded = dispatcher.load_pack(dispatcher._pack_file)
-                pack = loaded["pack"]
-            except Exception as e:  # PackError / OSError — stay fail-closed
-                err = f"{type(e).__name__}: {e}"
+            dropped = 0
+            want_unload = bool(req.get("unload"))
+            target = req.get("pack") or dispatcher._pack_file
+            if want_unload:
+                dispatcher._pack = None  # every write now -> no_pack
+            elif target:
+                try:
+                    pack = dispatcher.load_pack(target)["pack"]
+                except Exception as e:  # PackError — stay fail-closed
+                    err = f"{type(e).__name__}: {e}"
+            else:
+                err = "no pack to load"
             if err is None:
                 (state_dir / "startmode.json").unlink(missing_ok=True)
-                mode = StartMode(pack, ledger, sink=sink, clock=clock,
-                                 hold=hold)
-                mode.decisions = decisions
+                dropped = ledger.reset_ns(
+                    "start.", "govern.", "combat.", tick=tick)
                 uni_state.clear()
-            brain.write_status(
-                state_dir, ok=err is None, pack_id=dispatcher._pack_file,
-                pack_revision=dispatcher._pack["hash"], error=err)
+                vstate.clear()
+                mode = None if want_unload else StartMode(
+                    pack, ledger, sink=sink, clock=clock, hold=hold)
+                if mode is not None:
+                    mode.decisions = decisions
+            status = {"ok": err is None, "pack_id": dispatcher._pack_file,
+                      "pack_revision": (dispatcher._pack or {})
+                      .get("hash"),
+                      "state": ("unloaded" if want_unload and err is None
+                                else "loaded"),
+                      "dropped_tasks": dropped, "error": err}
+            brain.write_status(state_dir, **status)
             decisions.append({
                 "tick": tick, "poll": i, "source": "ui:brain-reset",
                 "template": "brain-reset", "params": {},
                 "ok": err is None, "error": err})
-            dispatcher._emit("brain.reset", {
-                "ok": err is None, "pack_id": dispatcher._pack_file,
-                "pack_revision": dispatcher._pack["hash"], "error": err})
+            dispatcher._emit("brain.reset", dict(status))
         # FR-811: periodic colony-health vitals -> canonical events so the
         # improve loop can diagnose mood/sickness/downed/death defects.
         if vitals_every and i % vitals_every == 0:
@@ -551,19 +621,25 @@ def _run_start(dispatcher, game, ledger, pack: dict, *,
                 dispatcher._emit(e["type"], e["payload"])
         ledger.reconcile(obs, tick)
         dispatcher.reflex(obs)
-        # pack-declared universal rules run every poll, after reflexes
-        uni_ctx = policy.Ctx(cfg=pack, obs=obs, game=game,
-                             state=uni_state, persist=mode.vars,
-                             tick=tick, poll=i, decisions=decisions)
-        policy.run_rules(
-            ((pack.get("universal") or {}).get("rules") or []),
-            dispatcher, uni_ctx, source="rule")
-        out = mode.step(dispatcher, game, obs, tick, poll=i)
+        if mode is None:          # brain unloaded — observe only;
+            out = {"phase": "brain", "state": "unloaded"}  # no writes
+        else:
+            # pack-declared universal rules run every poll, after
+            # reflexes
+            uni_ctx = policy.Ctx(cfg=pack, obs=obs, game=game,
+                                 state=uni_state, persist=mode.vars,
+                                 tick=tick, poll=i, decisions=decisions)
+            policy.run_rules(
+                ((pack.get("universal") or {}).get("rules") or []),
+                dispatcher, uni_ctx, source="rule")
+            out = mode.step(dispatcher, game, obs, tick, poll=i)
         outcomes.append({"iteration": i, **out})
         views.write_views(
             state_dir,
             views.start_snapshot(mode, ledger, obs,
-                                 events_path=state_dir / "events.jsonl"),
+                                 events_path=state_dir / "events.jsonl")
+            if mode is not None else {"phase": "brain",
+                                      "state": "unloaded"},
             decisions[prev:])
         if out.get("first"):
             seq += 1
@@ -579,5 +655,6 @@ def _run_start(dispatcher, game, ledger, pack: dict, *,
             break
         if callable(getattr(game, "advance", None)):
             game.advance(i)
-    return {"ok": True, "outcomes": outcomes, "completed": mode.completed,
-            "site": mode.site}
+    return {"ok": True, "outcomes": outcomes,
+            "completed": bool(mode and mode.completed),
+            "site": mode.site if mode is not None else None}

@@ -244,6 +244,37 @@ entries:
   domains:
   - ui_control
   - quests_incidents
+- id: set-stock-target
+  kind: template
+  status: implemented
+  bridge_methods:
+  - steward.stock.set
+  domains:
+  - steward_component
+  - work_priorities
+- id: run-stock-job
+  kind: template
+  status: implemented
+  bridge_methods:
+  - steward.stock.run
+  domains:
+  - steward_component
+  - work_jobs
+- id: lay-floor
+  kind: template
+  status: implemented
+  bridge_methods:
+  - ui.build
+  domains:
+  - construction
+- id: clear-vegetation
+  kind: template
+  status: implemented
+  bridge_methods:
+  - ui.designate
+  domains:
+  - construction
+  - growing
 - id: colonists
   kind: selector
   status: implemented
@@ -371,6 +402,13 @@ entries:
   - map.find
   domains:
   - construction
+- id: blueprints_in
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - map.find
+  domains:
+  - construction
 - id: buildable_at
   kind: fn
   status: implemented
@@ -404,7 +442,36 @@ entries:
   bridge_methods: []
   domains:
   - collections
+- id: checker_cells
+  kind: fn
+  status: implemented
+  bridge_methods: []
+  domains:
+  - geometry
 - id: downed_ids
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.threats
+  domains:
+  - combat
+- id: armed_ids
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.pawns
+  - state.pawn
+  domains:
+  - combat
+- id: drafted_ids
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.pawns
+  - state.pawn
+  domains:
+  - combat
+- id: nearest_hostile
   kind: fn
   status: implemented
   bridge_methods:
@@ -664,6 +731,106 @@ entries:
   bridge_methods:
   - state.storage
   domains:
+  - storage_zones
+- id: room_count
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.rooms
+  - state.base
+  domains:
+  - construction
+- id: idle_count
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.pawns
+  domains:
+  - pawns
+  - work_jobs
+- id: steward_stock
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - steward.status
+  domains:
+  - steward_component
+- id: find_defs
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - map.find
+  domains:
+  - observation
+- id: find_defs_in
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - map.find
+  domains:
+  - observation
+- id: pos
+  kind: fn
+  status: implemented
+  bridge_methods: []
+  domains:
+  - geometry
+- id: wind_path
+  kind: fn
+  status: implemented
+  bridge_methods: []
+  domains:
+  - geometry
+  - power
+- id: obstructions
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - map.find
+  domains:
+  - observation
+  - construction
+- id: wind_obstructions
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - map.find
+  domains:
+  - observation
+  - power
+- id: turbine_site
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - ui.build
+  - map.find
+  domains:
+  - construction
+  - power
+- id: turbine_site_blocked
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - ui.build
+  - map.find
+  domains:
+  - construction
+  - power
+- id: terrain_at
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - map.cell
+  domains:
+  - observation
+  - construction
+- id: zone_at
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - map.cell
+  domains:
+  - observation
   - storage_zones
 - id: cap.game.list_saves
   kind: capability
@@ -1324,7 +1491,7 @@ entries:
   notes: owned by components/steward, not runtime
 - id: cap.steward.status
   kind: capability
-  status: gap
+  status: implemented
   bridge_methods:
   - steward.status
   domains:
@@ -1356,7 +1523,7 @@ entries:
   notes: owned by components/steward, not runtime
 - id: cap.steward.stock.run
   kind: capability
-  status: gap
+  status: implemented
   bridge_methods:
   - steward.stock.run
   domains:
@@ -1364,7 +1531,7 @@ entries:
   notes: owned by components/steward, not runtime
 - id: cap.steward.stock.set
   kind: capability
-  status: gap
+  status: implemented
   bridge_methods:
   - steward.stock.set
   domains:

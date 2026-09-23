@@ -1,8 +1,9 @@
 <!--
 Sync Impact Report (temporary — remove before commit)
-- Version change: none → 1.0.0 (initial ratification); 1.0.0 → 1.1.0 (added Principle IX)
+- Version change: none → 1.0.0 (initial ratification); 1.0.0 → 1.1.0 (added Principle IX);
+  1.1.0 → 1.2.0 (added Principle X + pack-class/single-executable/standing-goal constraints)
 - Principles: 8 established, consolidated from specs/00-foundation/ENGINEERING-PRINCIPLES.md P1–P15
-  and the architectural invariants in AGENTS.md
+  and the architectural invariants in AGENTS.md; IX and X added from feature 012/015 work
 - Added sections: Safety and Operational Constraints; Development Workflow and Quality Gates; Governance
 - Removed sections: none (template placeholders only)
 - Deferred items: none
@@ -76,6 +77,16 @@ predicates, selectors, phase/rule/step interpreters, and action templates. Hardc
 colony starts, fights, or prioritizes is an antipattern; a pack must be able to redefine, reorder,
 extend, or disable any executed behavior without code changes.
 
+### X. Brain Lifecycle Is Explicit and Residue-Free (NON-NEGOTIABLE)
+
+The RimBrain — loaded pack revision, decision matrices, universal policies, planning layers,
+and task-ledger namespaces — is a single loadable/unloadable entity. Load, unload, swap,
+refresh, and reset fully reinitialize every layer; tombstoned namespaces are durable and
+replay-safe across restarts. No gameplay rules, planning, or writes occur while no pack is
+loaded, and no pack change may leave residual state in the engine or the ledger. Lifecycle
+correctness is verified by continuous-loop tests (load → drive → unload → reload → swap);
+failures found there are defects to fix, never tolerances.
+
 ## Safety and Operational Constraints
 
 - RimBridge stays generic; agent-specific deterministic policy lives in Steward or the runtime.
@@ -85,6 +96,16 @@ extend, or disable any executed behavior without code changes.
 - Secrets, endpoints, and credentials never enter specs, packs, logs, or exports; community
   RimBrain packs are untrusted data and carry no auto-executed code.
 - Runtime, policy, evidence, and export data have separate ownership roots.
+- Packs declare `class: fair | dev`; fair runs refuse dev-method packs at load and dev actions
+  at dispatch. Vanilla fair packs carry zero debug/developer instructions; troubleshooting
+  tooling lives only in dev-class packs.
+- Standing governance goals are pack-defined invariants: they re-arm whenever their verified
+  effect lapses (e.g. a destroyed stockpile) and back off after failed convergence so one
+  blocked goal cannot starve the poll.
+- The app ships as a single executable; read-only data (schemas, RPC inventory, event map,
+  bundled packs/profiles) lives inside the image while writable data (state, editable packs,
+  profiles) resolves beside it — never inside. Packaging must not weaken fair-mode refusal,
+  pack-drift rejection, or the single-writer guarantee.
 - Baseline toolchain: Python 3.12+ with `uv`, .NET SDK for RimWorld 1.6 mod targets, PowerShell
   helper scripts on Windows.
 
@@ -116,4 +137,4 @@ extend, or disable any executed behavior without code changes.
 - Use `AGENTS.md` for runtime development guidance and `specs/INDEX.md` for the authoritative
   document inventory.
 
-**Version**: 1.1.0 | **Ratified**: 2026-09-22 | **Last Amended**: 2026-09-23
+**Version**: 1.2.0 | **Ratified**: 2026-09-22 | **Last Amended**: 2026-09-23

@@ -340,6 +340,12 @@ def main(argv: list[str] | None = None) -> int:
                    help="review-only: skip dispatching plan actions")
     p.add_argument("--live", action="store_true",
                    help="confirm live mode (operator only)")
+    p.add_argument("--fair", dest="fair", action="store_true", default=True,
+                   help="fair run (default): refuse dev.* and save/load "
+                        "dispatches (no debug cheating, UR-CTL-009)")
+    p.add_argument("--dev", dest="fair", action="store_false",
+                   help="development testing only: allow dev.* methods, "
+                        "save/load dispatches, and dev-class packs")
     p.add_argument("--no-store", action="store_true",
                    help="do not persist events to state/events.jsonl")
     args = p.parse_args(argv)
@@ -362,13 +368,15 @@ def main(argv: list[str] | None = None) -> int:
             game = SimGame()
             dispatcher = Dispatcher(game,
                                     clock=lambda: "2026-01-01T00:00:00Z",
+                                    fair=args.fair,
                                     sink=None if store is None
                                     else store.append)
             dispatcher.load_pack(args.pack)
             chat, clock = _sim_chat, (lambda: "2026-01-01T00:00:00Z")
         else:
             game = BridgeClient(args.bridge)
-            dispatcher = Dispatcher(game, sink=None if store is None
+            dispatcher = Dispatcher(game, fair=args.fair,
+                                    sink=None if store is None
                                     else store.append)
             dispatcher.load_pack(args.pack)
             chat, clock = openai_compat_chat, None

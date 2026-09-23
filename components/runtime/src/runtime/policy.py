@@ -342,6 +342,239 @@ def _fn_find_def(ctx, d):
     return None
 
 
+def _fn_find_defs(ctx, defs):
+    """All thing rows matching any def in `defs` (map.find per def,
+    merged). `find_def` returns the first id; this keeps rows so `pos`
+    and per-thing iteration work."""
+    out = []
+    for d in (defs or []):
+        out += [t for t in _things(ctx.rpc("map.find", {"def": d}))
+                if isinstance(t, dict)]
+    return out
+
+
+def _fn_checker_cells(ctx, rect):
+    """Alternating cells of `rect` ((x+z) even) — the staggered trap
+    pattern that leaves a diagonal weave lane for colonists while
+    raiders mass onto the trapped cells."""
+    rc = _rect_cells(rect)
+    if rc is None:
+        return []
+    x, z, w, h = rc
+    return [[cx, cz] for cz in range(z, z + h)
+            for cx in range(x, x + w) if (cx + cz) % 2 == 0]
+
+
+def _fn_find_defs_in(ctx, defs, rect):
+    """find_defs filtered to rows inside `rect` — room-scoped lookups so
+    ruins/strays elsewhere can't satisfy a room's furniture contract."""
+    return [t for t in _fn_find_defs(ctx, defs)
+            if _in_rect(_fn_pos(ctx, t), rect)]
+
+
+def _fn_blueprints_in(ctx, defs, rect):
+    """blueprints() filtered to `rect` — pending-build rows scoped to a
+    room so unrelated designations don't suppress or satisfy a goal."""
+    if isinstance(defs, str):
+        defs = [defs]
+    defs = [str(d) for d in (defs or [])]
+    bps = _things(ctx.obs.get("blueprints") or {})
+    return sum(1 for t in bps
+               if isinstance(t, dict) and _in_rect(_fn_pos(ctx, t), rect)
+               and any(d in _bp_def(t) for d in defs))
+
+
+def _fn_pos(ctx, thing):
+    """Cell [x,z] of a thing row (or a raw cell passthrough)."""
+    p = thing.get("pos") if isinstance(thing, dict) else thing
+    return list(p[:2]) if isinstance(p, (list, tuple)) and len(p) >= 2 \
+        else None
+
+
+def _rect_cells(rect):
+    try:
+        return (int(float(v or 0)) for v in rect[:4])
+    except (TypeError, ValueError):
+        return None
+
+
+def _fn_wind_path(ctx, cell, axis="x", half_width=2, depth=5, gap=0):
+    """Two rects flanking `cell` along `axis` — the airflow corridor a
+    wind turbine needs clear. Every geometric parameter arrives from the
+    pack: axis ('x' = east-west corridor), half_width (cells each side),
+    depth (cells each direction), gap (cells between footprint and path
+    start). Returns [rect_a, rect_b] or None."""
+    pos = _fn_pos(ctx, cell)
+    if pos is None:
+        return None
+    x, z = pos
+    hw = int(half_width or 0)
+    d = int(depth or 0)
+    g = int(gap or 0)
+    if str(axis) == "x":
+        return [[x + g + 1, z - hw, d, 2 * hw + 1],
+                [x - d - g, z - hw, d, 2 * hw + 1]]
+    return [[x - hw, z + g + 1, 2 * hw + 1, d],
+            [x - hw, z - d - g, 2 * hw + 1, d]]
+
+
+def _in_rect(pos, rect):
+    r = _rect_cells(rect)
+    if r is None or pos is None:
+        return False
+    x, z, w, h = r
+    return x <= int(pos[0]) < x + w and z <= int(pos[1]) < z + h
+
+
+def _fn_obstructions(ctx, rects, kinds, radius=0):
+    """Things inside `rects` (one rect or a list) whose map.find kind is
+    in `kinds` — the pack decides what counts as blocking (tree,
+    harvestable, building, resource_rock, blueprint, ...)."""
+    if not isinstance(rects, (list, tuple)) or not rects:
+        return []
+    if isinstance(rects[0], (int, float)):
+        rects = [rects]
+    kinds = [str(k) for k in (kinds or [])]
+    if not kinds:
+        return []
+    out, seen = [], set()
+    for rect in rects:
+        r = _rect_cells(rect)
+        if r is None:
+            continue
+        x, z, w, h = r
+        near = [x + w // 2, z + h // 2]
+        rad = int(radius or 0) or int((w * w + h * h) ** 0.5) + 5
+        for kind in kinds:
+            res = ctx.rpc("map.find", {"kind": kind, "near": near,
+                                       "radius": rad})
+            for t in _things(res):
+                if not isinstance(t, dict) or not t.get("id"):
+                    continue
+                if t["id"] in seen or not _in_rect(t.get("pos"), rect):
+                    continue
+                seen.add(t["id"])
+                out.append(t)
+    return out
+
+
+def _fn_wind_obstructions(ctx, defs, axis="x", half_width=2, depth=5,
+                          gap=0, kinds=None):
+    """Union of obstructions across the wind paths of every thing
+    matching `defs` — regrowth/maintenance signal for built turbines."""
+    rects, seen = [], set()
+    for t in _fn_find_defs(ctx, defs):
+        p = _fn_pos(ctx, t)
+        if p is None:
+            continue
+        key = (p[0], p[1])
+        if key in seen:
+            continue
+        seen.add(key)
+        rects += _fn_wind_path(ctx, p, axis, half_width, depth, gap) or []
+    return _fn_obstructions(ctx, rects, kinds)
+
+
+def _turbine_scan(ctx, def_name, rect, axis, hw, depth, gap, kinds,
+                  stuff, want_blocked):
+    """`free_cell`-style scan where each candidate must also satisfy the
+    wind-path condition — `want_blocked` False picks a cell with a clear
+    corridor, True picks a buildable cell whose corridor is obstructed
+    (the site to clear before building)."""
+    if not isinstance(rect, (list, tuple)) or len(rect) < 4:
+        return None
+    key = ("turbine_site", str(def_name), str(list(rect[:4])), str(axis),
+           int(hw or 0), int(depth or 0), int(gap or 0), str(kinds),
+           str(stuff), bool(want_blocked))
+    if key in ctx.cache:
+        return ctx.cache[key]
+    x, z, w, h = _rect_cells(rect) or (0, 0, 0, 0)
+    out = None
+    for cz in range(z, z + h):
+        for cx in range(x, x + w):
+            if not _fn_buildable_at(ctx, def_name, [cx, cz], stuff):
+                continue
+            path = _fn_wind_path(ctx, [cx, cz], axis, hw, depth, gap)
+            # a corridor crossing an existing zone can never be cleared —
+            # zones aren't cuttable, so such a site is unusable outright
+            # (live: turbine corridor overlapped the rice field and the
+            # agent started cutting its own crop)
+            if path and _path_zoned(ctx, path):
+                continue
+            blocked = bool(_fn_obstructions(ctx, path, kinds))
+            if blocked == want_blocked:
+                out = [cx, cz]
+                break
+        if out:
+            break
+    ctx.cache[key] = out
+    return out
+
+
+def _path_zoned(ctx, path, stride=2, max_probes=15):
+    """Any zoned cell inside the wind-path rects? Sampled probe (stride)
+    bounded by max_probes per rect — zones are contiguous, so sampling
+    catches an overlap without a full-cell scan."""
+    for r in path or []:
+        rc = _rect_cells(r)
+        if rc is None:
+            continue
+        x, z, w, h = rc
+        probes = 0
+        for cz in range(z, z + h, max(1, int(stride or 2))):
+            for cx in range(x, x + w, max(1, int(stride or 2))):
+                if _in_zone(ctx, [cx, cz]):
+                    return True
+                probes += 1
+                if probes >= int(max_probes or 15):
+                    break
+            if probes >= int(max_probes or 15):
+                break
+    return False
+
+
+def _fn_turbine_site(ctx, def_name, rect, axis="x", half_width=2,
+                     depth=5, gap=0, kinds=None, stuff=None):
+    """First cell in `rect` where `def_name` dry-run places AND the
+    pack-declared wind path is free of `kinds` obstructions."""
+    return _turbine_scan(ctx, def_name, rect, axis, half_width, depth,
+                         gap, kinds, stuff, want_blocked=False)
+
+
+def _fn_turbine_site_blocked(ctx, def_name, rect, axis="x", half_width=2,
+                             depth=5, gap=0, kinds=None, stuff=None):
+    """First buildable cell in `rect` whose wind path IS obstructed —
+    the site to run clearing designations on."""
+    return _turbine_scan(ctx, def_name, rect, axis, half_width, depth,
+                         gap, kinds, stuff, want_blocked=True)
+
+
+def _fn_terrain_at(ctx, cell):
+    """Terrain def at a cell (accepts [x,z] or rect [x,z,w,h] — samples
+    the min corner)."""
+    p = _fn_pos(ctx, cell)
+    if p is None:
+        return None
+    res = ctx.rpc("map.cell", {"cell": p})
+    v = res.get("terrain") if isinstance(res, dict) else None
+    return v.get("def") if isinstance(v, dict) else v
+
+
+def _fn_zone_at(ctx, cell):
+    """Zone label at a cell (accepts [x,z] or rect [x,z,w,h]); None when
+    the cell is unzoned."""
+    p = _fn_pos(ctx, cell)
+    if p is None:
+        return None
+    res = ctx.rpc("map.cell", {"cell": p})
+    if not isinstance(res, dict):
+        return None
+    z = res.get("zone")
+    if isinstance(z, dict):
+        return z.get("label") or z.get("name") or True
+    return z or None
+
+
 def _item_rows(ctx):
     items = ctx.obs.get("items") or {}
     return _things(items)
@@ -395,13 +628,25 @@ def _fn_forbidden_ids(ctx):
     return _fn_ids(ctx, _things(forb))
 
 
+def _bp_def(t):
+    """Blueprint/frame target def across bridge field variants
+    (def / build_def / entity_def / defName)."""
+    for k in ("def", "build_def", "entity_def", "defName"):
+        v = t.get(k)
+        if v:
+            return str(v)
+    return ""
+
+
 def _fn_blueprints(ctx, defs):
     """Pending blueprints whose def matches any def in `defs`."""
+    if isinstance(defs, str):
+        defs = [defs]
     defs = [str(d) for d in (defs or [])]
     bps = _things(ctx.obs.get("blueprints") or {})
     return sum(1 for t in bps
                if isinstance(t, dict)
-               and any(d in str(t.get("def") or "") for d in defs))
+               and any(d in _bp_def(t) for d in defs))
 
 
 def _fn_blueprints_pending(ctx):
@@ -419,19 +664,33 @@ def _fn_fertile(ctx, rect, step=3):
     x, z, w, h = (int(v) for v in rect[:4])
     cands = [list(rect[:4]),
              [x, z - h - 1, w, h], [x + w + 1, z, w, h],
-             [x, z + h + 1, w, h]]
+             [x, z + h + 1, w, h],
+             # diagonals — when the axial neighbours are zoned or barren
+             # the nearest arable soil is often a corner step away
+             # (live: healroot base was all rough stone)
+             [x - w - 1, z, w, h], [x - w - 1, z - h - 1, w, h],
+             [x - w - 1, z + h + 1, w, h], [x + w + 1, z - h - 1, w, h],
+             [x + w + 1, z + h + 1, w, h]]
     step = max(1, int(step or 3))
     best, best_f = list(rect[:4]), -1.0
     for r in cands:
-        fsum = cells = 0
+        fsum = cells = zoned = 0
         for cx in range(r[0], r[0] + r[2], step):
             for cz in range(r[1], r[1] + r[3], step):
                 res = ctx.rpc("map.cell", {"cell": [cx, cz]})
+                if isinstance(res, dict) and res.get("zone"):
+                    zoned += 1
+                    continue
                 f = (res or {}).get("fertility") \
                     if isinstance(res, dict) else None
                 if isinstance(f, (int, float)):
                     fsum += f
                     cells += 1
+        # a candidate that overlaps an existing zone can never be
+        # designated — skip it regardless of fertility (live: healroot
+        # kept failing by overlapping the rice zone)
+        if zoned:
+            continue
         if cells and fsum / cells > best_f:
             best, best_f = r, fsum / cells
     return best
@@ -667,6 +926,56 @@ def _fn_arm_pending(ctx, weapon_kinds, armor_defs):
     return bool(_fn_armor_ids(ctx, armor_defs))
 
 
+def _fn_armed_ids(ctx):
+    """Colonist ids carrying a weapon and able to fight (not downed)."""
+    out = []
+    for c in _colonist_rows(ctx):
+        pid = c.get("id")
+        if not pid or _is_downed(ctx, c):
+            continue
+        w = c.get("weapon")
+        if w is None and ctx.game is not None:
+            w = _pawn_detail(ctx, pid).get("weapon")
+        if w:
+            out.append(pid)
+    return out
+
+
+def _fn_drafted_ids(ctx):
+    """Colonist ids currently drafted (row flag or pawn detail)."""
+    out = []
+    for c in _colonist_rows(ctx):
+        pid = c.get("id")
+        if not pid:
+            continue
+        d = c.get("drafted")
+        if d is None and ctx.game is not None:
+            d = _pawn_detail(ctx, pid).get("drafted")
+        if d:
+            out.append(pid)
+    return out
+
+
+def _fn_nearest_hostile(ctx, cell):
+    """Living hostile id nearest `cell` — falls back to dist_home when
+    the caller has no position."""
+    p = _fn_pos(ctx, cell)
+    best, best_d = None, None
+    for h in _fn_living_hostiles(ctx):
+        if not h.get("id"):
+            continue
+        hp = _fn_pos(ctx, h)
+        if p is not None and hp is not None:
+            d = (hp[0] - p[0]) ** 2 + (hp[1] - p[1]) ** 2
+        else:
+            d = h.get("dist_home")
+            if not isinstance(d, (int, float)):
+                continue
+        if best_d is None or d < best_d:
+            best, best_d = h.get("id"), d
+    return best
+
+
 def _hostile_rows(ctx):
     res = ctx.rpc("state.threats")
     hostiles = res.get("hostiles") or res.get("enemies") or [] \
@@ -792,6 +1101,51 @@ def _fn_zone_named(ctx, label):
                for z in zones)
 
 
+def _fn_room_count(ctx, min_cells=9):
+    """Enclosed rooms map-wide with >= min_cells — 1-cell artifacts and
+    outdoor areas don't count as housing."""
+    rooms = ctx.obs.get("rooms") or []
+    if isinstance(rooms, dict):
+        rooms = rooms.get("rooms") or []
+    base = ctx.obs.get("base") or {}
+    if isinstance(base, dict) and isinstance(base.get("rooms"), list):
+        rooms = list(rooms) + base["rooms"]
+    n = 0
+    for r in rooms:
+        if not isinstance(r, dict) or (r.get("problems") or []):
+            continue
+        cells = r.get("cells") or r.get("free_floor")
+        if cells is not None and int(cells) < int(min_cells or 1):
+            continue
+        if cells is not None and r.get("outdoors"):
+            continue
+        n += 1
+    return n
+
+
+def _fn_idle_count(ctx, patterns=None):
+    """Colonists whose job looks idle — substring match like the
+    `contains_any` predicate op, patterns from universal.idle_patterns."""
+    pats = [str(p).lower() for p in
+            (patterns or ["idle", "wander", "standing", "wait"])]
+    return sum(1 for c in _colonist_rows(ctx)
+               if any(p in str(c.get("job") or "").lower() for p in pats))
+
+
+def _fn_steward_stock(ctx, kind, field=None):
+    """steward.status stock row for `kind` — whole row, or one field
+    (target/current/suspended). Memoized per poll."""
+    key = ("steward_stock", str(kind))
+    if key not in ctx.cache:
+        res = ctx.rpc("steward.status") or {}
+        row = next((s for s in (res.get("stock") or [])
+                    if isinstance(s, dict) and s.get("kind") == kind),
+                   None)
+        ctx.cache[key] = row
+    row = ctx.cache[key]
+    return row.get(field) if (field and isinstance(row, dict)) else row
+
+
 def _fn_research(ctx):
     """Raw state.research dict {current, available, finished} —
     {} when the bridge lacks it (fail-closed)."""
@@ -881,6 +1235,9 @@ def _fn_rank_site(ctx, w=9, h=9, w_items=2.0, w_home=1.0):
 
     best = max(rects, key=score)
     cell = _cell(best)
+    off = best.get("anchor_off") if isinstance(best, dict) else None
+    if isinstance(off, (list, tuple)) and len(off) >= 2:
+        cell = [cell[0] + off[0], cell[1] + off[1]]
     return {"min": list(cell)[:2],
             "rect": [int(cell[0]), int(cell[1]), int(w), int(h)],
             "score": score(best)}
@@ -893,10 +1250,19 @@ FN = {
     "first": _fn_first, "nth": _fn_nth, "count": _fn_count,
     "ids": _fn_ids, "anchor": _fn_anchor,
     "find_kind": _fn_find_kind, "find_def": _fn_find_def,
+    "find_defs": _fn_find_defs, "find_defs_in": _fn_find_defs_in,
+    "checker_cells": _fn_checker_cells,
+    "pos": _fn_pos,
+    "wind_path": _fn_wind_path, "obstructions": _fn_obstructions,
+    "wind_obstructions": _fn_wind_obstructions,
+    "turbine_site": _fn_turbine_site,
+    "turbine_site_blocked": _fn_turbine_site_blocked,
+    "terrain_at": _fn_terrain_at, "zone_at": _fn_zone_at,
     "loose_ids": _fn_loose_ids, "loose_id": _fn_loose_id,
     "loose_count": _fn_loose_count, "forbidden_ids": _fn_forbidden_ids,
     "stack_of": _fn_stack_of,
-    "blueprints": _fn_blueprints, "blueprints_pending": _fn_blueprints_pending,
+    "blueprints": _fn_blueprints, "blueprints_in": _fn_blueprints_in,
+    "blueprints_pending": _fn_blueprints_pending,
     "fertile": _fn_fertile,
     "stuff": _fn_stuff, "home": _fn_home, "near_home": _fn_near_home,
     "buildable_at": _fn_buildable_at, "free_cell": _fn_free_cell,
@@ -908,10 +1274,14 @@ FN = {
     "arm_pawn": _fn_arm_pawn, "arm_weapon": _fn_arm_weapon,
     "arm_pending": _fn_arm_pending,
     "living_hostiles": _fn_living_hostiles,
+    "armed_ids": _fn_armed_ids, "drafted_ids": _fn_drafted_ids,
+    "nearest_hostile": _fn_nearest_hostile,
     "downed_ids": _fn_downed_ids, "fleeing_ids": _fn_fleeing_ids,
     "dialogs": _fn_dialogs,
     "roofed": _fn_roofed, "enclosed_at": _fn_enclosed_at,
     "zone_named": _fn_zone_named, "rank_site": _fn_rank_site,
+    "room_count": _fn_room_count, "idle_count": _fn_idle_count,
+    "steward_stock": _fn_steward_stock,
     "research": _fn_research, "research_current": _fn_research_current,
     "research_available": _fn_research_available,
     "quests": _fn_quests, "letters": _fn_letters,
@@ -1029,16 +1399,18 @@ def run_steps(steps, dispatcher, ctx, source="steps") -> dict:
     for st in steps or []:
         if not isinstance(st, dict) or not st.get("template"):
             continue
-        if st.get("when") and not check(st["when"], ctx):
-            continue
-        if "needs" in st and not resolve(st["needs"], ctx):
-            continue
         candidates = select(st["for_each"], ctx) \
             if st.get("for_each") is not None else [None]
         times = int(resolve(st.get("times"), ctx) or 1)
         for idx, cand in enumerate(candidates):
             ctx.vars["it"] = cand
             ctx.vars["index"] = idx
+            # when/needs evaluate per candidate — predicates may gate on
+            # @var:it (per-pawn/site choice), which only exists here
+            if st.get("when") and not check(st["when"], ctx):
+                continue
+            if "needs" in st and not resolve(st["needs"], ctx):
+                continue
             for _ in range(max(1, times)):
                 params = {k: v for k, v in
                           resolve(st.get("params") or {}, ctx).items()
@@ -1167,6 +1539,14 @@ def validate_policy(pack: dict, template_ids=None) -> list[str]:
             elif tid not in known_templates:
                 problems.append(
                     f"phase {ph['id']}: unknown template '{tid}'")
+        for st in (ph.get("escalate") or {}).get("steps") or []:
+            tid = st.get("template") if isinstance(st, dict) else None
+            if not tid:
+                problems.append(
+                    f"phase {ph['id']}: escalate step missing template")
+            elif tid not in known_templates:
+                problems.append(
+                    f"phase {ph['id']}: escalate unknown template '{tid}'")
     uni = pack.get("universal") or {}
     for rule in uni.get("rules") or []:
         if not isinstance(rule, dict) or not rule.get("id"):
@@ -1205,6 +1585,14 @@ def validate_policy(pack: dict, template_ids=None) -> list[str]:
             elif tid not in known_templates:
                 problems.append(
                     f"goal {g['id']}: unknown template '{tid}'")
+        for st in (g.get("escalate") or {}).get("steps") or []:
+            tid = st.get("template") if isinstance(st, dict) else None
+            if not tid:
+                problems.append(
+                    f"goal {g['id']}: escalate step missing template")
+            elif tid not in known_templates:
+                problems.append(
+                    f"goal {g['id']}: escalate unknown template '{tid}'")
     for s in _walk_strings(pack):
         for m in _FN_RE.finditer(s) if s.startswith("@fn:") else []:
             if m.group(1) not in FN:

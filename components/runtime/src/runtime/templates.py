@@ -27,12 +27,18 @@ try:
 except ImportError:  # pragma: no cover - contracts always co-installed
     from contracts import canonical_bytes  # type: ignore[no-redef]
 
+from ._root import bundle_root, repo_root
+
 REPO_ROOT = Path(__file__).resolve().parents[4]
 PACKS_ENV = "RIMBRAIN_PACKS_DIR"
-DEFAULT_PACKS = REPO_ROOT / "components" / "rimbrain" / "packs"
-INVENTORY = REPO_ROOT / "baselines" / "upstream-85cb050" / "rpc-inventory.json"
+# frozen: editable packs live beside the exe; the bundled copies inside the
+# image are the fallback so the binary still runs standalone (UR-ARC-009)
+_DEFAULT_BUNDLED = bundle_root() / "components" / "rimbrain" / "packs"
+DEFAULT_PACKS = (_P if (_P := repo_root() / "packs").is_dir()
+                 else _DEFAULT_BUNDLED)
+INVENTORY = bundle_root() / "baselines" / "upstream-85cb050" / "rpc-inventory.json"
 
-PACK_SCHEMA = REPO_ROOT / "components" / "contracts" / "schemas" / "runtime" / "pack.schema.json"
+PACK_SCHEMA = bundle_root() / "components" / "contracts" / "schemas" / "runtime" / "pack.schema.json"
 
 __all__ = ["PackError", "packs_dir", "load_pack", "current_hash", "pack_drift",
            "inventory_methods"]

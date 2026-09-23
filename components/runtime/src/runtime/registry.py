@@ -30,9 +30,13 @@ from pathlib import Path
 
 import yaml
 
+from ._root import bundle_root, repo_root
+
 REPO_ROOT = Path(__file__).resolve().parents[4]
-_DEFAULT_PROFILES = REPO_ROOT / "profiles"
-_DEFAULT_SCHEMAS = REPO_ROOT / "components" / "contracts" / "schemas" / "runtime"
+# frozen: editable profiles beside the exe; bundled copies are the fallback
+_DEFAULT_PROFILES = (_P if (_P := repo_root() / "profiles").is_dir()
+                     else bundle_root() / "profiles")
+_DEFAULT_SCHEMAS = bundle_root() / "components" / "contracts" / "schemas" / "runtime"
 
 PROFILES_ENV = "RIMBRAIN_PROFILES_DIR"
 SCHEMAS_ENV = "RIMBRAIN_CONTRACT_SCHEMAS"

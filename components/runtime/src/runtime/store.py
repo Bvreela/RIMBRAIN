@@ -36,9 +36,10 @@ __all__ = ["EventStore", "write_atomic", "state_dir"]
 
 
 def state_dir() -> Path:
+    from ._root import repo_root
     return Path(os.environ.get(
         "RIMBRAIN_STATE_DIR",
-        str(Path(__file__).resolve().parents[4] / "state")))
+        str(repo_root() / "state")))
 
 
 def write_atomic(path: str | Path, data: bytes) -> Path:

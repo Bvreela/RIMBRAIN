@@ -80,6 +80,12 @@
 - **UR-BRN-016:** Capability coverage MUST be auditable: tooling MUST diff the bridge RPC surface and documented mechanic domains against the catalog and report unmapped surface; coverage gaps MUST never be silently absent.
 - **UR-BRN-017:** Capability primitives MUST remain strategy-agnostic; the catalog and primitives MUST NOT carry when/why/threshold/priority policy — how capabilities are used is pack data only.
 - **UR-BRN-018:** Packs MUST declare `class: fair|dev`. A fair-class pack MUST contain zero `dev.*` methods end to end; a dev-class pack MUST be refused at load under a fair run. Multiple packs MUST coexist in the pack library, loadable by id with independent hashes/revisions.
+- **UR-BRN-019:** The RimBrain (pack + interpreter state) MUST be a single loadable/unloadable entity: load by pack id, swap to a different pack, refresh the active pack, and unload (halt all pack-driven writes) through a UI-reachable control channel — without restarting the run and without breaking gameplay logic.
+- **UR-BRN-020:** A brain reset MUST fully reinitialize the brain's decision state — task-ledger namespaces (start/govern/combat tasks tombstoned with durable evidence), pack var bindings, rule/step cooldowns, and planning-layer state — while observed colony state remains the only world truth. A reset MUST NOT leave residual tasks, cooldowns, or stale hashes that alter post-reset behavior, and it MUST replay correctly after process restart.
+- **UR-BRN-021:** The pawn-level decision matrix MUST offer a broad, varied option set — per-pawn job assignment, work-type priorities, drafting, equipment, rescue, medical, and scheduling — with per-pawn selection resolved on skill, traits, and capability, never a fixed pawn or fixed job.
+- **UR-BRN-022:** All build-space selection, layout direction (site geometry, room placement, orientation, expansion), and construction logic MUST be expressed in RimBrain pack data and resolved through capability primitives; the engine MUST NOT hardcode placement, orientation, or layout strategy.
+- **UR-BRN-023:** Brain load/unload/reset correctness MUST be verified by a continuous-loop test (load → drive → unload → reload → drive, repeated); every failure the loop discovers MUST be fixed, not documented around.
+- **UR-BRN-024:** Power-generator siting MUST validate a pack-declared clearance corridor (e.g. a wind turbine's airflow path) — buildings, walls, and natural objects that would block it veto the site; the corridor geometry (axis, half-width, depth, gap), which thing kinds obstruct, which designator clears vegetation, and the regrowth-suppression follow-up (none | flooring | growing zone) are all pack data, never engine constants. Step `when`/`needs` predicates MUST be able to gate per `for_each` candidate (`@var:it`).
 
 ## Transparency and observability
 
@@ -120,6 +126,7 @@
 - **UR-ARC-006:** Implementation MUST proceed through measurable work packages with requirement/test traceability.
 - **UR-ARC-007:** Dashboard and lab MUST consume public contracts rather than runtime internals.
 - **UR-ARC-008:** Scored runs MUST reject dirty or unrecorded component states.
+- **UR-ARC-009:** The full app — runtime loop plus dashboard overlay — MUST ship and launch as a single executable. One command (`rimbrain run`) starts brain and UI together; a `rimbrain overlay` subcommand is the frozen child-entry so the same binary serves both roles. Packs, contract schemas, the RPC inventory, event map, and endpoint profiles MUST be bundled read-only, while state, editable packs, and profiles resolve beside the executable — never inside it. Pack load/unload/swap/reset through the packaged UI MUST behave identically to source runs, and packaging MUST NOT weaken fair-mode refusal, pack-drift rejection, or the single-writer guarantee.
 
 ## Checkpoint-retry loops (debug/eval)
 
