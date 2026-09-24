@@ -286,6 +286,7 @@ class Overlay(tk.Tk):
         self.header.config(text=(
             f"{p.get('mode', '—')}  tick {p.get('tick', '—')}  "
             f"poll {p.get('poll', '—')}  pack {p.get('pack_revision', '—')}"
+            + (f"  phase {p['phase']}" if p.get("phase") else "")
             + ("  COMPLETE" if p.get("complete") else "")))
         self.goals.delete(*self.goals.get_children())
         for g in p.get("goals") or []:
@@ -302,8 +303,24 @@ class Overlay(tk.Tk):
         if self._goals_pinned:
             self.goals.yview_moveto(1)
         exits = p.get("exit_conditions") or {}
-        self.exit_lbl.config(text="  ".join(
-            f"[{'x' if ok else ' '}] {k}" for k, ok in exits.items()))
+        extra = []
+        sl = p.get("select")
+        if sl:
+            tag = "shadow" if sl.get("shadow") else \
+                ("fb" if sl.get("fallback") else "")
+            extra.append(f"sel:{sl.get('applied')}"
+                         + (f"({tag})" if tag else ""))
+        pl = p.get("plan")
+        if pl:
+            extra.append(f"plan:{pl.get('id')} stale:{pl.get('stale_ticks')}")
+        mv = p.get("mutation")
+        if mv:
+            extra.append(f"reflect:{mv.get('last_verdict') or 'idle'}"
+                         f"/{mv.get('passes', 0)}")
+        self.exit_lbl.config(text=(
+            "  ".join(f"[{'x' if ok else ' '}] {k}"
+                     for k, ok in exits.items())
+            + ("   " + "  ".join(extra) if extra else "")))
 
     def _render_actions(self, rows: list[dict]):
         self.actions.config(state="normal")

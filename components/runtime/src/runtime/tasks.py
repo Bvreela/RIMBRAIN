@@ -28,8 +28,34 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from .dispatch import _dotted, _op_holds
+from .dispatch import _dotted
 from .store import EventStore, state_dir, write_atomic
+
+
+def _op_holds(op: str, observed, expected) -> bool:
+    """Ledger effect-verifier ops {eq,ne,gt,gte,lt,lte,contains} — the
+    verification grammar, deliberately separate from the policy
+    predicate dialect unified in dispatch/policy (feature 017)."""
+    if observed is None:
+        return False
+    try:
+        if op == "eq":
+            return observed == expected
+        if op == "ne":
+            return observed != expected
+        if op == "gt":
+            return observed > expected
+        if op == "gte":
+            return observed >= expected
+        if op == "lt":
+            return observed < expected
+        if op == "lte":
+            return observed <= expected
+        if op == "contains":
+            return expected in observed
+    except TypeError:
+        return False
+    return False
 
 LIFECYCLE = ["proposed", "locked", "dispatched", "verifying",
              "requeued", "succeeded", "failed", "expired"]

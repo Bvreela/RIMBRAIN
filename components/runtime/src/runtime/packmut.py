@@ -199,9 +199,30 @@ def compile_legacy(ops: list[dict] | None, doc: dict) -> list[dict]:
     return out
 
 
+# Mutable pack surfaces (feature 017, T036): every v1 surface the
+# reflection pipeline may touch, plus `decision_map`/`combat` — retained
+# v0 blocks a proposal may still legitimately target. Pack identity
+# (`pack_id`, `schema_version`, `meta`, `revision`, `class`, `hash`) is
+# never mutable. Ops written against v0 paths are rewritten through the
+# migration map before applying (loaded packs are always v1 shape).
+MUTABLE_ROOTS = {
+    "phases", "standing_goals", "action_list", "decide", "reflexes",
+    "rules", "options", "senses", "metrics", "capabilities", "mutate",
+    "improve", "vitals", "blueprints", "defense", "combat", "cycle",
+    "decision_map",
+}
+
+
+def rewrite_path(path: str) -> str:
+    """v0 dialect -> v1 canonical path (templates.v0_to_v1_path)."""
+    from .templates import v0_to_v1_path
+    return v0_to_v1_path(path)
+
+
 def apply_ops(doc: dict, ops: list[dict] | None) -> tuple[bool, list[str]]:
     """Apply a mutation set in order. Returns (changed, misses) — every
-    unaddressable op lands in `misses` so the gate can report it."""
+    unaddressable op lands in `misses` so the gate can report it. Paths
+    are normalized to the v1 surface and must root in MUTABLE_ROOTS."""
     changed, misses = False, []
     for i, op in enumerate(ops or []):
         kind = (op or {}).get("op")
@@ -209,10 +230,28 @@ def apply_ops(doc: dict, ops: list[dict] | None) -> tuple[bool, list[str]]:
         if fn is None:
             misses.append(f"ops[{i}]: unknown op {kind!r}")
             continue
+        raw = str(op.get("path", ""))
+        path = rewrite_path(raw)
+        root = path.split(".", 1)[0]
+        if root not in MUTABLE_ROOTS:
+            misses.append(f"ops[{i}]: '{op.get('path', '')}' is not a "
+                          f"mutable surface")
+            continue
+        if path != raw and kind == "set" \
+                and resolve(doc, ".".join(path.split(".")[:-1])) is None:
+            path = raw  # rewritten parent doesn't exist — set must not
+            # fabricate it; apply to the original v0 path
         if kind == "remove":
-            ok = fn(doc, op.get("path", ""))
+            ok = fn(doc, path)
         else:
-            ok = fn(doc, op.get("path", ""), op.get("value"))
+            ok = fn(doc, path, op.get("value"))
+        if not ok and path != raw:
+            # the v0 path may still resolve on an unmigrated doc —
+            # retry the original spelling before reporting a miss
+            if kind == "remove":
+                ok = fn(doc, raw)
+            else:
+                ok = fn(doc, raw, op.get("value"))
         changed |= ok
         if not ok:
             misses.append(f"ops[{i}]: {kind} '{op.get('path', '')}' "

@@ -1,6 +1,9 @@
-"""Live-run pack mutation (feature 016; FR-1401..1411).
+"""Reflection pipeline (feature 017, US4; ex-mutate.py feature 016).
 
-A reflection pass wired into the live loop under ``--live-mutate``:
+One digest -> propose -> compile -> gate -> candidate -> boundary-promote
+path covering every mutable pack surface (``phases``, ``action_list``,
+``decide``, ``reflexes``, ``rules``, ``options``, ``senses``,
+``metrics`` — see :data:`packmut.MUTABLE_ROOTS`):
 
     triggers (cadence / failure / near-failure, pack ``mutate:`` cfg)
     -> failure digest -> rimbrain.improve proposal (rules-only degrade)
@@ -12,6 +15,11 @@ or the bridge — candidates promote only at the NEXT run's boundary
 (:func:`boundary`, called before ``load_pack``), where a regressed
 promotion auto-reverts to its recorded parent. ``dispatch.pack_drift``
 stays absolute.
+
+Also hosts the absorbed feature-009 improve-mode harness
+(:func:`run_improve`, :func:`propose`) and the feature-005 planner's
+candidate promotion (:func:`materialize_candidate`) — one gate, one
+candidate format, one lineage (T037).
 """
 
 from __future__ import annotations
@@ -19,6 +27,7 @@ from __future__ import annotations
 import copy
 import json
 import re
+import shutil
 from collections import deque
 from pathlib import Path
 
@@ -26,19 +35,21 @@ import yaml
 
 from . import improve, packmut, templates
 from ._root import repo_root
+from .audit import audit_policy, verdict_event
 from .bindings import resolve_role
 from .client import openai_compat_chat
-from .metrics import episode_metrics
+from .metrics import episode_metrics, metrics_event
 from .planning import extract_json
 from .store import write_atomic
 
-SOURCE = "rimbrainagent.runtime.mutate"
+SOURCE = "rimbrainagent.runtime.evolve"
 MUTATION_SCHEMA = (repo_root() / "components" / "contracts" / "schemas" /
                    "runtime" / "mutation.schema.json")
 LINEAGE = "mutations.jsonl"
-_GOAL_NS = ("start.", "govern.", "combat.")
+_GOAL_NS = ("start.", "govern.", "phase.", "combat.")
 _TERMINAL = {"succeeded", "failed", "expired"}
 _FAIL = {"failed", "expired"}
+_PACKS = Path(__file__).resolve().parents[3] / "rimbrain" / "packs"
 
 
 # -- canonical envelopes ----------------------------------------------------
@@ -63,11 +74,12 @@ def mutation_event(event_type: str, payload: dict, seq: int,
 # -- per-run pass state ------------------------------------------------------
 
 class PassState:
-    """Disposable per-run mutation state (data-model: PassState).
+    """Disposable per-run reflection state (data-model: PassState).
 
     ``note()`` sees every canonical envelope the run emits (wired onto the
     sink); ``note_outcome()`` sees each poll's step outcome. Both feed the
     trigger scan, which only looks at events since the last pass (``mark``).
+    Owned by ``RunState.improve_state`` in the unified loop (T038).
     """
 
     def __init__(self, cfg: dict | None = None, *, window: int = 600):
@@ -227,17 +239,28 @@ def check_triggers(ps: PassState, pack: dict, poll: int) -> tuple[str | None, di
 # -- digest (FR-1403) ---------------------------------------------------------
 
 def _goal_specs(pack: dict) -> dict:
+    """Ledger task id -> goal/step spec, v1 surfaces (feature 017):
+    prescriptive phase steps -> ``start.<uid>``, phase goals ->
+    ``phase.<pid>.<gid>``, standing goals -> ``govern.<gid>``, combat
+    rounds -> ``combat.<rid>``."""
     out = {}
-    for g in (pack.get("start") or {}).get("phases") or []:
-        if g.get("id"):
-            out[f"start.{g['id']}"] = g
-    for g in (pack.get("govern") or {}).get("goals") or []:
+    for ph in templates.phases_of(pack):
+        pid = ph.get("id")
+        if ph.get("kind") == "combat":
+            for name, sec in (ph.get("combat") or {}).items():
+                for g in (sec or {}).get("rounds") or []:
+                    if isinstance(g, dict) and g.get("id"):
+                        out[f"combat.{g['id']}"] = g
+            continue
+        for g in ph.get("steps") or []:
+            if isinstance(g, dict) and g.get("id"):
+                out[f"start.{g['id']}"] = g
+        for g in ph.get("goals") or []:
+            if isinstance(g, dict) and g.get("id"):
+                out[f"phase.{pid}.{g['id']}"] = g
+    for g in templates.standing_goals_of(pack):
         if g.get("id"):
             out[f"govern.{g['id']}"] = g
-    for name, sec in (pack.get("combat") or {}).items():
-        for g in (sec or {}).get("rounds") or []:
-            if isinstance(g, dict) and g.get("id"):
-                out[f"combat.{g['id']}"] = g
     return out
 
 
@@ -292,11 +315,13 @@ def build_digest(ps: PassState, ledger, pack_loaded: dict, pack: dict,
                     "remove <dotted.path>",
                     "upsert <list.path> <obj-with-id>"],
             "path_rule": "segments walk dict keys; a segment matching a "
-                         "list element's 'id' descends into it",
+                         "list element's 'id' descends into it; v1 "
+                         "surfaces only (v0 paths auto-rewrite)",
             "max_ops": int(ps.cfg.get("max_ops") or 5)},
         "pack_sections": sorted(k for k in pack.keys()
-                                if k not in ("templates", "goal_options")),
-        "template_ids": [t.get("id") for t in pack.get("templates") or []],
+                                if k not in ("templates", "goal_options",
+                                             "capabilities")),
+        "template_ids": [t.get("id") for t in templates.templates_of(pack)],
     }
     while len(json.dumps(digest, default=str)) > limit and digest["goals"]:
         digest["goals"].pop()  # shrink the biggest section first
@@ -367,7 +392,7 @@ def reflect(ps: PassState, digest: dict, pack_loaded: dict, pack: dict,
     res = resolver("rimbrain.improve", probe_live=False)
     if not res.get("ok"):
         return {"ok": False, "degraded": True,
-                "error": {"code": "mutate.unresolved",
+                "error": {"code": "evolve.unresolved",
                           "message": res["error"]["message"]}}
     resolved = res["resolved"]
     if resolved.get("kind") == "fallback":
@@ -384,7 +409,7 @@ def reflect(ps: PassState, digest: dict, pack_loaded: dict, pack: dict,
                if hit else None)
         if not ops:
             return {"ok": False, "degraded": True,
-                    "error": {"code": "mutate.rules_only_noop",
+                    "error": {"code": "evolve.rules_only_noop",
                               "message": "rules-only path found no "
                                          "applicable remediation"}}
         return {"ok": True, "endpoint_id": resolved["name"],
@@ -403,7 +428,7 @@ def reflect(ps: PassState, digest: dict, pack_loaded: dict, pack: dict,
              usage_tracker=usage_tracker)
     if not r.get("ok"):
         return {"ok": False, "degraded": True,
-                "error": {"code": "mutate.endpoint_error",
+                "error": {"code": "evolve.endpoint_error",
                           "message": r["error"]["message"]}}
     usage = (r.get("body") or {}).get("usage") or {}
     text = ((r.get("body") or {}).get("choices") or [{}])[0] \
@@ -411,7 +436,7 @@ def reflect(ps: PassState, digest: dict, pack_loaded: dict, pack: dict,
     doc = extract_json(text or "")
     if doc is None:
         return {"ok": False,
-                "error": {"code": "mutate.malformed",
+                "error": {"code": "evolve.malformed",
                           "message": "improve output had no parseable JSON"},
                 "violations": ["no JSON object in model output"],
                 "endpoint_id": resolved["endpoint_id"],
@@ -420,7 +445,7 @@ def reflect(ps: PassState, digest: dict, pack_loaded: dict, pack: dict,
     problems = _validate_proposal(doc)
     if problems:
         return {"ok": False,
-                "error": {"code": "mutate.malformed",
+                "error": {"code": "evolve.malformed",
                           "message": "proposal fails mutation.schema.json"},
                 "violations": problems,
                 "endpoint_id": resolved["endpoint_id"],
@@ -434,7 +459,32 @@ def reflect(ps: PassState, digest: dict, pack_loaded: dict, pack: dict,
                           int(usage.get("completion_tokens") or 0)}}
 
 
-# -- gate (FR-1407) -----------------------------------------------------------
+# -- the one candidate gate (T037) ---------------------------------------------
+
+def validate_candidate(doc: dict, *, fair: bool) -> list[str]:
+    """Structural validation every candidate path shares (T037):
+    schema (``validate_pack``) + sealed inventory + policy vocabulary +
+    fair-class. Returns a violations list — empty means adoptable."""
+    violations = templates.validate_pack(doc)
+    caps = (doc.get("capabilities") or {}).get("templates")
+    tmpls = caps if isinstance(caps, list) else (doc.get("templates") or [])
+    if not tmpls:
+        violations.append("no action templates")
+    unknown = sorted({t.get("method") for t in tmpls}
+                     - templates.inventory_methods())
+    if unknown:
+        violations.append(f"methods not in sealed inventory: {unknown}")
+    if doc.get("policy_version") is not None:
+        from .policy import validate_policy
+        violations += validate_policy(doc)
+    if fair:
+        bad = sorted({t.get("method") for t in tmpls
+                      if str(t.get("method") or "").startswith("dev.")})
+        if bad or doc.get("class") == "dev":
+            violations.append("fair run cannot adopt dev-class "
+                              f"content: {bad or 'class=dev'}")
+    return violations
+
 
 def gate(proposal: dict, pack_loaded: dict, pack: dict, cfg: dict,
          fair: bool) -> dict:
@@ -454,28 +504,10 @@ def gate(proposal: dict, pack_loaded: dict, pack: dict, cfg: dict,
     if not changed or cand == pack:
         return {"ok": False, "gate": "vacuous",
                 "violations": ["mutation set changed nothing"]}
-    problems = templates.validate_pack(cand)
+    problems = validate_candidate(cand, fair=fair)
     if problems:
         return {"ok": False, "gate": "validation",
                 "violations": problems}
-    unknown = sorted({t.get("method") for t in cand.get("templates") or []}
-                     - templates.inventory_methods())
-    if unknown:
-        return {"ok": False, "gate": "validation",
-                "violations": [f"methods not in sealed inventory: {unknown}"]}
-    if cand.get("policy_version") is not None:
-        from .policy import validate_policy
-        problems = validate_policy(cand)
-        if problems:
-            return {"ok": False, "gate": "validation",
-                    "violations": problems}
-    if fair:
-        bad = sorted({t.get("method") for t in cand.get("templates") or []
-                      if str(t.get("method") or "").startswith("dev.")})
-        if bad or cand.get("class") == "dev":
-            return {"ok": False, "gate": "validation",
-                    "violations": ["fair run cannot adopt dev-class "
-                                   f"content: {bad or 'class=dev'}"]}
     return {"ok": True, "doc": cand}
 
 
@@ -503,18 +535,242 @@ def materialize(doc: dict, pack_id: str, ps: PassState,
     return out
 
 
+# -- feature-005 planner promotion (absorbed; T034) ----------------------------
+
+def _compile_plan_ops(mutations: list) -> list[dict]:
+    """feature-005 `policy_mutations` vocabulary -> packmut ops:
+    add_template -> append capabilities.templates; add_emergency ->
+    upsert reflexes; edit_decision_map -> append decision_map (retained
+    v0 surface — inert under v1, kept for replay)."""
+    ops = []
+    for mut in mutations or []:
+        op, patch = mut.get("op"), mut.get("patch") or {}
+        if op == "add_template":
+            ops.append({"op": "append", "path": "templates",
+                        "value": patch})
+        elif op == "add_emergency":
+            rule = dict(patch)
+            rule.setdefault("id", mut.get("target") or "rule")
+            ops.append({"op": "upsert", "path": "emergency",
+                        "value": rule})
+        elif op == "edit_decision_map":
+            ops.append({"op": "append", "path": "decision_map",
+                        "value": patch})
+    return ops
+
+
+def materialize_candidate(pack_file: str, base_doc: dict,
+                          mutations: list) -> dict:
+    """Write ``candidates/<file>-<sha8>.yaml``; re-validate before
+    returning. The same gate vocabulary as the reflect pass — one
+    candidate format across every mutation path (T037)."""
+    doc = copy.deepcopy(base_doc)
+    ops = _compile_plan_ops(mutations)
+    _changed, misses = packmut.apply_ops(doc, ops)
+    problems = list(misses) + validate_candidate(doc, fair=False)
+    if problems:
+        return {"ok": False,
+                "error": {"code": "plan.mutation_invalid",
+                          "message": "mutated candidate fails pack "
+                                     "validation",
+                          "retryable": False,
+                          "details": {"issues": problems}}}
+    digest = templates._hash_of(doc)
+    out_dir = templates.packs_dir() / "candidates"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out = out_dir / f"{pack_file}-{digest[:8]}.yaml"
+    out.write_text(yaml.safe_dump(doc, sort_keys=False), encoding="utf-8")
+    return {"ok": True, "path": str(out), "hash": digest, "doc": doc}
+
+
+# -- feature-009 improve harness (absorbed; T035) ------------------------------
+
+def _apply_ops(doc: dict, ops: list[dict] | None) -> bool:
+    """FR-813: declarative pack mutations. Returns True if doc changed.
+
+    Legacy op names compile to the packmut vocabulary:
+    `set_cfg` -> `set`, `append` -> `append`, `drop_template` ->
+    `remove` on `templates.<id>`, `drop_rule` -> `remove` on every rule
+    list (`rules`, `reflexes`, `combat.*.rules`)."""
+    changed, _misses = packmut.apply_ops(
+        doc, packmut.compile_legacy(ops, doc))
+    return changed
+
+
+def propose(findings: list[dict], active_pack: dict,
+            candidates_dir: Path) -> Path | None:
+    """Remediation -> candidate pack file.
+
+    Dict remediation (`{ops: [...]}`) applies declarative mutations —
+    set_cfg/append/drop_template/drop_rule — to a candidate copy.
+    Legacy string remediations (`fix_template_params`,
+    `retune_lease_or_effect`) quarantine the affected template.
+    Anything else -> None (recorded, not invented).
+    """
+    for f in findings:
+        rem = f.get("remediation")
+        if isinstance(rem, dict) and rem.get("ops"):
+            cand = copy.deepcopy(active_pack)
+            if not _apply_ops(cand, rem["ops"]):
+                continue  # ops changed nothing -> vacuous candidate
+            cand["revision"] = str(cand.get("revision", "v0")) + \
+                f"+mut.{f['defect_class']}"
+            candidates_dir = Path(candidates_dir)
+            candidates_dir.mkdir(parents=True, exist_ok=True)
+            out = candidates_dir / f"cand-{f['defect_class']}.yaml"
+            out.write_text(yaml.safe_dump(cand, sort_keys=False),
+                           encoding="utf-8")
+            return out
+        if rem in ("fix_template_params", "retune_lease_or_effect"):
+            bad = set(f["affected"])
+            cand = copy.deepcopy(active_pack)
+            remaining = [t for t in
+                         templates.templates_of(cand)
+                         if t.get("id") not in bad]
+            if len(remaining) == len(templates.templates_of(cand)):
+                continue  # quarantine removes nothing -> vacuous candidate
+            cand["templates"] = remaining
+            if isinstance(cand.get("capabilities"), dict):
+                cand["capabilities"]["templates"] = remaining
+            cand["revision"] = str(cand.get("revision", "v0")) + \
+                f"+quarantine.{f['defect_class']}"
+            candidates_dir = Path(candidates_dir)
+            candidates_dir.mkdir(parents=True, exist_ok=True)
+            out = candidates_dir / (
+                f"cand-{f['defect_class']}-"
+                f"{'-'.join(sorted(bad))[:24]}.yaml")
+            out.write_text(yaml.safe_dump(cand, sort_keys=False),
+                           encoding="utf-8")
+            return out
+    return None
+
+
+def _hash_pack(path: Path) -> str:
+    import hashlib
+    return hashlib.sha256(path.read_bytes()).hexdigest()[:16]
+
+
+def run_improve(store, cfg: dict, *, active_pack: dict,
+                packs_dir: Path = _PACKS, sink=None, clock=None,
+                iterations: int | None = None, events=None,
+                feed=None) -> dict:
+    """Bounded improvement cycles. `events` may be injected for tests;
+    otherwise loaded from the canonical store each iteration."""
+    # `sink` is the canonical-events path; when the caller composes feed
+    # narration into the sink (CLI does), `feed` is unused — never narrate
+    # twice.
+    if sink is not None:
+        emit = sink
+    elif feed is not None:
+        emit = feed.write
+    else:
+        emit = lambda env: None
+    max_iter = iterations or (cfg.get("cadence") or {}
+                              ).get("max_iterations", 20)
+    min_events = (cfg.get("metrics") or {}).get("min_events", 5)
+    outcomes, seq = [], 0
+    for i in range(max_iter):
+        evs = events if events is not None else \
+            store.load()["events"]
+        cycle_id = f"cycle-{i:06d}"
+        findings = improve.diagnose(evs, cfg)
+        seq += 1
+        emit(improve.diagnosed_event(cycle_id, findings, seq, clock))
+        if not findings:
+            outcomes.append({"cycle": cycle_id, "verdict": "noop"})
+            continue
+        cand_path = propose(findings, active_pack,
+                            Path(packs_dir) / "candidates")
+        cand_id = cand_path.stem if cand_path else f"cand-{cycle_id}"
+        if cand_path is None:
+            seq += 1
+            emit(improve._env("improvement.rejected", {
+                "candidate_id": cand_id, "gate": "defer",
+                "reasons": ["no rules-only remediation for findings"],
+                "source_cycle": cycle_id}, seq, clock))
+            outcomes.append({"cycle": cycle_id, "verdict": "defer"})
+            continue
+        # audit gate (policy invariants; ux coverage over the cycle)
+        v = audit_policy(cand_path)
+        seq += 1
+        emit(verdict_event(v, seq, clock))
+        if v["verdict"] != "pass":
+            seq += 1
+            emit(improve._env("improvement.rejected", {
+                "candidate_id": cand_id, "gate": "audit",
+                "reasons": v["reasons"],
+                "source_cycle": cycle_id}, seq, clock))
+            outcomes.append({"cycle": cycle_id, "verdict": "audit_fail"})
+            continue
+        # evidence floor -> defer
+        if len(evs) < min_events:
+            seq += 1
+            emit(improve._env("improvement.rejected", {
+                "candidate_id": cand_id, "gate": "defer",
+                "reasons": [f"evidence thin: {len(evs)} events "
+                            f"< {min_events}"],
+                "source_cycle": cycle_id}, seq, clock))
+            outcomes.append({"cycle": cycle_id, "verdict": "defer"})
+            continue
+        # metrics validation: candidate must beat incumbent; ops-mutation
+        # candidates (colony-health defects) can't move dispatch metrics —
+        # a tie is enough for them (FR-813; promotion gate still applies)
+        weights = cfg.get("metrics") or {}
+        inc = improve.score(episode_metrics(evs), weights)
+        quarantined = {a for f in findings for a in f["affected"]}
+        cand = improve.score(improve.predict_metrics(evs, quarantined),
+                             weights)
+        cls = cand_path.stem[len("cand-"):].split("-")[0]
+        ops_rem = next((isinstance(f.get("remediation"), dict)
+                        for f in findings if f["defect_class"] == cls),
+                       False)
+        if cand < inc or (ops_rem and cand <= inc):
+            promoted = Path(packs_dir) / cand_path.stem / "pack.yaml"
+            promoted.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(cand_path, promoted)
+            seq += 1
+            emit(improve._env("improvement.promoted", {
+                "candidate_id": cand_id,
+                "pack_hash": _hash_pack(promoted),
+                "episode_boundary": True,
+                "metrics": {"incumbent_score": inc,
+                            "candidate_score": cand},
+                "source_cycle": cycle_id}, seq, clock))
+            outcomes.append({"cycle": cycle_id, "verdict": "promoted",
+                             "pack": str(promoted)})
+            break  # one promotion per run; next cycle re-diagnoses
+        seq += 1
+        emit(improve._env("improvement.rejected", {
+            "candidate_id": cand_id, "gate": "metrics",
+            "reasons": [f"candidate score {cand:.3f} not better "
+                        f"than incumbent {inc:.3f}"],
+            "metrics": {"incumbent_score": inc,
+                        "candidate_score": cand},
+            "source_cycle": cycle_id}, seq, clock))
+        outcomes.append({"cycle": cycle_id, "verdict": "metrics_fail"})
+    seq += 1
+    emit(metrics_event(evs if events is not None else
+                       store.load()["events"],
+                       f"improve-{i}", seq, clock))
+    return {"ok": True, "cycles": outcomes}
+
+
 # -- the pass (FR-1401) --------------------------------------------------------
 
 def maybe_trigger(ps: PassState, *, dispatcher, ledger, pack_loaded: dict,
                   pack: dict, pack_id: str, state_dir: Path, tick: int,
                   poll: int, fair: bool, emit, clock=None,
                   resolver=None, chat=None,
-                  usage_tracker=None) -> dict | None:
+                  usage_tracker=None,
+                  force: bool = False) -> dict | None:
     """One reflection pass when a trigger fires; None when nothing fired.
-    Never raises — a pass failure is an event, not a crash."""
+    ``force`` runs a pass unconditionally (the ``--stage reflect``
+    debug entry). Never raises — a pass failure is an event, not a
+    crash."""
     resolver = resolver or resolve_role
     chat = chat or openai_compat_chat
-    reason, evidence = check_triggers(ps, pack, poll)
+    reason, evidence = ("manual", {}) if force \
+        else check_triggers(ps, pack, poll)
     if reason is None:
         return None
     seq = [max(getattr(dispatcher, "_events", 0),
@@ -662,19 +918,7 @@ def boundary(pack_id: str, state_dir: Path, *, emit=None, clock=None,
         except yaml.YAMLError as exc:
             violations.append(f"candidate YAML unreadable: {exc}")
     if doc is not None:
-        violations += templates.validate_pack(doc)
-        unknown = sorted({t.get("method") for t in doc.get("templates") or []}
-                         - templates.inventory_methods())
-        if unknown:
-            violations.append(f"methods not in sealed inventory: {unknown}")
-        if doc.get("policy_version") is not None:
-            from .policy import validate_policy
-            violations += validate_policy(doc)
-        if fair:
-            bad = sorted({t.get("method") for t in doc.get("templates") or []
-                          if str(t.get("method") or "").startswith("dev.")})
-            if bad or doc.get("class") == "dev":
-                violations.append("fair run cannot adopt dev-class content")
+        violations += validate_candidate(doc, fair=fair)
     if violations:
         _emit("mutation.rejected", {
             "mutation_id": None,

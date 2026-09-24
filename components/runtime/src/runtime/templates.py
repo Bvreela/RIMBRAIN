@@ -130,14 +130,19 @@ def _jsonschema_problems(doc: dict) -> list[str] | None:
 
 
 def _builtin_problems(doc: dict) -> list[str]:
+    """Mirror of pack.schema.json over the *migrated* (v1-union) doc:
+    v0 packs keep their keys so legacy requireds still hold; native v1
+    packs satisfy the same invariants via v1 surfaces."""
     problems: list[str] = []
     if not isinstance(doc, dict):
         return ["$: pack must be an object"]
-    for key in ("schema_version", "pack_id", "revision", "templates",
-                "jobs", "decision_map", "emergency"):
-        if key not in doc:
-            problems.append(f"$.{key}: required")
-    templates = doc.get("templates")
+    if "schema_version" not in doc:
+        problems.append("$.schema_version: required")
+    if not (doc.get("pack_id") or (doc.get("meta") or {}).get("pack_id")):
+        problems.append("$.pack_id: required")
+    if not (doc.get("revision") or (doc.get("meta") or {}).get("revision")):
+        problems.append("$.revision: required")
+    templates = templates_of(doc)
     if not isinstance(templates, list) or not templates:
         problems.append("$.templates: required non-empty array")
     elif any(not isinstance(t, dict) or not t.get("id")
@@ -153,7 +158,137 @@ def validate_pack(doc: dict) -> list[str]:
 
 
 def _hash_of(doc: dict) -> str:
-    return hashlib.sha256(canonical_bytes(doc)).hexdigest()
+    """sha256 of the canonical *normalized* doc — every hash site (load,
+    drift check, candidate digest) agrees because migration is
+    idempotent (feature 017)."""
+    return hashlib.sha256(canonical_bytes(migrate_v0(doc))).hexdigest()
+
+
+# -- schema v1: v0->v1 load-time migration (feature 017) -----------------
+# The migrated doc is the union: v1 surfaces overlaid on the intact v0
+# cfg blocks, so `@cfg:start.*`/`@cfg:govern.*` resolvers keep working
+# verbatim (the retained blocks ARE the alias map — no resolver rewrite)
+# and legacy readers keep working until the phase engine lands.
+
+def migrate_v0(doc: dict) -> dict:
+    """Return a schema-v1 view of a v0 pack doc. Pure: input unmodified.
+    `schema_version` absent => 0 => migrate; 1 => pass through; >1
+    rejected by the caller."""
+    if int(doc.get("schema_version") or 0) >= 1:
+        return doc
+    out = dict(doc)
+    start = doc.get("start") or {}
+    govern = doc.get("govern") or {}
+    universal = doc.get("universal") or {}
+    out["schema_version"] = 1
+    out.setdefault("meta", {"pack_id": doc.get("pack_id"),
+                            "revision": doc.get("revision"),
+                            "class": doc.get("class")})
+    out.setdefault("capabilities", {})
+    out["capabilities"].setdefault("templates",
+                                   list(doc.get("templates") or []))
+    # emergency[] -> reflexes[]: `condition` becomes `when`; the unified
+    # predicate evaluator (T008) makes the dialects equivalent.
+    out.setdefault("reflexes", [
+        {**{("when" if k == "condition" else k): v
+            for k, v in r.items()}}
+        for r in (doc.get("emergency") or [])])
+    out.setdefault("rules", list(universal.get("rules") or []))
+    senses = {"universal": {k: v for k, v in universal.items()
+                            if k != "rules"}}
+    for key in ("site", "shelter", "roof", "food", "cooking",
+                "recreation", "hauling", "arm", "defense"):
+        if key in start:
+            senses[key] = start[key]
+    senses["govern"] = {k: v for k, v in govern.items()
+                        if k != "goals"}
+    out.setdefault("senses", senses)
+    phases = ([{"id": "init", "prescriptive": True,
+                "steps": list(start.get("phases") or []),
+                "complete": dict(start.get("exit") or {}),
+                "cfg": start}]
+              if start.get("phases") else [])
+    # a pack carrying a combat: script gets it as a gated phase kind —
+    # engaged only under scripted=True (dev harness / --stage combat)
+    if doc.get("combat"):
+        phases.append({"id": "combat", "kind": "combat",
+                       "combat": doc["combat"]})
+    out.setdefault("phases", phases)
+    out.setdefault("standing_goals", list(govern.get("goals") or []))
+    out.setdefault("options", list(doc.get("goal_options") or []))
+    out.setdefault("decide", {
+        "select": {"role": "rimbrain.select", "batch_pawns": True,
+                   "fallback": "priority_head", "shadow": True},
+        "plan": {"role": "rimbrain.plan", "cadence_s": 150,
+                 "on_phase_boundary": True}})
+    return out
+
+
+_V0_TO_V1 = {
+    "templates": "capabilities.templates",
+    "emergency": "reflexes",
+    "universal.rules": "rules",
+    "universal": "senses.universal",
+    "start.phases": "phases.0.steps",
+    "start.exit": "phases.0.complete",
+    "start": "phases.0.cfg",
+    "govern.goals": "standing_goals",
+    "govern": "senses.govern",
+    "goal_options": "options",
+}
+
+
+def v0_to_v1_path(path: str) -> str:
+    """Rewrite a v0 pack path to its v1 location (longest-prefix match);
+    packmut ops addressing v0 paths go through this before apply."""
+    for old, new in sorted(_V0_TO_V1.items(), key=lambda kv: -len(kv[0])):
+        if path == old or path.startswith(old + "."):
+            return new + path[len(old):]
+    return path
+
+
+# v1-surface accessors — one read path for both native v1 packs and
+# migrated v0 packs (which retain their original keys as aliases).
+
+def templates_of(pack: dict) -> list:
+    return (pack.get("capabilities") or {}).get("templates") \
+        or pack.get("templates") or []
+
+
+def reflexes_of(pack: dict) -> list:
+    return pack.get("reflexes") or pack.get("emergency") or []
+
+
+def rules_of(pack: dict) -> list:
+    return pack.get("rules") \
+        or (pack.get("universal") or {}).get("rules") or []
+
+
+def phases_of(pack: dict) -> list:
+    if pack.get("phases") is not None:
+        return pack["phases"]
+    start = pack.get("start") or {}
+    phases = ([{"id": "init", "prescriptive": True,
+                "steps": start.get("phases") or [],
+                "complete": start.get("exit") or {}, "cfg": start}]
+              if start.get("phases") else [])
+    if pack.get("combat"):
+        phases.append({"id": "combat", "kind": "combat",
+                       "combat": pack["combat"]})
+    return phases
+
+
+def standing_goals_of(pack: dict) -> list:
+    return pack.get("standing_goals") \
+        or (pack.get("govern") or {}).get("goals") or []
+
+
+def options_of(pack: dict) -> list:
+    return pack.get("options") or pack.get("goal_options") or []
+
+
+def decide_of(pack: dict) -> dict:
+    return pack.get("decide") or {}
 
 
 def load_pack(pack_id: str) -> dict:
@@ -177,13 +312,20 @@ def load_pack(pack_id: str) -> dict:
     if not isinstance(doc, dict):
         raise PackError(err("pack.validation.failed",
                             f"pack '{pack_id}' is not an object"))
+    if int(doc.get("schema_version") or 0) > 1:
+        raise PackError(err(
+            "pack.schema_version",
+            f"pack '{pack_id}' declares schema_version "
+            f"{doc.get('schema_version')} > 1",
+            {"pack": pack_id}))
+    doc = migrate_v0(doc)
     problems = validate_pack(doc)
     if problems:
         raise PackError(err(
             "pack.validation.failed",
             f"pack '{pack_id}' failed schema validation",
             {"pack": pack_id, "issues": problems}))
-    unknown = sorted({t["method"] for t in doc["templates"]}
+    unknown = sorted({t["method"] for t in templates_of(doc)}
                      - inventory_methods())
     if unknown:
         raise PackError(err(
@@ -216,7 +358,8 @@ def current_hash(pack_id: str) -> str | None:
         doc = yaml.safe_load(path.read_text(encoding="utf-8"))
     except yaml.YAMLError:
         return None
-    return _hash_of(doc) if isinstance(doc, dict) else None
+    # normalize so file hash and loaded hash compare on the same shape
+    return _hash_of(migrate_v0(doc)) if isinstance(doc, dict) else None
 
 
 def pack_drift(pack_id: str, loaded_hash: str) -> bool:

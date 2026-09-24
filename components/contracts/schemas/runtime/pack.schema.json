@@ -6,19 +6,118 @@
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "schema_version",
-    "pack_id",
-    "revision",
-    "templates",
-    "jobs",
-    "decision_map",
-    "emergency"
+    "schema_version"
+  ],
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "schema_version": {
+            "maximum": 0
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "pack_id",
+          "revision",
+          "templates",
+          "jobs",
+          "decision_map",
+          "emergency"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "schema_version": {
+            "minimum": 1
+          }
+        },
+        "required": [
+          "schema_version"
+        ]
+      },
+      "then": {
+        "required": [
+          "meta",
+          "capabilities"
+        ]
+      }
+    }
   ],
   "properties": {
     "schema_version": {
       "type": "integer",
       "minimum": 0,
-      "description": "Pack schema revision (0 = initial)."
+      "maximum": 1,
+      "description": "Pack schema revision (0 = legacy v0, migrated at load; 1 = unified phase-engine surface, feature 017)."
+    },
+    "meta": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "v1 identity block: {pack_id, revision, class: fair|dev}. Loader mirrors pack_id/revision/class here on v0 migration."
+    },
+    "capabilities": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "v1 capability vocabulary: {templates: [...]} — same shape as the legacy top-level templates array."
+    },
+    "senses": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "v1 observation config: site geometry, measured-field def lists, vitals cadence, enrich toggles. v0 start.*/govern.*/universal.* cfg migrates here."
+    },
+    "reflexes": {
+      "type": "array",
+      "description": "v1 pre-decide emergency rules (ex-emergency): [{id, priority, when, action}] — `when` uses the unified policy predicate dialect (feature 017)."
+    },
+    "rules": {
+      "type": "array",
+      "description": "v1 standing invariant rules (ex-universal.rules): [{id, when, action}]."
+    },
+    "phases": {
+      "type": "array",
+      "description": "v1 phase list (ex-start.phases + post phases): [{id, prescriptive?, when?, steps, complete?, goals?, action_list?, cfg}]. Exactly one prescriptive phase may exist."
+    },
+    "standing_goals": {
+      "type": "array",
+      "description": "v1 standing goals (ex-govern.goals): ordered objectives evaluated across phases; re-arm on effect lapse."
+    },
+    "options": {
+      "type": "array",
+      "description": "v1 strategic options catalog (ex-goal_options) the planner may promote into standing_goals or a plan."
+    },
+    "decide": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "v1 decide-stage config: {select: {role, batch_pawns, fallback, shadow, cadence_polls}, plan: {role, cadence_s, on_phase_boundary, on_events}}."
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "v1 metrics config: vitals + efficiency windows feeding select ranking and reflect evidence."
+    },
+    "action_list": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "v1 action-list bounds (ex-max_items etc.) shared by the select stage; hard cap stays runtime-owned."
+    },
+    "vitals": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "v1 colony-health sampling config (cadence, thresholds)."
+    },
+    "blueprints": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "v1 layout blueprints: compound/dining/kitchen/bedroom/floor geometry the pack's phases reference."
+    },
+    "defense": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "v1 defense policy: trap/killbox/perimeter config the pack's goals reference."
     },
     "pack_id": {
       "type": "string",

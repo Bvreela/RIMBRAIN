@@ -7,9 +7,9 @@ frozen (`rimbrain.exe ...`) behave identically:
   rimbrain overlay [--args]   overlay only (also the frozen child entry)
   rimbrain loop <args>        runtime loop pass-through (no overlay)
 
-`run` defaults to a fair live-brain start-mode pass; every `runtime loop`
+`run` defaults to a fair live-brain unified-run pass; every `runtime loop`
 flag passes straight through, e.g.
-  rimbrain run --mode sim --pack core-survival-v0 --iterations 50
+  rimbrain run --game sim --pack core-survival-v0 --iterations 50
 
 Writable data (state/, packs/, profiles/) resolves beside the executable
 when frozen, beside this file in dev — never inside the bundle.
@@ -102,8 +102,9 @@ def main(argv: list[str] | None = None) -> int:
         print(__doc__)
         return 2
     if not rest:  # default: the fair live-brain + live-mutate pass
-        rest = ["--pack", "start-mode-v0", "--mode", "start",
-                "--iterations", "2000", "--live-flag", "--fair",
+        rest = ["--pack", "start-mode-v0", "--mode", "run",
+                "--game", "live", "--iterations", "2000",
+                "--live-flag", "--fair",
                 "--live-brain", "--live-mutate", "--feed"]
     oargs = ["--state-dir", _env()["RIMBRAIN_STATE_DIR"]]
     packs = _packs_dir()  # before _run_loop imports runtime: a fresh

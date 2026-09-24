@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import yaml
 
-from runtime.improve import (diagnose, predict_metrics, run_improve,
-                             score)
+from runtime.evolve import run_improve  # absorbed (feature 017 US4)
+from runtime.improve import (diagnose, predict_metrics, score)
 
 CFG = {
     "cadence": {"max_iterations": 5},
@@ -88,7 +88,7 @@ def test_thin_evidence_defers(tmp_path):
 
 def test_unsafe_candidate_blocked_by_audit(tmp_path, monkeypatch):
     # candidate would contain a model executor -> audit must refuse
-    import runtime.improve as imp
+    import runtime.evolve as imp
     monkeypatch.setattr(imp, "audit_policy",
                         lambda p: {"check_id": "policy.invariant",
                                    "domain": "policy", "verdict": "fail",
@@ -209,7 +209,7 @@ def test_diagnose_repeat_sickness_windowed():
 
 def test_propose_mutation_ops(tmp_path):
     """FR-813: dict remediation applies declared ops to a candidate."""
-    from runtime.improve import propose
+    from runtime.evolve import propose
     findings = [{"defect_class": "poor_mood", "affected": ["colony.vitals"],
                  "remediation": VITALS_CFG["defect_patterns"][0]["remediation"],
                  "count": 3, "span": {"first_seq": 1, "last_seq": 3}}]
@@ -221,7 +221,7 @@ def test_propose_mutation_ops(tmp_path):
 
 
 def test_propose_drop_rule(tmp_path):
-    from runtime.improve import propose
+    from runtime.evolve import propose
     findings = [{"defect_class": "multiple_downed",
                  "affected": ["colony.vitals"],
                  "remediation": VITALS_CFG["defect_patterns"][2]["remediation"],
@@ -314,7 +314,7 @@ def test_vitals_dead_via_roster_delta_and_fields():
 
 
 def test_propose_drop_rule_reaches_emergency_and_combat(tmp_path):
-    from runtime.improve import propose
+    from runtime.evolve import propose
     pack = dict(PACK, emergency=[{"id": "fire-active"},
                                  {"id": "colonist-downed"}],
                 combat={"engage": {"rules": [{"id": "chase-fleeing"},

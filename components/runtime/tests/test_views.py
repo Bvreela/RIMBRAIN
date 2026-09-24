@@ -13,11 +13,11 @@ sys.path.insert(0, str(REPO_ROOT / "components" / "runtime" / "src"))
 sys.path.insert(0, str(REPO_ROOT / "components" / "contracts" / "src"))
 
 from runtime.dispatch import Dispatcher  # noqa: E402
-from runtime.startmode import run_start  # noqa: E402
+from runtime.loop import run  # noqa: E402
 from runtime.tasks import TaskLedger  # noqa: E402
 from runtime import views  # noqa: E402
 
-from test_startmode import StartSim  # noqa: E402
+from test_phase import StartSim  # noqa: E402
 
 
 @pytest.fixture()
@@ -37,36 +37,38 @@ def test_views_written_each_poll(rig):
     """SC-1101: planning.md + actions.md + decisions.jsonl exist and
     reflect the run."""
     d, game, ledger, cfg, _ev, sdir = rig
-    res = run_start(d, game, ledger, cfg, iterations=30)
+    res = run(d, game, ledger, cfg, iterations=30, stop_on_complete=True)
     assert res["completed"]
     planning = json.loads((sdir / "planning.json").read_text())
-    assert planning["mode"] == "start"
+    assert planning["mode"] == "run"
     assert planning["complete"] is True
     ids = [g["id"] for g in planning["goals"]]
-    # pack order preserved — site first, overflow last phase; govern
-    # goals render after the phase list
-    n_phases = len(cfg["start"]["phases"])
+    # pack order preserved — site first, overflow last work-unit;
+    # standing goals render after the phase list
+    n_phases = len(cfg["phases"][0]["steps"])
     assert ids[0] == "site" and ids[n_phases - 1] == "overflow"
     assert ids[n_phases:] == [
-        f"govern.{g['id']}" for g in cfg["govern"]["goals"]]
+        f"govern.{g['id']}" for g in cfg["standing_goals"]]
     assert (sdir / "planning.md").is_file()
     assert (sdir / "actions.md").is_file()
     rows = [json.loads(l) for l in
             (sdir / "decisions.jsonl").read_text().splitlines()]
     assert rows and all({"tick", "poll", "source", "template",
                          "params", "ok"} <= set(r) for r in rows)
-    # sources trace to pack elements (SC-1103)
-    assert all(r["source"].startswith(("rule:", "phase:"))
-               for r in rows)
+    # sources trace to pack elements (SC-1103) — v1 namespaces:
+    # rule:<id>, <phase>:<unit>, govern:<goal>, combat:*, ui:*
+    assert all(r["source"].startswith(
+        ("rule:", "init:", "govern:", "combat:", "ui:", "phase:"))
+        for r in rows)
 
 
 def test_goal_order_follows_pack(rig):
     """SC-1102: reordering the pack changes the rendered goal order."""
     d, game, ledger, cfg, _ev, sdir = rig
-    phases = cfg["start"]["phases"]
-    # move last phase to front — data edit only, no code change
+    phases = cfg["phases"][0]["steps"]
+    # move last work-unit to front — data edit only, no code change
     phases.insert(0, phases.pop())
-    run_start(d, game, ledger, cfg, iterations=5)
+    run(d, game, ledger, cfg, iterations=5, stop_on_complete=True)
     planning = json.loads((sdir / "planning.json").read_text())
     assert planning["goals"][0]["id"] == phases[0]["id"]
 
@@ -84,16 +86,19 @@ def test_render_failure_does_not_abort(rig, monkeypatch):
         return real(*a, **kw)
 
     monkeypatch.setattr(views, "write_planning", boom)
-    res = run_start(d, game, ledger, cfg, iterations=30)
+    res = run(d, game, ledger, cfg, iterations=30, stop_on_complete=True)
     assert res["completed"]  # control path unaffected
 
 
 def test_decision_rows_match_dispatches(rig):
     """Every decisions.jsonl row corresponds to a real dispatched write."""
     d, game, ledger, cfg, events, sdir = rig
-    run_start(d, game, ledger, cfg, iterations=30)
+    run(d, game, ledger, cfg, iterations=30, stop_on_complete=True)
     rows = [json.loads(l) for l in
             (sdir / "decisions.jsonl").read_text().splitlines()]
+    # select pick rows carry the model decision, not a dispatch —
+    # every other row corresponds to a real issued write
+    rows = [r for r in rows if not r.get("select")]
     issued = [e for e in events if e["event_type"] == "action.issued"]
     assert len(rows) == len(issued)
     # poll stamps are monotonic
@@ -118,9 +123,9 @@ def test_goal_rows_carry_effect(rig):
     """Goals render the pack's declared success condition (detail)."""
     d, game, ledger, cfg, _ev, sdir = rig
     from runtime import views
-    from runtime.startmode import StartMode
+    from runtime.phase import PhaseEngine
 
-    mode = StartMode(cfg, ledger)
+    mode = PhaseEngine(cfg, ledger)
     snap = views.start_snapshot(mode, ledger, {"tick": 1})
     beds = next(g for g in snap["goals"] if g["id"] == "beds")
     assert beds["effect"] and "beds_total" in beds["effect"]

@@ -21,9 +21,9 @@ sys.path.insert(0, str(REPO_ROOT / "components" / "contracts" / "src"))
 
 from runtime import brain, templates  # noqa: E402
 from runtime.dispatch import Dispatcher  # noqa: E402
-from runtime.startmode import run_start  # noqa: E402
+from runtime.loop import run  # noqa: E402
 from runtime.tasks import TaskLedger  # noqa: E402
-from test_startmode import StartSim  # noqa: E402
+from test_phase import StartSim  # noqa: E402
 
 
 @pytest.fixture()
@@ -69,8 +69,8 @@ def test_reset_reloads_pack_and_replans(rig):
     _edit_pack(packs_tmp,
                lambda doc: doc.__setitem__("revision", "v0-live"))
     (state / brain.REQUEST).write_text("{}\n", encoding="utf-8")
-    res = run_start(d, game, ledger, d.pack["pack"],
-                    iterations=3, live_brain=True)
+    res = run(d, game, ledger, d.pack["pack"],
+        iterations=3, live_brain=True, stop_on_complete=True)
     assert res["ok"]
     assert d.pack["hash"] != old_hash
     assert d.pack["pack"]["revision"] == "v0-live"
@@ -87,7 +87,8 @@ def test_reset_refused_without_live_brain(rig):
     d, game, ledger, state, events, packs_tmp = rig
     old_hash = d.pack["hash"]
     (state / brain.REQUEST).write_text("{}\n", encoding="utf-8")
-    run_start(d, game, ledger, d.pack["pack"], iterations=2)
+    run(d, game, ledger, d.pack["pack"], iterations=2,
+        stop_on_complete=True)
     assert d.pack["hash"] == old_hash
     status = _status(state)
     assert status["ok"] is False and "disabled" in status["error"]
@@ -102,8 +103,8 @@ def test_reset_invalid_pack_fails_closed(rig):
     _edit_pack(packs_tmp,
                lambda doc: doc.__setitem__("templates", "not-a-list"))
     (state / brain.REQUEST).write_text("{}\n", encoding="utf-8")
-    res = run_start(d, game, ledger, d.pack["pack"],
-                    iterations=2, live_brain=True)
+    res = run(d, game, ledger, d.pack["pack"],
+        iterations=2, live_brain=True, stop_on_complete=True)
     assert res["ok"]  # reset failure must not crash the run
     assert d.pack["hash"] == old_hash
     status = _status(state)

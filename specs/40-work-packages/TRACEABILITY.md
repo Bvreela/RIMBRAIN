@@ -73,3 +73,41 @@ Each implemented row eventually links:
 - approving reviewer for human gates.
 
 No requirement moves to `IMPLEMENTED` from code presence alone.
+
+## Feature 017 — unified phase engine (FR-1401..1430)
+
+| Requirement | Evidence |
+|---|---|
+| FR-1401 single loop, fixed stage pipeline | `runtime/loop.py::run()`; `test_phase.py`, `test_loop.py` (polls drive observe→reflex→rules→plan→select→phase→views→reflect) |
+| FR-1402 start behaviors inside the loop | `phase.py` prescriptive steps + exit conditions + standing goals; ported `test_phase.py` (45); brain-reset/vitals/reflect in `run()` (`test_brain_reset.py`, `test_evolve.py`) |
+| FR-1403 ordered `phases`, prescriptive init | `pack.schema.json` v1 roots; `phase.py`; `test_phase.py` |
+| FR-1404 v0 namespace auto-migration | `templates.migrate_v0`; `test_pack_migration.py` |
+| FR-1405 one predicate dialect | `dispatch.py` reflexes evaluate via `policy.check`; `test_dispatch.py` reflex cases |
+| FR-1406 canonical observation | `observe.py::sections`; consumed by reflexes/rules/select/planstage/views |
+| FR-1407 ≤20-item candidate list | `select.py::compile_actions` cap; `test_select.py` cap tests |
+| FR-1408 offered-ids-only + fallback | `select.py` invalid/absent pick → `fallback` flag + `select.invalid` event; `test_select.py` |
+| FR-1409 select inputs from canonical obs+ledger | `select.py` digest ctx (stocks/pawns/metrics/plan); `test_select.py` |
+| FR-1410 prescriptive init deterministic + select-driven pawns | `PhaseEngine.goal_sources` empty colony scope while prescriptive active; `test_phase.py`, `test_select.py` |
+| FR-1411 select decision logging | select rows carry `offered`/`pick`/`applied`/`fallback`/`shadow`/`inputs_hash`; `test_select.py` |
+| FR-1412 plan cadence/boundary/event triggers | `planstage.tick`; `test_planstage.py` (first-fire/cadence/boundary/events) |
+| FR-1413 plan reorder/activate/deactivate/promote | `planstage` gate+apply, `PhaseEngine.apply_plan`; `test_planstage.py::test_activate_deactivate_and_promote`, `test_goal_order_feeds_select_scoring` |
+| FR-1414 planner failure → last plan in force | `test_planstage.py::test_outage_degrades_and_prior_plan_stands`, `test_gate_rejects_unknown_ids_and_last_plan_stands` |
+| FR-1415 gate before adoption | `planstage._gate`; `test_planstage.py::test_gate_rejects_bad_params_and_dev_class` |
+| FR-1416 one reflection pipeline | `evolve.py` digest→propose→compile→`validate_candidate`→boundary; `test_evolve.py` (32) |
+| FR-1417 whitelist covers all surfaces | `packmut.py` whitelist `phases`/`action_list`/`decide`/`reflexes`/`rules`/`options`/`senses`/`metrics`; `test_evolve.py` surface round-trips |
+| FR-1418 boundary-only promotion + auto-revert | `evolve.boundary`/`materialize_candidate`; `test_evolve.py` lineage/revert tests |
+| FR-1419 improve preserved as evidence | `improve.py` reduced to `diagnose`/`score`/`predict_metrics`; `test_improve.py` green |
+| FR-1420 sim: zero endpoints, identical streams | `test_determinism.py::test_sim_episodes_bit_identical`, `test_sim_never_resolves_an_endpoint` |
+| FR-1421 live model assistance always wired | `run()` injects resolved caller for `--game live`; select live-rung path in `test_select.py` |
+| FR-1422 mode surface | `loop.main` `--mode run|cycle|improve` × `--game sim|live` × `--stage`; deprecated aliases warn; `test_loop.py` flag matrix |
+| FR-1423 flag interaction fail-closed | `test_loop.py` invalid-combination cases (cycle/combat need `--dev`, `--live-mutate` only run+live) |
+| FR-1424 selector authority ladder | `select.py` rungs shadow→trial→live, per-tuple `_note_pick` persistence; `test_select.py` rung tests |
+| FR-1425 duplicate engines deleted | `universal.py`/`combatmode.py`/`mutate.py` removed; `startmode.py` shim only; suite green post-deletion |
+| FR-1426 gates merged | `evolve.validate_candidate` shared by pass-gate/boundary/materialization; `test_evolve.py` |
+| FR-1427 consolidated run state | `runstate.py::RunState` owns vars/phase/plan/rule/improve/vitals; persisted per run |
+| FR-1428 unified views | `views.phase_snapshot` select/plan/reflection fields; overlay renders them; `test_views.py` |
+| FR-1429 combat pack-ified | `kind: combat` phases driven by `run(stage="combat")`; `combatmode.py` deleted; `test_combat.py`, `test_cycle.py` green |
+| FR-1430 select cadence skip-not-queue | `decide.select.cadence_polls` in `select.decide`; `test_select.py` cadence case |
+
+Suite evidence: 239/239 green at Phase 5 checkpoint; focused evolve/planstage/select suites green per phase.
+

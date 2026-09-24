@@ -20,46 +20,68 @@ loads for compatibility (candidates materialize flat).
 | `../../profiles/endpoints.yaml` | Model endpoints (which models exist, where) |
 | `../../profiles/bindings.yaml` | Role → endpoint bindings (who plans, who reviews, who narrates) |
 
-## Pack anatomy (core-survival)
+## Pack anatomy (v1 — feature 017)
+
+`schema_version: 1` packs are one document with seven surfaces:
 
 ```yaml
-templates:          # the ONLY actions the agent can ever take
-  - id: firefight   #   name the decision map / reflexes reference
-    method: ui.job  #   bridge RPC — must exist in the sealed inventory
-    params_schema:  #   JSON Schema checked BEFORE any game write
-      required: [pawn, work, cell]
-emergency:          # reflexes — fire before any model is asked
-  - id: fire-fight
-    priority: 1
-    condition: {combinator: all, predicates:
-      [{field: map.fires, op: gt, value: 0}]}
-    action: {template_id: firefight, params: {...}}
-decision_map:       # model choices -> templates (unmapped = refused)
-fallback_plan:      # what the planner emits when models are offline
+meta:               # pack_id, revision, class (fair|dev)
+capabilities:
+  templates:        # the ONLY actions the agent can ever take
+    - id: firefight
+      method: ui.job            # bridge RPC — sealed inventory only
+      params_schema: {...}      # JSON Schema checked BEFORE writes
+  fns: [...]        # capability primitives the pack may call
+phases:             # lifecycle — prescriptive init steps, then
+                    # goal-driven phases, in order
+  - id: init
+    prescriptive: true          # runs its steps verbatim, no model
+    steps: [...]
+  - id: stabilize
+    goals: [{id: ..., effect: ..., steps: [...]}]
+standing_goals:     # govern goals that re-arm on effect lapse
+options:            # planner catalog the BigBrain may promote
+decide:             # model wiring
+  select: {role: rimbrain.select, fallback: priority_head,
+           shadow: true}
+  plan:   {role: rimbrain.plan, cadence_s: 150,
+           on_phase_boundary: true}
+reflexes:           # fire before any model is asked
+rules:              # per-poll pawn/colony rules (@for_each etc.)
 ```
+
+v0 roots (`templates`, `emergency`, `decision_map`, `start.phases`,
+`govern.goals`) migrate automatically at load — `runtime.templates`
+rewrites them into the v1 shape and `@cfg:` aliases keep old paths
+resolving. Legacy flat packs still load; mutation ops written against
+v0 paths are rewritten through the same map.
 
 ## The edit → reload → verify recipe
 
 1. **Edit** a value — e.g. change a site weight or a zone size.
 2. **Reload** — packs load at run start (`python -m runtime loop --pack <name> ...`), or live: pick a pack in the overlay's dropdown and hit **Use** — the running brain wipes its planning state and re-derives goals from the colony with fresh eyes under the new pack (needs `--live-brain`, on by default in `rimbrain run`). Bad edits refuse with a plain-language error naming the file and field.
-3. **Verify** — run the sim (`--mode sim --iterations 5`) and read `state/feed.md` to see the change narrated, or diff `state/events.jsonl` before/after.
+3. **Verify** — run the sim (`--mode run --game sim --iterations 5`) and read `state/feed.md` to see the change narrated, or diff `state/events.jsonl` before/after. Sim is deterministic: same seed → byte-identical event stream, zero endpoint calls.
 
 **Editing mid-run does nothing** — the active pack is snapshotted at load and its hash rides in every event. Change lands next run (or next overlay **Use**/Brain Reset). This is deliberate: policy can't shift under a scored episode.
 
-## Live mutation (feature 016)
+## Live mutation (features 016+017)
 
 `--live-mutate` (on in the `rimbrain run` default) lets the brain reflect
 on its own run: when a goal fails/expires, near-failure signals cluster
 (requeues, refusal bursts, stalls, escalations, defect-pattern hits), or
-every `mutate.goals_per_pass` terminal goals, a reflection pass fires.
+every `mutate.goals_per_pass` terminal goals, a reflection pass fires in
+the unified loop's **reflect stage** (`runtime/evolve.py`).
 The `rimbrain.improve` model gets a bounded failure digest and proposes
-pack mutations (`set`/`append`/`remove`/`upsert` ops over any pack path);
-a deterministic gate re-validates schema + sealed inventory + fair class,
-then writes a **candidate** — never the active pack. At the next run's
-boundary the pending candidate is re-validated and installed, with the
-parent file backed up; if that episode scores worse than baseline the
-pack auto-reverts. All of it is narrated in `feed.md` and tallied in
-`state/mutations.jsonl` + the `mutation` block of `planning.json`.
+pack mutations (`set`/`append`/`remove`/`upsert` ops over any whitelisted
+pack surface — `phases`, `action_list`, `decide`, `reflexes`, `rules`,
+`options`, `senses`, `metrics`; v0 paths rewrite through the migration
+map); a single deterministic gate re-validates schema + sealed inventory
++ fair class + budget, then writes a **candidate** — never the active
+pack. At the next run's boundary the pending candidate is re-validated
+and installed, with the parent file backed up; if that episode scores
+worse than baseline the pack auto-reverts. All of it is narrated in
+`feed.md` and tallied in `state/mutations.jsonl` + the `mutation` block
+of `planning.json`.
 
 Tune it in the pack's `mutate:` section (thresholds, cooldown, model-call
 budget). If `rimbrain.improve` resolves to a bare `rules-only` fallback
@@ -75,10 +97,11 @@ remediations — still deterministic, still gated.
 
 ## Watching the agent think
 
-`python -m runtime loop --mode sim --feed` writes `state/feed.md` —
-one plain-language entry per decision: what it saw, what it planned,
-what it did, what it learned. `improve` mode narrates its own
-reasoning the same way.
+`python -m runtime loop --mode run --game sim --feed` writes
+`state/feed.md` — one plain-language entry per decision: what it saw,
+what it planned, what it did, what it learned. The overlay shows the
+current phase, the last select pick (with fallback/shadow marker), and
+the in-force planner decision with its staleness.
 
 ## Where to start (recommended first edits)
 

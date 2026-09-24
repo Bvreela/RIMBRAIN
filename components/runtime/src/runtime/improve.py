@@ -1,29 +1,17 @@
-"""Self-improvement cycle (feature 009; FR-801/802/803/808).
-
-Deterministic loop over canonical evidence:
-
-    load events -> diagnose (defect patterns) -> propose candidate
-    pack (rules-only remediation) -> audit -> validate metrics ->
-    promote at episode boundary / reject / defer.
+"""Improvement evidence (feature 009; FR-801/802/803/808) — reduced to
+evidence functions in feature 017 (US4): ``diagnose`` (defect patterns
+over canonical events), ``score``/``predict_metrics`` (episode metrics),
+``diagnosed_event``/``_env`` (evidence envelopes). The proposal/gate/
+promotion machinery lives in ``evolve.py`` — one reflection pipeline.
 
 The cycle makes no game writes and never mutates the ACTIVE pack — a
 promotion copies a validated candidate into the packs directory only
-at an episode boundary (the improve mode itself is the boundary).
+at an episode boundary.
 """
 
 from __future__ import annotations
 
-import copy
-import json
-import shutil
-from pathlib import Path
-
-import yaml
-
-from .audit import audit_policy, audit_ux, verdict_event
-from .metrics import episode_metrics, metrics_event
-
-_PACKS = Path(__file__).resolve().parents[3] / "rimbrain" / "packs"
+from .metrics import episode_metrics
 
 
 def _dotted(d, path):
@@ -116,64 +104,6 @@ def diagnosed_event(cycle_id: str, findings: list[dict], seq: int,
     return _env("selfcheck.diagnosed", payload, seq, clock)
 
 
-def _apply_ops(doc: dict, ops: list[dict] | None) -> bool:
-    """FR-813: declarative pack mutations. Returns True if doc changed.
-
-    Legacy op names compile to the packmut vocabulary (feature 016):
-    `set_cfg` -> `set`, `append` -> `append`, `drop_template` ->
-    `remove` on `templates.<id>`, `drop_rule` -> `remove` on every rule
-    list (`universal.rules`, `emergency`, `combat.*.rules`)."""
-    from . import packmut
-    changed, _misses = packmut.apply_ops(
-        doc, packmut.compile_legacy(ops, doc))
-    return changed
-
-
-def propose(findings: list[dict], active_pack: dict,
-            candidates_dir: Path) -> Path | None:
-    """Remediation -> candidate pack file.
-
-    Dict remediation (`{ops: [...]}`) applies declarative mutations —
-    set_cfg/append/drop_template/drop_rule — to a candidate copy.
-    Legacy string remediations (`fix_template_params`,
-    `retune_lease_or_effect`) quarantine the affected template.
-    Anything else -> None (recorded, not invented).
-    """
-    for f in findings:
-        rem = f.get("remediation")
-        if isinstance(rem, dict) and rem.get("ops"):
-            cand = copy.deepcopy(active_pack)
-            if not _apply_ops(cand, rem["ops"]):
-                continue  # ops changed nothing -> vacuous candidate
-            cand["revision"] = str(cand.get("revision", "v0")) + \
-                f"+mut.{f['defect_class']}"
-            candidates_dir = Path(candidates_dir)
-            candidates_dir.mkdir(parents=True, exist_ok=True)
-            out = candidates_dir / f"cand-{f['defect_class']}.yaml"
-            out.write_text(yaml.safe_dump(cand, sort_keys=False),
-                           encoding="utf-8")
-            return out
-        if rem in ("fix_template_params", "retune_lease_or_effect"):
-            bad = set(f["affected"])
-            cand = copy.deepcopy(active_pack)
-            remaining = [t for t in cand.get("templates", [])
-                         if t.get("id") not in bad]
-            if len(remaining) == len(cand.get("templates", [])):
-                continue  # quarantine removes nothing -> vacuous candidate
-            cand["templates"] = remaining
-            cand["revision"] = str(cand.get("revision", "v0")) + \
-                f"+quarantine.{f['defect_class']}"
-            candidates_dir = Path(candidates_dir)
-            candidates_dir.mkdir(parents=True, exist_ok=True)
-            out = candidates_dir / (
-                f"cand-{f['defect_class']}-"
-                f"{'-'.join(sorted(bad))[:24]}.yaml")
-            out.write_text(yaml.safe_dump(cand, sort_keys=False),
-                           encoding="utf-8")
-            return out
-    return None
-
-
 def score(metrics: dict, weights: dict) -> float:
     """Lower is better: weighted badness (completion inverted)."""
     return (weights.get("refusal_rate", 0) *
@@ -193,115 +123,6 @@ def predict_metrics(events: list[dict], quarantined: set[str]) -> dict:
                     and (e.get("payload") or {}).get("template_id")
                     in quarantined)]
     return episode_metrics(kept)
-
-
-def run_improve(store, cfg: dict, *, active_pack: dict,
-                packs_dir: Path = _PACKS, sink=None, clock=None,
-                iterations: int | None = None, events=None,
-                feed=None) -> dict:
-    """Bounded improvement cycles. `events` may be injected for tests;
-    otherwise loaded from the canonical store each iteration."""
-    # `sink` is the canonical-events path; when the caller composes feed
-    # narration into the sink (CLI does), `feed` is unused — never narrate
-    # twice.
-    if sink is not None:
-        emit = sink
-    elif feed is not None:
-        emit = feed.write
-    else:
-        emit = lambda env: None
-    max_iter = iterations or (cfg.get("cadence") or {}
-                              ).get("max_iterations", 20)
-    min_events = (cfg.get("metrics") or {}).get("min_events", 5)
-    outcomes, seq = [], 0
-    for i in range(max_iter):
-        evs = events if events is not None else \
-            store.load()["events"]
-        cycle_id = f"cycle-{i:06d}"
-        findings = diagnose(evs, cfg)
-        seq += 1
-        emit(diagnosed_event(cycle_id, findings, seq, clock))
-        if not findings:
-            outcomes.append({"cycle": cycle_id, "verdict": "noop"})
-            continue
-        cand_path = propose(findings, active_pack,
-                            Path(packs_dir) / "candidates")
-        cand_id = cand_path.stem if cand_path else f"cand-{cycle_id}"
-        if cand_path is None:
-            seq += 1
-            emit(_env("improvement.rejected", {
-                "candidate_id": cand_id, "gate": "defer",
-                "reasons": ["no rules-only remediation for findings"],
-                "source_cycle": cycle_id}, seq, clock))
-            outcomes.append({"cycle": cycle_id, "verdict": "defer"})
-            continue
-        # audit gate (policy invariants; ux coverage over the cycle)
-        v = audit_policy(cand_path)
-        seq += 1
-        emit(verdict_event(v, seq, clock))
-        if v["verdict"] != "pass":
-            seq += 1
-            emit(_env("improvement.rejected", {
-                "candidate_id": cand_id, "gate": "audit",
-                "reasons": v["reasons"],
-                "source_cycle": cycle_id}, seq, clock))
-            outcomes.append({"cycle": cycle_id, "verdict": "audit_fail"})
-            continue
-        # evidence floor -> defer
-        if len(evs) < min_events:
-            seq += 1
-            emit(_env("improvement.rejected", {
-                "candidate_id": cand_id, "gate": "defer",
-                "reasons": [f"evidence thin: {len(evs)} events "
-                            f"< {min_events}"],
-                "source_cycle": cycle_id}, seq, clock))
-            outcomes.append({"cycle": cycle_id, "verdict": "defer"})
-            continue
-        # metrics validation: candidate must beat incumbent; ops-mutation
-        # candidates (colony-health defects) can't move dispatch metrics —
-        # a tie is enough for them (FR-813; promotion gate still applies)
-        weights = cfg.get("metrics") or {}
-        inc = score(episode_metrics(evs), weights)
-        quarantined = {a for f in findings for a in f["affected"]}
-        cand = score(predict_metrics(evs, quarantined), weights)
-        cls = cand_path.stem[len("cand-"):].split("-")[0]
-        ops_rem = next((isinstance(f.get("remediation"), dict)
-                        for f in findings if f["defect_class"] == cls),
-                       False)
-        if cand < inc or (ops_rem and cand <= inc):
-            promoted = Path(packs_dir) / cand_path.stem / "pack.yaml"
-            promoted.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(cand_path, promoted)
-            seq += 1
-            emit(_env("improvement.promoted", {
-                "candidate_id": cand_id,
-                "pack_hash": _hash_pack(promoted),
-                "episode_boundary": True,
-                "metrics": {"incumbent_score": inc,
-                            "candidate_score": cand},
-                "source_cycle": cycle_id}, seq, clock))
-            outcomes.append({"cycle": cycle_id, "verdict": "promoted",
-                             "pack": str(promoted)})
-            break  # one promotion per run; next cycle re-diagnoses
-        seq += 1
-        emit(_env("improvement.rejected", {
-            "candidate_id": cand_id, "gate": "metrics",
-            "reasons": [f"candidate score {cand:.3f} not better "
-                        f"than incumbent {inc:.3f}"],
-            "metrics": {"incumbent_score": inc,
-                        "candidate_score": cand},
-            "source_cycle": cycle_id}, seq, clock))
-        outcomes.append({"cycle": cycle_id, "verdict": "metrics_fail"})
-    seq += 1
-    emit(metrics_event(evs if events is not None else
-                       store.load()["events"],
-                       f"improve-{i}", seq, clock))
-    return {"ok": True, "cycles": outcomes}
-
-
-def _hash_pack(path: Path) -> str:
-    import hashlib
-    return hashlib.sha256(path.read_bytes()).hexdigest()[:16]
 
 
 def _env(t: str, payload: dict, seq: int, clock=None) -> dict:

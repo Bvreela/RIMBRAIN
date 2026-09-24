@@ -15,13 +15,10 @@ from __future__ import annotations
 
 import argparse
 import copy
-import hashlib
 import json
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-
-import yaml
 
 from . import planning, review, templates
 from .bindings import resolve_role
@@ -30,11 +27,6 @@ from .client import openai_compat_chat
 from .dispatch import Dispatcher
 from .simgame import SimGame
 from .usage import UsageTracker
-
-try:
-    from contracts.canonical import canonical_bytes
-except ImportError:  # pragma: no cover
-    from contracts import canonical_bytes  # type: ignore[no-redef]
 
 SOURCE = "rimbrainagent.runtime.planloop"
 _ZERO_USAGE = {"prompt_tokens": 0, "completion_tokens": 0}
@@ -82,53 +74,12 @@ def _err(code: str, message: str, details: dict | None = None) -> dict:
     return {"ok": False, "error": error}
 
 
-def _apply_mutations(pack_doc: dict, mutations: list) -> dict:
-    """Return a new pack doc with the proposal's mutations applied."""
-    doc = copy.deepcopy(pack_doc)
-    for mut in mutations:
-        op, patch = mut["op"], mut["patch"]
-        if op == "add_template":
-            doc["templates"].append(patch)
-        elif op == "edit_decision_map":
-            entries = doc.setdefault("decision_map", [])
-            hit = next((i for i, e in enumerate(entries)
-                        if e.get("question") == patch.get("question")
-                        and e.get("choice") == patch.get("choice")), None)
-            if hit is None:
-                entries.append(patch)
-            else:
-                entries[hit] = patch
-        elif op == "add_emergency":
-            rules = doc.setdefault("emergency", [])
-            rid = patch.get("id", mut["target"])
-            hit = next((i for i, e in enumerate(rules)
-                        if e.get("id") == rid), None)
-            if hit is None:
-                rules.append(patch)
-            else:
-                rules[hit] = patch
-    return doc
-
-
 def _materialize_candidate(pack_file: str, base_doc: dict,
                            mutations: list) -> dict:
-    """Write ``candidates/<file>-<sha8>.yaml``; re-validate before returning."""
-    doc = _apply_mutations(base_doc, mutations)
-    problems = templates.validate_pack(doc)
-    unknown = sorted({t["method"] for t in doc.get("templates", [])}
-                     - templates.inventory_methods())
-    if unknown:
-        problems.append(f"unknown methods: {unknown}")
-    if problems:
-        return _err("plan.mutation_invalid",
-                    "mutated candidate fails pack validation",
-                    {"issues": problems})
-    digest = hashlib.sha256(canonical_bytes(doc)).hexdigest()
-    out_dir = templates.packs_dir() / "candidates"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out = out_dir / f"{pack_file}-{digest[:8]}.yaml"
-    out.write_text(yaml.safe_dump(doc, sort_keys=False), encoding="utf-8")
-    return {"ok": True, "path": str(out), "hash": digest, "doc": doc}
+    """Write ``candidates/<file>-<sha8>.yaml`` via the shared evolve
+    pipeline — one candidate format, one gate (feature 017, T037)."""
+    from . import evolve
+    return evolve.materialize_candidate(pack_file, base_doc, mutations)
 
 
 def enrich(game, state: dict) -> dict:

@@ -19,7 +19,7 @@ sys.path.insert(0, str(REPO_ROOT / "components" / "contracts" / "src"))
 
 from runtime import project  # noqa: E402
 from runtime.dispatch import Dispatcher  # noqa: E402
-from runtime.loop import run_loop  # noqa: E402
+from runtime.loop import run  # noqa: E402
 from runtime.simgame import SimGame  # noqa: E402
 from runtime.store import EventStore  # noqa: E402
 
@@ -68,7 +68,8 @@ def test_rebuild_writes_projection(tmp_path, monkeypatch):
 
 
 def test_sim_loop_persists_events(tmp_path, monkeypatch):
-    """SC-505: dispatcher sink wired to the store -> events.jsonl on disk."""
+    """SC-505: dispatcher sink wired to the store -> events.jsonl on
+    disk (ported to unified run(), feature 017)."""
     monkeypatch.setenv("RIMBRAIN_STATE_DIR", str(tmp_path))
     monkeypatch.setenv("RIMBRAIN_PACKS_DIR",
                        str(REPO_ROOT / "components" / "rimbrain" / "packs"))
@@ -76,9 +77,14 @@ def test_sim_loop_persists_events(tmp_path, monkeypatch):
     game = SimGame()
     d = Dispatcher(game, clock=lambda: "2026-01-01T00:00:00Z")
     d.load_pack(PACK)
-    result = run_loop(d, game, iterations=3, sink=store.append)
+    from runtime.tasks import TaskLedger
+    ledger = TaskLedger(tmp_path / "tasks.jsonl", sink=store.append)
+    # SimGame's scripted evolution fires a reflex (fire at iter 1) ->
+    # guaranteed envelope writes
+    run(d, game, ledger, d.pack["pack"], iterations=3,
+        sink=store.append)
     on_disk = EventStore(tmp_path / "events.jsonl").load()
-    assert on_disk["total"] == len(result["events"]) > 0
+    assert on_disk["total"] > 0
     # every persisted line is the canonical envelope form
-    assert all(e["source"] == "rimbrainagent.runtime.dispatch"
+    assert all(e["source"].startswith("rimbrainagent.runtime")
                for e in on_disk["events"])

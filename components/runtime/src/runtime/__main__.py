@@ -1,4 +1,4 @@
-"""CLI: python -m runtime list|probe <id>|discover|bind <role> <ep> <model>|resolve <role> [--live]|loop [--mode sim|live] [--iterations N]"""
+"""CLI: python -m runtime list|probe <id>|discover|bind <role> <ep> <model>|resolve <role> [--live]|loop [--mode run|cycle|improve --game sim|live --stage X] [--iterations N]"""
 
 from __future__ import annotations
 
@@ -22,11 +22,13 @@ def main(argv: list[str] | None = None) -> int:
     sp.add_argument("role"); sp.add_argument("endpoint"); sp.add_argument("model")
     sp = sub.add_parser("resolve", help="resolve a role (offline or live-probed)")
     sp.add_argument("role"); sp.add_argument("--live", action="store_true")
-    sp = sub.add_parser("loop", help="dispatcher poll loop (sim deterministic)")
+    sp = sub.add_parser("loop", help="unified run loop (sim deterministic)")
     sp.add_argument("--pack", default="core-survival-v0")
-    sp.add_argument("--mode", choices=["sim", "live", "start", "improve",
-                                       "combat", "cycle"],
-                    default="sim")
+    sp.add_argument("--mode", choices=["run", "cycle", "improve"],
+                    default="run")
+    sp.add_argument("--game", choices=["sim", "live"], default="sim")
+    sp.add_argument("--stage", default=None,
+                    help="drive only the named phase (debug entry)")
     sp.add_argument("--iterations", type=int, default=5)
     sp.add_argument("--bridge", default="http://127.0.0.1:8765")
     sp.add_argument("--live-flag", action="store_true",
@@ -74,8 +76,10 @@ def main(argv: list[str] | None = None) -> int:
     elif args.cmd == "loop":
         from . import loop as _loop
         return _loop.main(["--pack", args.pack, "--mode", args.mode,
+                           "--game", args.game,
                            "--iterations", str(args.iterations),
                            "--bridge", args.bridge]
+                          + (["--stage", args.stage] if args.stage else [])
                           + (["--live"] if args.live_flag else [])
                           + (["--ledger"] if args.ledger else [])
                           + (["--feed"] if args.feed else [])
