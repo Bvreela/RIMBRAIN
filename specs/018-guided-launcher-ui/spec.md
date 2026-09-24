@@ -133,7 +133,7 @@ The window supervises the loop process: GO spawns it, the monitor shows its outp
 **Brain verification**
 
 - **FR-006**: The brains panel MUST show one row per bound role — at minimum plan, select, review, improve, embed — each resolving to its endpoint id and bound model name.
-- **FR-007**: Each row MUST run a live, role-shaped verification: a typed decision call for the select tier and a minimal completion call for chat tiers, executed against the bound model — not merely an endpoint listing.
+- **FR-007**: Each row MUST run a live, role-shaped verification — a call shaped by the role's required capability (typed decision for select, minimal completion for chat roles, embeddings ping for the embed role) executed against the bound model — not merely an endpoint listing.
 - **FR-008**: Verdicts MUST distinguish answered (with latency), reachable-but-model-failing, unreachable, and missing-secret; each row MUST display the declared fallback chain for that role.
 - **FR-009**: Checks MUST run off the display thread with a checking state, bounded timeout, and a manual re-check action; a failed check MUST NOT block GO.
 - **FR-010**: Probe logic MUST live behind the public runtime API facade; the UI MUST NOT import runtime internals.

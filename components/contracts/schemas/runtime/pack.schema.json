@@ -240,6 +240,11 @@
       "type": "object",
       "additionalProperties": true,
       "description": "Universal pawn rules (feature 011): idle-job fallbacks, combat target discipline, post-combat strip. Applies in every mode."
+    },
+    "mutate": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Live-mutation trigger policy (feature 016; FR-1402/1412): goals_per_pass cadence, on_failure / near_failure thresholds, cooldown_polls, max_passes_per_run, max_ops. Absent = no in-run reflection passes even under --live-mutate."
     }
   },
   "$defs": {

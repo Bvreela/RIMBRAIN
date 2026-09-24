@@ -68,9 +68,54 @@ def test_pack_rejects_unknown_method(tmp_path, monkeypatch):
     assert e.value.envelope["error"]["code"] == "pack.inventory_mismatch"
 
 
+def _mkpack(dir_path: Path, name: str = "pack.yaml") -> Path:
+    dir_path.mkdir(parents=True, exist_ok=True)
+    p = dir_path / name
+    p.write_text(yaml.safe_dump({
+        "schema_version": 0, "pack_id": "pack.t", "revision": "v0",
+        "templates": [{"id": "t", "method": "game.status",
+                       "params_schema": {"type": "object"}}],
+        "jobs": [], "decision_map": [], "emergency": []}),
+        encoding="utf-8")
+    return p
+
+
+def test_folder_pack_loads(tmp_path, monkeypatch):
+    """packs/<id>/pack.yaml is the canonical pack form."""
+    monkeypatch.setenv("RIMBRAIN_PACKS_DIR", str(tmp_path))
+    _mkpack(tmp_path / "my-pack")
+    loaded = templates.load_pack("my-pack")
+    assert loaded["pack"]["pack_id"] == "pack.t"
+    assert loaded["path"].endswith("pack.yaml")
+
+
+def test_flat_pack_fallback(tmp_path, monkeypatch):
+    """Flat <id>.yaml still loads (candidates/ materializes flat)."""
+    monkeypatch.setenv("RIMBRAIN_PACKS_DIR", str(tmp_path))
+    _mkpack(tmp_path, "flat.yaml")
+    assert templates.load_pack("flat")["pack"]["pack_id"] == "pack.t"
+
+
+def test_list_packs_discovers_both_forms(tmp_path, monkeypatch):
+    monkeypatch.setenv("RIMBRAIN_PACKS_DIR", str(tmp_path))
+    _mkpack(tmp_path / "a")                       # folder pack "a"
+    _mkpack(tmp_path / "grp" / "b")               # nested folder "grp/b"
+    _mkpack(tmp_path, "flat.yaml")                # flat pack "flat"
+    _mkpack(tmp_path / "a", "notes-as-yaml.yaml")  # aux inside folder pack
+    assert templates.list_packs() == ["a", "flat", "grp/b"]
+
+
+def test_pack_id_traversal_refused(tmp_path, monkeypatch):
+    monkeypatch.setenv("RIMBRAIN_PACKS_DIR", str(tmp_path))
+    for bad in ("../x", "a/../../x", str(tmp_path / "abs.yaml"), ""):
+        with pytest.raises(templates.PackError) as e:
+            templates.load_pack(bad)
+        assert e.value.envelope["error"]["code"] == "pack.invalid_id"
+
+
 def test_pack_drift_refuses(dispatcher, tmp_path):
     """Mid-run pack edit -> dispatch.pack_drift, zero writes (SC-304)."""
-    pack_path = templates.packs_dir() / "core-survival-v0.yaml"
+    pack_path = templates.pack_path("core-survival-v0")
     original = pack_path.read_text(encoding="utf-8")
     try:
         # duplicate key: last wins in YAML -> different canonical doc -> drift

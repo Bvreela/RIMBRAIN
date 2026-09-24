@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from . import policy
 from .store import write_atomic
 
 ACTIONS_WINDOW = 25  # trailing rows rendered in actions.md
@@ -46,9 +47,11 @@ def _brief(spec, limit: int = 72) -> str | None:
     return s if len(s) <= limit else s[:limit - 3] + "..."
 
 
-def _goal_rows(mode, ledger) -> list[dict]:
+def _goal_rows(mode, ledger, ctx=None) -> list[dict]:
     """Ordered goals straight from the pack — the pack IS the plan.
-    Start phases first, then the pack's post-start govern goals."""
+    Start phases first, then the pack's post-start govern goals.
+    `holds` is the effect's live truth so a terminal-but-lapsed goal
+    doesn't sit green."""
     rows = []
     sections = [("start", mode.cfg.get("phases") or [], ""),
                 ("govern", ((mode.pack.get("govern") or {})
@@ -60,32 +63,57 @@ def _goal_rows(mode, ledger) -> list[dict]:
                 continue
             task = ledger.tasks.get(mode._tid(gid, ns=ns)) or {}
             state = task.get("state", "pending")
+            holds = None
+            if ctx is not None and g.get("effect") is not None:
+                try:
+                    holds = bool(policy.check(g["effect"], ctx))
+                except Exception:
+                    holds = None
+            if state == "succeeded" and holds is False:
+                state = "lapsed"
+            elif state == "pending" and holds is True:
+                state = "satisfied"
             blocker = None
             if state in ("failed", "cancelled"):
                 blocker = task.get("reason") or state
             elif state in ("dispatched", "verifying"):
                 blocker = "awaiting effect"
+            elif state == "lapsed":
+                blocker = "effect lost — will re-arm"
             rows.append({"id": f"{prefix}{gid}", "state": state,
+                         "holds": holds,
                          "blocker": blocker,
                          "attempts": task.get("attempts", 0),
                          "effect": _brief(g.get("effect"))})
     return rows
 
 
-def planning_snapshot(mode, ledger, obs, latest_plan=None) -> dict:
+def _view_ctx(mode, obs):
+    """Ctx for live effect evaluation; modes without _ctx -> None."""
+    try:
+        return mode._ctx(obs) if hasattr(mode, "_ctx") else None
+    except Exception:
+        return None
+
+
+def planning_snapshot(mode, ledger, obs, latest_plan=None,
+                      mutate_view=None) -> dict:
     """Build the canonical planning snapshot for this poll."""
     ev = mode.last_eval or {}
-    return {
+    snap = {
         "mode": "start",
         "tick": obs.get("tick"),
         "poll": mode._poll,
         "pack_revision": mode.pack.get("pack_revision")
                          or mode.pack.get("revision"),
-        "goals": _goal_rows(mode, ledger),
+        "goals": _goal_rows(mode, ledger, ctx=_view_ctx(mode, obs)),
         "exit_conditions": ev.get("conditions") or {},
         "complete": bool(ev.get("complete")) or mode.completed,
         "long_horizon": latest_plan,
     }
+    if mutate_view is not None:
+        snap["mutation"] = mutate_view
+    return snap
 
 
 def write_planning(state_dir: str | Path, snapshot: dict) -> None:
@@ -98,10 +126,12 @@ def write_planning(state_dir: str | Path, snapshot: dict) -> None:
              f"  poll: {snapshot['poll']}",
              f"pack: `{snapshot.get('pack_revision') or '?'}`", "",
              "## Goals (pack order = priority)", "",
-             "| goal | state | attempts | success condition | blocker |",
-             "|---|---|---|---|---|"]
+             "| goal | state | holds | attempts | success condition | blocker |",
+             "|---|---|---|---|---|---|"]
     for g in snapshot["goals"]:
-        lines.append(f"| {g['id']} | {g['state']} | {g['attempts']} "
+        h = g.get("holds")
+        mark = "yes" if h is True else ("NO" if h is False else "—")
+        lines.append(f"| {g['id']} | {g['state']} | {mark} | {g['attempts']} "
                      f"| {g.get('effect') or g.get('detail') or '—'} "
                      f"| {g.get('blocker') or '—'} |")
     lines += ["", "## Exit conditions", ""]
@@ -122,6 +152,16 @@ def write_planning(state_dir: str | Path, snapshot: dict) -> None:
                     lines.append(f"- **{k}**: {lh[k]}")
         else:
             lines.append(str(lh))
+    mv = snapshot.get("mutation")
+    if mv:
+        lines += ["", "## Pack mutation", "",
+                  f"passes: {mv.get('passes', 0)}  "
+                  f"terminal goals since last pass: "
+                  f"{mv.get('goals_since_pass', 0)}",
+                  f"last verdict: `{mv.get('last_verdict') or '—'}`",
+                  f"pending candidate: "
+                  f"`{mv.get('pending_candidate') or '—'}`",
+                  f"active lineage: `{mv.get('active_lineage') or '—'}`"]
     write_atomic(d / "planning.md",
                  "\n".join(lines).encode() + b"\n")
 
@@ -186,12 +226,13 @@ def write_views(state_dir, snapshot: dict, decisions,
         pass
 
 
-def start_snapshot(mode, ledger, obs, events_path=None) -> dict:
+def start_snapshot(mode, ledger, obs, events_path=None,
+                   mutate_view=None) -> dict:
     """Planning snapshot for start mode (goals = pack phases)."""
     return planning_snapshot(
         mode, ledger, obs,
         latest_plan=latest_plan_summary(events_path) if events_path
-        else None)
+        else None, mutate_view=mutate_view)
 
 
 def simple_snapshot(mode, obs, poll, goals=None, pack=None,

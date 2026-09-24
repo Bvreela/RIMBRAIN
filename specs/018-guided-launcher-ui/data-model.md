@@ -54,7 +54,7 @@ Per-role verification record, refreshed on demand and on screen open.
 |---|---|---|
 | role | string (`rimbrain.*`) | row identity |
 | resolved | {endpoint_id, model, api} \| {kind: fallback, name} | `resolve_role` offline |
-| verdict | enum {checking, answered, model_failed, unreachable, missing_secret, fallback_only, unbound} | from `probe_live` |
+| verdict | enum {answered, model_failed, unreachable, missing_secret, fallback_only, unbound} | from `probe_live` — `checking` is a UI-local pending state shown while a check is in flight, never a probe result |
 | latency_ms | float? | live call only |
 | fallbacks | list[string] | role's `degraded_paths`, verbatim display |
 | checked_utc | iso8601 | staleness marker |

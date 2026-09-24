@@ -398,12 +398,14 @@ def _rect_cells(rect):
         return None
 
 
-def _fn_wind_path(ctx, cell, axis="x", half_width=2, depth=5, gap=0):
-    """Two rects flanking `cell` along `axis` — the airflow corridor a
-    wind turbine needs clear. Every geometric parameter arrives from the
-    pack: axis ('x' = east-west corridor), half_width (cells each side),
-    depth (cells each direction), gap (cells between footprint and path
-    start). Returns [rect_a, rect_b] or None."""
+def _fn_wind_path(ctx, cell, axis="x", half_width=2, depth=5, gap=0,
+                  foot=1):
+    """Two rects flanking the footprint along `axis` — the airflow
+    corridor a wind turbine needs clear. `cell` is the placement anchor
+    (OccupiedRect center). `foot` is the footprint's extent ALONG the
+    corridor axis so corridors start at the footprint edge, not the
+    anchor cell — e.g. WindTurbine is 7x2: axis z, span 7 (hw 3),
+    depth 8, foot 2 gives the vanilla 7x18 exclusion zone."""
     pos = _fn_pos(ctx, cell)
     if pos is None:
         return None
@@ -411,11 +413,25 @@ def _fn_wind_path(ctx, cell, axis="x", half_width=2, depth=5, gap=0):
     hw = int(half_width or 0)
     d = int(depth or 0)
     g = int(gap or 0)
+    f = int(foot or 1)
+    lo = f // 2           # cells the footprint extends toward -axis
+    hi = f - lo           # toward +axis (occupies anchor..+hi-1)
     if str(axis) == "x":
-        return [[x + g + 1, z - hw, d, 2 * hw + 1],
-                [x - d - g, z - hw, d, 2 * hw + 1]]
-    return [[x - hw, z + g + 1, 2 * hw + 1, d],
-            [x - hw, z - d - g, 2 * hw + 1, d]]
+        return [[x + hi + g, z - hw, d, 2 * hw + 1],
+                [x - lo - g - d, z - hw, d, 2 * hw + 1]]
+    return [[x - hw, z + hi + g, 2 * hw + 1, d],
+            [x - hw, z - lo - g - d, 2 * hw + 1, d]]
+
+
+def _footprint_rect(x, z, axis, hw, foot):
+    """Occupied rect of a span(2hw+1) x foot footprint anchored at
+    (x, z) — GenAdj.OccupiedRect center convention: even dims bias the
+    anchor cell toward the +axis end."""
+    f = int(foot or 1)
+    lo = f // 2
+    if str(axis) == "x":
+        return [x - lo, z - hw, f, 2 * hw + 1]
+    return [x - hw, z - lo, 2 * hw + 1, f]
 
 
 def _in_rect(pos, rect):
@@ -459,7 +475,7 @@ def _fn_obstructions(ctx, rects, kinds, radius=0):
 
 
 def _fn_wind_obstructions(ctx, defs, axis="x", half_width=2, depth=5,
-                          gap=0, kinds=None):
+                          gap=0, foot=1, kinds=None):
     """Union of obstructions across the wind paths of every thing
     matching `defs` — regrowth/maintenance signal for built turbines."""
     rects, seen = [], set()
@@ -471,21 +487,24 @@ def _fn_wind_obstructions(ctx, defs, axis="x", half_width=2, depth=5,
         if key in seen:
             continue
         seen.add(key)
-        rects += _fn_wind_path(ctx, p, axis, half_width, depth, gap) or []
+        rects += _fn_wind_path(ctx, p, axis, half_width, depth, gap,
+                               foot) or []
     return _fn_obstructions(ctx, rects, kinds)
 
 
-def _turbine_scan(ctx, def_name, rect, axis, hw, depth, gap, kinds,
-                  stuff, want_blocked):
+def _turbine_scan(ctx, def_name, rect, axis, hw, depth, gap, foot,
+                  kinds, stuff, want_blocked):
     """`free_cell`-style scan where each candidate must also satisfy the
     wind-path condition — `want_blocked` False picks a cell with a clear
     corridor, True picks a buildable cell whose corridor is obstructed
-    (the site to clear before building)."""
+    (the site to clear before building). `foot` is the footprint's
+    extent along the corridor axis — the full span x foot footprint must
+    be obstruction- and zone-free, not just the anchor cell."""
     if not isinstance(rect, (list, tuple)) or len(rect) < 4:
         return None
     key = ("turbine_site", str(def_name), str(list(rect[:4])), str(axis),
-           int(hw or 0), int(depth or 0), int(gap or 0), str(kinds),
-           str(stuff), bool(want_blocked))
+           int(hw or 0), int(depth or 0), int(gap or 0), int(foot or 1),
+           str(kinds), str(stuff), bool(want_blocked))
     if key in ctx.cache:
         return ctx.cache[key]
     x, z, w, h = _rect_cells(rect) or (0, 0, 0, 0)
@@ -494,7 +513,16 @@ def _turbine_scan(ctx, def_name, rect, axis, hw, depth, gap, kinds,
         for cx in range(x, x + w):
             if not _fn_buildable_at(ctx, def_name, [cx, cz], stuff):
                 continue
-            path = _fn_wind_path(ctx, [cx, cz], axis, hw, depth, gap)
+            foot_r = _footprint_rect(cx, cz, axis, hw, foot)
+            # the footprint itself can't sit on blockers or a zone —
+            # the anchor cell being free is not enough for a multi-cell
+            # building
+            if _fn_obstructions(ctx, foot_r, kinds):
+                continue
+            if _path_zoned(ctx, [foot_r]):
+                continue
+            path = _fn_wind_path(ctx, [cx, cz], axis, hw, depth, gap,
+                                 foot)
             # a corridor crossing an existing zone can never be cleared —
             # zones aren't cuttable, so such a site is unusable outright
             # (live: turbine corridor overlapped the rice field and the
@@ -534,19 +562,20 @@ def _path_zoned(ctx, path, stride=2, max_probes=15):
 
 
 def _fn_turbine_site(ctx, def_name, rect, axis="x", half_width=2,
-                     depth=5, gap=0, kinds=None, stuff=None):
+                     depth=5, gap=0, foot=1, kinds=None, stuff=None):
     """First cell in `rect` where `def_name` dry-run places AND the
     pack-declared wind path is free of `kinds` obstructions."""
     return _turbine_scan(ctx, def_name, rect, axis, half_width, depth,
-                         gap, kinds, stuff, want_blocked=False)
+                         gap, foot, kinds, stuff, want_blocked=False)
 
 
 def _fn_turbine_site_blocked(ctx, def_name, rect, axis="x", half_width=2,
-                             depth=5, gap=0, kinds=None, stuff=None):
+                             depth=5, gap=0, foot=1, kinds=None,
+                             stuff=None):
     """First buildable cell in `rect` whose wind path IS obstructed —
     the site to run clearing designations on."""
     return _turbine_scan(ctx, def_name, rect, axis, half_width, depth,
-                         gap, kinds, stuff, want_blocked=True)
+                         gap, foot, kinds, stuff, want_blocked=True)
 
 
 def _fn_terrain_at(ctx, cell):

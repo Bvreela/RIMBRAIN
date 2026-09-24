@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rimbrainagent.dev/schemas/events/types/mutation.proposed.schema.json",
+  "title": "events/types/mutation.proposed",
+  "description": "Payload for event_type 'mutation.proposed' (feature 016; FR-1404/1410): rimbrain.improve returned a schema-valid MutationProposal (or the rules-only path produced one). Carries model provenance and the failure analysis — mirrors plan.proposed.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["mutation_id", "endpoint_id", "model", "degraded"],
+  "properties": {
+    "mutation_id": { "type": "string", "minLength": 1 },
+    "endpoint_id": { "type": "string", "minLength": 1 },
+    "model": { "type": "string", "minLength": 1 },
+    "degraded": {
+      "type": "boolean",
+      "description": "True when resolution walked a degraded path (fallback endpoint or rules-only sentinel)."
+    },
+    "analysis": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "The proposal's {failure_paths, likely_paths} — recorded, never executed."
+    },
+    "op_count": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Mutations in the proposal."
+    },
+    "usage": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Token usage {prompt_tokens, completion_tokens}; zeros on degraded paths."
+    }
+  }
+}

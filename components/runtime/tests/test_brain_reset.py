@@ -44,7 +44,7 @@ def rig(tmp_path, monkeypatch):
 
 
 def _edit_pack(packs_tmp: Path, mutate) -> None:
-    f = packs_tmp / "start-mode-v0.yaml"
+    f = packs_tmp / "start-mode-v0" / "pack.yaml"
     doc = yaml.safe_load(f.read_text(encoding="utf-8"))
     mutate(doc)
     f.write_text(yaml.safe_dump(doc, sort_keys=False), encoding="utf-8")

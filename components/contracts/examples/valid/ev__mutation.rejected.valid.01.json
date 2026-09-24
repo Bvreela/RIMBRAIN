@@ -1,0 +1,6 @@
+{
+  "mutation_id": "mut.bad-ops",
+  "candidate_id": null,
+  "gate": "validation",
+  "violations": ["unknown method 'dev.spawn_all' not in sealed inventory"]
+}

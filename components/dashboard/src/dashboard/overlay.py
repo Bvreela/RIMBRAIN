@@ -27,11 +27,34 @@ LEARN_ROWS = 8
 LEARN_TAIL = 128 * 1024  # bounded tail read of events.jsonl
 
 
-def write_reset_request(state_dir: Path) -> Path:
-    """Post a brain-reset request for a --live-brain runtime (FR-1107)."""
+def write_reset_request(state_dir: Path, payload: dict | None = None) -> Path:
+    """Post a brain-reset request for a --live-brain runtime (FR-1107).
+
+    ``{}`` refreshes the active pack; ``{"pack": id}`` swaps to another
+    pack under the packs dir (full state wipe, fresh-eyes reload)."""
     p = state_dir / RESET_REQUEST
-    p.write_text("{}\n", encoding="utf-8")
+    p.write_text(json.dumps(payload or {}) + "\n", encoding="utf-8")
     return p
+
+
+def scan_packs(root: Path | None) -> list[str]:
+    """Pack ids under ``root``: ``<dir>/pack.yaml`` -> ``<dir>`` plus flat
+    ``*.yaml`` (mirrors runtime.templates.list_packs — the dashboard never
+    imports runtime internals)."""
+    if root is None or not root.is_dir():
+        return []
+    out: set[str] = set()
+    for f in root.rglob("*.yaml"):
+        try:
+            rel = f.relative_to(root)
+        except ValueError:
+            continue
+        if f.name == "pack.yaml":
+            if rel.parent.parts:
+                out.add(rel.parent.as_posix())
+        elif not (f.parent / "pack.yaml").is_file():
+            out.add(rel.with_suffix("").as_posix())
+    return sorted(out)
 
 
 def load_view(state_dir: Path) -> tuple[dict, list[dict]]:
@@ -136,20 +159,50 @@ def learn_line(e: dict) -> tuple[str, str]:
 class Overlay(tk.Tk):
     def __init__(self, state_dir: Path, interval_ms: int = 1000,
                  topmost: bool = True, alpha: float = 0.92,
+                 packs_dir: Path | None = None,
                  pack_file: Path | None = None):
         super().__init__()
         self.state_dir = state_dir
         self.interval = interval_ms
+        self.packs_dir = packs_dir
         self.pack_file = pack_file
         self.title("RimBrain agent")
         self.attributes("-topmost", topmost)
         self.attributes("-alpha", alpha)
         self.minsize(340, 240)
 
+        bg, fg, field = "#1e1e1e", "#d4d4d4", "#252526"
+        self.configure(bg=bg)
+        st = ttk.Style(self)
+        st.theme_use("clam")
+        st.configure(".", background=bg, foreground=fg,
+                     fieldbackground=field, bordercolor="#3e3e42")
+        st.configure("TFrame", background=bg)
+        st.configure("TLabel", background=bg, foreground=fg)
+        st.configure("TButton", background="#2d2d30", foreground=fg)
+        st.map("TButton", background=[("active", "#3e3e42")])
+        st.configure("Treeview", background=field, fieldbackground=field,
+                     foreground=fg)
+        st.configure("Treeview.Heading", background="#2d2d30",
+                     foreground=fg)
+        st.map("Treeview", background=[("selected", "#094771")])
+        st.configure("Vertical.TScrollbar", background="#3e3e42",
+                     troughcolor=bg, arrowcolor=fg)
+
         bar = ttk.Frame(self)
         bar.pack(fill="x", padx=6, pady=(4, 0))
+        self.pack_var = tk.StringVar()
+        self.pack_pick = ttk.Combobox(
+            bar, textvariable=self.pack_var, state="readonly",
+            width=24, postcommand=self._scan_packs)
+        self.pack_pick.pack(side="left")
+        self._scan_packs()
+        if pack_file is not None and not self.pack_var.get():
+            self.pack_var.set(pack_file.stem)
+        ttk.Button(bar, text="Use",
+                   command=self._use_pack).pack(side="left", padx=(4, 0))
         ttk.Button(bar, text="Brain Reset",
-                   command=self._brain_reset).pack(side="left")
+                   command=self._brain_reset).pack(side="left", padx=(4, 0))
         ttk.Button(bar, text="Edit Brain",
                    command=self._edit_brain).pack(side="left", padx=(4, 0))
         self.brain_lbl = ttk.Label(bar, font=("Consolas", 9))
@@ -158,16 +211,32 @@ class Overlay(tk.Tk):
         self.header = ttk.Label(self, font=("Consolas", 10, "bold"))
         self.header.pack(fill="x", padx=6, pady=(4, 0))
 
-        cols = ("goal", "state", "tries", "success condition", "blocker")
-        self.goals = ttk.Treeview(self, columns=cols, show="headings",
-                                  height=8)
-        widths = (110, 80, 45, 260, 140)
+        cols = ("goal", "state", "now", "tries",
+                "success condition", "blocker")
+        goal_fr = ttk.Frame(self)
+        goal_fr.pack(fill="both", expand=True, padx=6, pady=2)
+        self.goals = ttk.Treeview(goal_fr, columns=cols, show="headings",
+                                  height=5)
+        widths = (150, 78, 38, 40, 260, 140)
         for c, w in zip(cols, widths):
             self.goals.heading(c, text=c)
             self.goals.column(c, width=w,
                               stretch=c in ("success condition",
                                             "blocker"))
-        self.goals.pack(fill="x", padx=6, pady=2)
+        gsb = ttk.Scrollbar(goal_fr, orient="vertical",
+                            command=self.goals.yview)
+        self.goals.configure(yscrollcommand=gsb.set)
+        self.goals.tag_configure("bad", foreground="#e08080")
+        self.goals.tag_configure("ok", foreground="#7fd17f")
+        self.goals.pack(side="left", fill="both", expand=True)
+        gsb.pack(side="right", fill="y")
+        # tail-follow: pinned to the last rows; scrolling up reads
+        # history, returning to the bottom re-pins
+        self._goals_pinned = True
+        self.goals.bind("<MouseWheel>", lambda e:
+                        self.after_idle(self._check_goal_pin))
+        gsb.bind("<ButtonRelease-1>", lambda e:
+                 self.after_idle(self._check_goal_pin))
         self.exit_lbl = ttk.Label(self, font=("Consolas", 9))
         self.exit_lbl.pack(fill="x", padx=6)
 
@@ -209,6 +278,10 @@ class Overlay(tk.Tk):
             self._render_brain_status()
         self.after(self.interval, self._refresh)
 
+    def _check_goal_pin(self):
+        yv = self.goals.yview()
+        self._goals_pinned = yv[1] >= 0.999 or yv == (0.0, 1.0)
+
     def _render_planning(self, p: dict):
         self.header.config(text=(
             f"{p.get('mode', '—')}  tick {p.get('tick', '—')}  "
@@ -216,10 +289,18 @@ class Overlay(tk.Tk):
             + ("  COMPLETE" if p.get("complete") else "")))
         self.goals.delete(*self.goals.get_children())
         for g in p.get("goals") or []:
-            self.goals.insert("", "end", values=(
-                g.get("id"), g.get("state"), g.get("attempts", 0),
+            h = g.get("holds")
+            mark = "yes" if h is True else ("NO" if h is False else "—")
+            st = g.get("state")
+            tag = ("bad" if st in ("failed", "cancelled", "lapsed")
+                   else "ok" if (h is True or st == "succeeded") else "")
+            self.goals.insert("", "end", tags=(tag,) if tag else (),
+                              values=(
+                g.get("id"), st, mark, g.get("attempts", 0),
                 g.get("effect") or g.get("detail") or "—",
                 g.get("blocker") or "—"))
+        if self._goals_pinned:
+            self.goals.yview_moveto(1)
         exits = p.get("exit_conditions") or {}
         self.exit_lbl.config(text="  ".join(
             f"[{'x' if ok else ' '}] {k}" for k, ok in exits.items()))
@@ -248,6 +329,34 @@ class Overlay(tk.Tk):
         self.learn.see("end")
         self.learn.config(state="disabled")
 
+    def _scan_packs(self):
+        ids = scan_packs(self.packs_dir)
+        self.pack_pick.configure(values=ids)
+        if ids and not self.pack_var.get():
+            self.pack_var.set(ids[0])
+
+    def _selected_path(self) -> Path | None:
+        sel = self.pack_var.get()
+        if self.packs_dir is not None and sel:
+            folder = self.packs_dir / sel / "pack.yaml"
+            if folder.is_file():
+                return folder
+            flat = self.packs_dir / f"{sel}.yaml"
+            if flat.is_file():
+                return flat
+        return self.pack_file
+
+    def _use_pack(self):
+        sel = self.pack_var.get()
+        if not sel:
+            self.brain_lbl.config(text="no pack selected")
+            return
+        try:
+            write_reset_request(self.state_dir, {"pack": sel})
+            self.brain_lbl.config(text=f"swap to {sel} requested...")
+        except OSError as e:
+            self.brain_lbl.config(text=f"swap failed: {e}")
+
     def _brain_reset(self):
         try:
             write_reset_request(self.state_dir)
@@ -256,23 +365,24 @@ class Overlay(tk.Tk):
             self.brain_lbl.config(text=f"reset failed: {e}")
 
     def _edit_brain(self):
-        if self.pack_file is None or not self.pack_file.is_file():
-            self.brain_lbl.config(text="no --pack-file")
+        path = self._selected_path()
+        if path is None or not path.is_file():
+            self.brain_lbl.config(text="no pack selected")
             return
         win = tk.Toplevel(self)
-        win.title(f"Brain pack — {self.pack_file.name}")
+        win.title(f"Brain pack — {self.pack_var.get() or path.name}")
         win.geometry("760x560")
         txt = tk.Text(win, font=("Consolas", 9), wrap="none",
                       undo=True)
         txt.pack(fill="both", expand=True)
-        txt.insert("1.0", self.pack_file.read_text(encoding="utf-8"))
+        txt.insert("1.0", path.read_text(encoding="utf-8"))
         row = ttk.Frame(win)
         row.pack(fill="x")
 
         def save_and_reset():
             try:
-                self.pack_file.write_text(txt.get("1.0", "end-1c"),
-                                          encoding="utf-8")
+                path.write_text(txt.get("1.0", "end-1c"),
+                                encoding="utf-8")
                 write_reset_request(self.state_dir)
             except OSError as e:
                 self.brain_lbl.config(text=f"save failed: {e}")
@@ -291,6 +401,8 @@ class Overlay(tk.Tk):
                            .read_text(encoding="utf-8"))
         except (OSError, ValueError):
             return
+        if s.get("pack_id") and s["pack_id"] != self.pack_var.get():
+            self.pack_var.set(s["pack_id"])  # follow the live pack
         if s.get("ok"):
             self.brain_lbl.config(
                 text=f"brain ok {str(s.get('pack_revision', ''))[:8]}")
@@ -304,6 +416,9 @@ def main(argv=None) -> int:
     ap.add_argument("--state-dir", default="state")
     ap.add_argument("--interval", type=int, default=1000,
                     help="poll interval ms")
+    ap.add_argument("--packs-dir", default=None,
+                    help="packs root — enables the pack picker "
+                         "(<dir>/pack.yaml folders + flat <id>.yaml)")
     ap.add_argument("--pack-file", default=None,
                     help="active pack YAML path for Edit Brain")
     ap.add_argument("--no-topmost", action="store_true")
@@ -311,6 +426,7 @@ def main(argv=None) -> int:
     a = ap.parse_args(argv)
     Overlay(Path(a.state_dir), a.interval,
             topmost=not a.no_topmost, alpha=a.alpha,
+            packs_dir=Path(a.packs_dir) if a.packs_dir else None,
             pack_file=Path(a.pack_file) if a.pack_file else None
             ).mainloop()
     return 0

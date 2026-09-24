@@ -681,7 +681,10 @@ def test_turbine_sited_cleared_and_windpath_suppressed(rig):
     assert cut and cut[0]["designator"] == "cut"
     assert all(isinstance(t, str) for t in cut[0]["things"])
     # the built turbine's corridors carry no surviving obstruction
-    paths = policy._fn_wind_path(None, gen["pos"], "x", 2, 5, 0)
+    w = cfg["govern"]["power"]["wind"]
+    paths = policy._fn_wind_path(
+        None, gen["pos"], w["axis"], w["half_width"], w["depth"],
+        w["gap"], w.get("foot", 1))
     assert not any(
         f for f in game.flora
         if any(policy._in_rect(f["pos"], r) for r in paths))

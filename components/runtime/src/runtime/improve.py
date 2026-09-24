@@ -116,56 +116,16 @@ def diagnosed_event(cycle_id: str, findings: list[dict], seq: int,
     return _env("selfcheck.diagnosed", payload, seq, clock)
 
 
-def _set_path(doc: dict, path: str, value) -> bool:
-    keys = [k for k in path.split(".") if k]
-    if not keys:
-        return False
-    node = doc
-    for k in keys[:-1]:
-        nxt = node.get(k)
-        if not isinstance(nxt, dict):
-            nxt = {}
-            node[k] = nxt
-        node = nxt
-    node[keys[-1]] = value
-    return True
-
-
 def _apply_ops(doc: dict, ops: list[dict] | None) -> bool:
     """FR-813: declarative pack mutations. Returns True if doc changed.
 
-    `set_cfg` writes a config path, `append` pushes onto a list path,
-    `drop_template`/`drop_rule` remove pack elements by id — the fix is
-    declared in the improve pack, the engine only applies it.
-    """
-    changed = False
-    for op in ops or []:
-        kind = op.get("op")
-        if kind == "set_cfg":
-            changed |= _set_path(doc, op.get("path", ""), op.get("value"))
-        elif kind == "append":
-            node = _dotted(doc, op.get("path", ""))
-            if isinstance(node, list):
-                node.append(op.get("value"))
-                changed = True
-        elif kind == "drop_template":
-            bad = set(op.get("ids") or [])
-            tpls = [t for t in doc.get("templates", [])
-                    if t.get("id") not in bad]
-            changed |= len(tpls) != len(doc.get("templates", []))
-            doc["templates"] = tpls
-        elif kind == "drop_rule":
-            bad = set(op.get("ids") or [])
-            # rules can live at universal.rules, top-level emergency,
-            # or combat.<phase>.rules — all are remediable
-            lists = [doc.setdefault("universal", {}).setdefault("rules", []),
-                     doc.setdefault("emergency", [])]
-            lists += [v["rules"] for v in (doc.get("combat") or {}).values()
-                      if isinstance(v, dict) and isinstance(v.get("rules"), list)]
-            for i, rules in enumerate(lists):
-                keep = [r for r in rules if r.get("id") not in bad]
-                changed |= len(keep) != len(rules)
-                lists[i][:] = keep
+    Legacy op names compile to the packmut vocabulary (feature 016):
+    `set_cfg` -> `set`, `append` -> `append`, `drop_template` ->
+    `remove` on `templates.<id>`, `drop_rule` -> `remove` on every rule
+    list (`universal.rules`, `emergency`, `combat.*.rules`)."""
+    from . import packmut
+    changed, _misses = packmut.apply_ops(
+        doc, packmut.compile_legacy(ops, doc))
     return changed
 
 
@@ -309,7 +269,8 @@ def run_improve(store, cfg: dict, *, active_pack: dict,
                         for f in findings if f["defect_class"] == cls),
                        False)
         if cand < inc or (ops_rem and cand <= inc):
-            promoted = Path(packs_dir) / cand_path.name
+            promoted = Path(packs_dir) / cand_path.stem / "pack.yaml"
+            promoted.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(cand_path, promoted)
             seq += 1
             emit(_env("improvement.promoted", {

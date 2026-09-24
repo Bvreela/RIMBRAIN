@@ -891,11 +891,12 @@ govern:
     rect_w: 9                # the rice field west of the shelter
     rect_h: 9
     gen_rot: N               # blueprint rotation
-    wind:                    # airflow corridor — all geometry pack-owned
-      axis: x                # path extends east-west of the cell
-      half_width: 2          # 5-cell-wide corridor (2 each side + centre)
-      depth: 5               # cells each direction
-      gap: 0                 # cells between footprint and path start
+    wind:                    # airflow corridor — all geometry pack-owned.
+      axis: z                # vanilla exclusion zone is 7x18: corridors
+      half_width: 3          # extend N/S of the unrotated 7x2 footprint,
+      depth: 8               # span 7 (hw 3), 8 deep each side
+      gap: 0                 # cells between footprint edge and corridor
+      foot: 2                # footprint depth along the corridor axis
       site_kinds: [tree, harvestable, building, resource_rock, blueprint]
       clear_kinds: [tree, harvestable]
       clear_designator: cut  # designate 'cut'|'harvest' on blockers
@@ -906,6 +907,7 @@ govern:
       grow_plant: Plant_Grass
   defense:
     trap_defs: [TrapSpike]
+    trap_stuff: [Steel]      # steel traps only — wood burns and breaks
     trap_count: 8            # built-trap target inside the hallway
   blueprints:                # named base plans — the communicable
     compound:                # layout layer: geometry stays pack data,
@@ -916,6 +918,8 @@ govern:
       entrance_dx: 16        # gap cells on the south wall row — under
       entrance_w: 2          # the shelter door line; open, no door
       hall_depth: 8          # trap corridor depth outside the wall
+      door_stuff: [Steel]    # boundary doors are steel — raiders must
+                             # break them, colonists pass freely
       min_room_cells: 100    # interior must read as one enclosed room
   dining:                    # indoor table + chairs — kills the 'ate
     rect_dx: 13              # without table' mood debuff; room sits
@@ -1065,20 +1069,50 @@ govern:
           params:
             stop_on_error: false
             ops:
-              - {def: "@cfg:start.shelter.wall_def",   # south, west of gap
-                 rect: "@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.blueprints.compound.rect_dx), @fn:add(@var:site.min.1, @cfg:govern.blueprints.compound.rect_dy), @cfg:govern.blueprints.compound.entrance_dx, 1)",
+              # steel doors FIRST — one per side, mid-wall (south door
+              # sits mid-west-segment). If a door cell can't take a
+              # blueprint the matching wall op below seals the hole —
+              # the compound never gains an accidental second opening.
+              - {def: "@cfg:start.shelter.door_def",   # north door
+                 at: "@fn:cell(@fn:add(@var:site.min.0, @cfg:govern.blueprints.compound.rect_dx, @fn:fdiv(@cfg:govern.blueprints.compound.w, 2)), @fn:add(@var:site.min.1, @cfg:govern.blueprints.compound.rect_dy, @cfg:govern.blueprints.compound.h, -1))",
+                 stuff: "@fn:stuff(@cfg:govern.blueprints.compound.door_stuff)"}
+              - {def: "@cfg:start.shelter.door_def",   # south door
+                 at: "@fn:cell(@fn:add(@var:site.min.0, @cfg:govern.blueprints.compound.rect_dx, @fn:fdiv(@cfg:govern.blueprints.compound.entrance_dx, 2)), @fn:add(@var:site.min.1, @cfg:govern.blueprints.compound.rect_dy))",
+                 stuff: "@fn:stuff(@cfg:govern.blueprints.compound.door_stuff)"}
+              - {def: "@cfg:start.shelter.door_def",   # west door
+                 at: "@fn:cell(@fn:add(@var:site.min.0, @cfg:govern.blueprints.compound.rect_dx), @fn:add(@var:site.min.1, @cfg:govern.blueprints.compound.rect_dy, @fn:fdiv(@cfg:govern.blueprints.compound.h, 2)))",
+                 stuff: "@fn:stuff(@cfg:govern.blueprints.compound.door_stuff)"}
+              - {def: "@cfg:start.shelter.door_def",   # east door
+                 at: "@fn:cell(@fn:add(@var:site.min.0, @cfg:govern.blueprints.compound.rect_dx, @cfg:govern.blueprints.compound.w, -1), @fn:add(@var:site.min.1, @cfg:govern.blueprints.compound.rect_dy, @fn:fdiv(@cfg:govern.blueprints.compound.h, 2)))",
+                 stuff: "@fn:stuff(@cfg:govern.blueprints.compound.door_stuff)"}
+              # wall segments — carved around door cells and the
+              # entrance gap (EdgeCells can't skip cells)
+              - {def: "@cfg:start.shelter.wall_def",   # south, west of door
+                 rect: "@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.blueprints.compound.rect_dx), @fn:add(@var:site.min.1, @cfg:govern.blueprints.compound.rect_dy), @fn:fdiv(@cfg:govern.blueprints.compound.entrance_dx, 2), 1)",
+                 stuff: "@fn:stuff(@cfg:start.shelter.stuff_preference)"}
+              - {def: "@cfg:start.shelter.wall_def",   # south, door to gap
+                 rect: "@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.blueprints.compound.rect_dx, @fn:fdiv(@cfg:govern.blueprints.compound.entrance_dx, 2), 1), @fn:add(@var:site.min.1, @cfg:govern.blueprints.compound.rect_dy), @fn:sub(@cfg:govern.blueprints.compound.entrance_dx, @fn:fdiv(@cfg:govern.blueprints.compound.entrance_dx, 2), 1), 1)",
                  stuff: "@fn:stuff(@cfg:start.shelter.stuff_preference)"}
               - {def: "@cfg:start.shelter.wall_def",   # south, east of gap
                  rect: "@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.blueprints.compound.rect_dx, @cfg:govern.blueprints.compound.entrance_dx, @cfg:govern.blueprints.compound.entrance_w), @fn:add(@var:site.min.1, @cfg:govern.blueprints.compound.rect_dy), @fn:sub(@cfg:govern.blueprints.compound.w, @cfg:govern.blueprints.compound.entrance_dx, @cfg:govern.blueprints.compound.entrance_w), 1)",
                  stuff: "@fn:stuff(@cfg:start.shelter.stuff_preference)"}
-              - {def: "@cfg:start.shelter.wall_def",   # west
-                 rect: "@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.blueprints.compound.rect_dx), @fn:add(@var:site.min.1, @cfg:govern.blueprints.compound.rect_dy, 1), 1, @fn:sub(@cfg:govern.blueprints.compound.h, 1))",
+              - {def: "@cfg:start.shelter.wall_def",   # west, below door
+                 rect: "@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.blueprints.compound.rect_dx), @fn:add(@var:site.min.1, @cfg:govern.blueprints.compound.rect_dy, 1), 1, @fn:sub(@fn:fdiv(@cfg:govern.blueprints.compound.h, 2), 1))",
                  stuff: "@fn:stuff(@cfg:start.shelter.stuff_preference)"}
-              - {def: "@cfg:start.shelter.wall_def",   # north
-                 rect: "@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.blueprints.compound.rect_dx), @fn:add(@var:site.min.1, @cfg:govern.blueprints.compound.rect_dy, @cfg:govern.blueprints.compound.h, -1), @cfg:govern.blueprints.compound.w, 1)",
+              - {def: "@cfg:start.shelter.wall_def",   # west, above door
+                 rect: "@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.blueprints.compound.rect_dx), @fn:add(@var:site.min.1, @cfg:govern.blueprints.compound.rect_dy, @fn:fdiv(@cfg:govern.blueprints.compound.h, 2), 1), 1, @fn:sub(@cfg:govern.blueprints.compound.h, @fn:fdiv(@cfg:govern.blueprints.compound.h, 2), 1))",
                  stuff: "@fn:stuff(@cfg:start.shelter.stuff_preference)"}
-              - {def: "@cfg:start.shelter.wall_def",   # east
-                 rect: "@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.blueprints.compound.rect_dx, @cfg:govern.blueprints.compound.w, -1), @fn:add(@var:site.min.1, @cfg:govern.blueprints.compound.rect_dy, 1), 1, @fn:sub(@cfg:govern.blueprints.compound.h, 1))",
+              - {def: "@cfg:start.shelter.wall_def",   # north, west of door
+                 rect: "@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.blueprints.compound.rect_dx), @fn:add(@var:site.min.1, @cfg:govern.blueprints.compound.rect_dy, @cfg:govern.blueprints.compound.h, -1), @fn:fdiv(@cfg:govern.blueprints.compound.w, 2), 1)",
+                 stuff: "@fn:stuff(@cfg:start.shelter.stuff_preference)"}
+              - {def: "@cfg:start.shelter.wall_def",   # north, east of door
+                 rect: "@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.blueprints.compound.rect_dx, @fn:fdiv(@cfg:govern.blueprints.compound.w, 2), 1), @fn:add(@var:site.min.1, @cfg:govern.blueprints.compound.rect_dy, @cfg:govern.blueprints.compound.h, -1), @fn:sub(@cfg:govern.blueprints.compound.w, @fn:fdiv(@cfg:govern.blueprints.compound.w, 2), 1), 1)",
+                 stuff: "@fn:stuff(@cfg:start.shelter.stuff_preference)"}
+              - {def: "@cfg:start.shelter.wall_def",   # east, below door
+                 rect: "@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.blueprints.compound.rect_dx, @cfg:govern.blueprints.compound.w, -1), @fn:add(@var:site.min.1, @cfg:govern.blueprints.compound.rect_dy, 1), 1, @fn:sub(@fn:fdiv(@cfg:govern.blueprints.compound.h, 2), 1))",
+                 stuff: "@fn:stuff(@cfg:start.shelter.stuff_preference)"}
+              - {def: "@cfg:start.shelter.wall_def",   # east, above door
+                 rect: "@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.blueprints.compound.rect_dx, @cfg:govern.blueprints.compound.w, -1), @fn:add(@var:site.min.1, @cfg:govern.blueprints.compound.rect_dy, @fn:fdiv(@cfg:govern.blueprints.compound.h, 2), 1), 1, @fn:sub(@cfg:govern.blueprints.compound.h, @fn:fdiv(@cfg:govern.blueprints.compound.h, 2), 1))",
                  stuff: "@fn:stuff(@cfg:start.shelter.stuff_preference)"}
               - {def: "@cfg:start.shelter.wall_def",   # hallway west wall
                  rect: "@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.blueprints.compound.rect_dx, @cfg:govern.blueprints.compound.entrance_dx, -1), @fn:sub(@fn:add(@var:site.min.1, @cfg:govern.blueprints.compound.rect_dy), @cfg:govern.blueprints.compound.hall_depth), 1, @cfg:govern.blueprints.compound.hall_depth)",
@@ -1086,15 +1120,29 @@ govern:
               - {def: "@cfg:start.shelter.wall_def",   # hallway east wall
                  rect: "@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.blueprints.compound.rect_dx, @cfg:govern.blueprints.compound.entrance_dx, @cfg:govern.blueprints.compound.entrance_w), @fn:sub(@fn:add(@var:site.min.1, @cfg:govern.blueprints.compound.rect_dy), @cfg:govern.blueprints.compound.hall_depth), 1, @cfg:govern.blueprints.compound.hall_depth)",
                  stuff: "@fn:stuff(@cfg:start.shelter.stuff_preference)"}
+              # door-cell wall fallback — lands only if the door op
+              # failed, so a bad cell seals the wall instead of leaking
+              - {def: "@cfg:start.shelter.wall_def",
+                 at: "@fn:cell(@fn:add(@var:site.min.0, @cfg:govern.blueprints.compound.rect_dx, @fn:fdiv(@cfg:govern.blueprints.compound.w, 2)), @fn:add(@var:site.min.1, @cfg:govern.blueprints.compound.rect_dy, @cfg:govern.blueprints.compound.h, -1))",
+                 stuff: "@fn:stuff(@cfg:start.shelter.stuff_preference)"}
+              - {def: "@cfg:start.shelter.wall_def",
+                 at: "@fn:cell(@fn:add(@var:site.min.0, @cfg:govern.blueprints.compound.rect_dx, @fn:fdiv(@cfg:govern.blueprints.compound.entrance_dx, 2)), @fn:add(@var:site.min.1, @cfg:govern.blueprints.compound.rect_dy))",
+                 stuff: "@fn:stuff(@cfg:start.shelter.stuff_preference)"}
+              - {def: "@cfg:start.shelter.wall_def",
+                 at: "@fn:cell(@fn:add(@var:site.min.0, @cfg:govern.blueprints.compound.rect_dx), @fn:add(@var:site.min.1, @cfg:govern.blueprints.compound.rect_dy, @fn:fdiv(@cfg:govern.blueprints.compound.h, 2)))",
+                 stuff: "@fn:stuff(@cfg:start.shelter.stuff_preference)"}
+              - {def: "@cfg:start.shelter.wall_def",
+                 at: "@fn:cell(@fn:add(@var:site.min.0, @cfg:govern.blueprints.compound.rect_dx, @cfg:govern.blueprints.compound.w, -1), @fn:add(@var:site.min.1, @cfg:govern.blueprints.compound.rect_dy, @fn:fdiv(@cfg:govern.blueprints.compound.h, 2)))",
+                 stuff: "@fn:stuff(@cfg:start.shelter.stuff_preference)"}
         # checkerboard traps — raiders mass onto them, colonists weave
         - {template: build-one,
            for_each: "@fn:checker_cells(@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.blueprints.compound.rect_dx, @cfg:govern.blueprints.compound.entrance_dx), @fn:sub(@fn:add(@var:site.min.1, @cfg:govern.blueprints.compound.rect_dy), @cfg:govern.blueprints.compound.hall_depth), @cfg:govern.blueprints.compound.entrance_w, @fn:add(@cfg:govern.blueprints.compound.hall_depth, 1)))",
            when: {field: "@fn:sub(@cfg:govern.defense.trap_count, @fn:add(@fn:count(@fn:find_defs_in(@cfg:govern.defense.trap_defs, @fn:rect(@fn:add(@var:site.min.0, @cfg:govern.blueprints.compound.rect_dx, @cfg:govern.blueprints.compound.entrance_dx), @fn:sub(@fn:add(@var:site.min.1, @cfg:govern.blueprints.compound.rect_dy), @cfg:govern.blueprints.compound.hall_depth), @cfg:govern.blueprints.compound.entrance_w, @fn:add(@cfg:govern.blueprints.compound.hall_depth, 1)))), @fn:blueprints_in(@cfg:govern.defense.trap_defs, @fn:rect(@fn:add(@var:site.min.0, @cfg:govern.blueprints.compound.rect_dx, @cfg:govern.blueprints.compound.entrance_dx), @fn:sub(@fn:add(@var:site.min.1, @cfg:govern.blueprints.compound.rect_dy), @cfg:govern.blueprints.compound.hall_depth), @cfg:govern.blueprints.compound.entrance_w, @fn:add(@cfg:govern.blueprints.compound.hall_depth, 1)))))",
                   op: gt, value: 0},
-           needs: "@fn:buildable_at(@fn:first(@cfg:govern.defense.trap_defs), @var:it, @fn:stuff(@cfg:start.shelter.stuff_preference))",
+           needs: "@fn:buildable_at(@fn:first(@cfg:govern.defense.trap_defs), @var:it, @fn:stuff(@cfg:govern.defense.trap_stuff))",
            params: {def: "@fn:first(@cfg:govern.defense.trap_defs)",
                     at: "@var:it",
-                    stuff: "@fn:stuff(@cfg:start.shelter.stuff_preference)"}}
+                    stuff: "@fn:stuff(@cfg:govern.defense.trap_stuff)"}}
     - id: stockpile-medicine   # healroot plot — wounds become recoverable
       option: stockpile-medicine
       requires: [site]
@@ -1136,46 +1184,45 @@ govern:
       steps:
         # clear a buildable-but-obstructed site before probing a clean one
         - {template: clear-vegetation,
-           needs: "@fn:turbine_site_blocked(@fn:first(@cfg:govern.power.gen_defs), @fn:rect(@fn:add(@var:site.min.0, @cfg:govern.power.rect_dx), @fn:add(@var:site.min.1, @cfg:govern.power.rect_dy), @cfg:govern.power.rect_w, @cfg:govern.power.rect_h), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.site_kinds, @fn:stuff(@cfg:start.shelter.stuff_preference))",
+           needs: "@fn:turbine_site_blocked(@fn:first(@cfg:govern.power.gen_defs), @fn:rect(@fn:add(@var:site.min.0, @cfg:govern.power.rect_dx), @fn:add(@var:site.min.1, @cfg:govern.power.rect_dy), @cfg:govern.power.rect_w, @cfg:govern.power.rect_h), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.foot, @cfg:govern.power.wind.site_kinds)",
            cooldown_polls: "@cfg:govern.power.wind.clear_cooldown",
            params: {designator: "@cfg:govern.power.wind.clear_designator",
-                    things: "@fn:ids(@fn:obstructions(@fn:wind_path(@fn:turbine_site_blocked(@fn:first(@cfg:govern.power.gen_defs), @fn:rect(@fn:add(@var:site.min.0, @cfg:govern.power.rect_dx), @fn:add(@var:site.min.1, @cfg:govern.power.rect_dy), @cfg:govern.power.rect_w, @cfg:govern.power.rect_h), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.site_kinds, @fn:stuff(@cfg:start.shelter.stuff_preference)), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap), @cfg:govern.power.wind.clear_kinds))"}}
+                    things: "@fn:ids(@fn:obstructions(@fn:wind_path(@fn:turbine_site_blocked(@fn:first(@cfg:govern.power.gen_defs), @fn:rect(@fn:add(@var:site.min.0, @cfg:govern.power.rect_dx), @fn:add(@var:site.min.1, @cfg:govern.power.rect_dy), @cfg:govern.power.rect_w, @cfg:govern.power.rect_h), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.foot, @cfg:govern.power.wind.site_kinds), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.foot), @cfg:govern.power.wind.clear_kinds))"}}
         - {template: build-one,
-           needs: "@fn:turbine_site(@fn:first(@cfg:govern.power.gen_defs), @fn:rect(@fn:add(@var:site.min.0, @cfg:govern.power.rect_dx), @fn:add(@var:site.min.1, @cfg:govern.power.rect_dy), @cfg:govern.power.rect_w, @cfg:govern.power.rect_h), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.site_kinds, @fn:stuff(@cfg:start.shelter.stuff_preference))",
+           needs: "@fn:turbine_site(@fn:first(@cfg:govern.power.gen_defs), @fn:rect(@fn:add(@var:site.min.0, @cfg:govern.power.rect_dx), @fn:add(@var:site.min.1, @cfg:govern.power.rect_dy), @cfg:govern.power.rect_w, @cfg:govern.power.rect_h), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.foot, @cfg:govern.power.wind.site_kinds)",
            params: {def: "@fn:first(@cfg:govern.power.gen_defs)",
-                    at: "@fn:turbine_site(@fn:first(@cfg:govern.power.gen_defs), @fn:rect(@fn:add(@var:site.min.0, @cfg:govern.power.rect_dx), @fn:add(@var:site.min.1, @cfg:govern.power.rect_dy), @cfg:govern.power.rect_w, @cfg:govern.power.rect_h), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.site_kinds, @fn:stuff(@cfg:start.shelter.stuff_preference))",
-                    rot: "@cfg:govern.power.gen_rot",
-                    stuff: "@fn:stuff(@cfg:start.shelter.stuff_preference)"}}
+                    at: "@fn:turbine_site(@fn:first(@cfg:govern.power.gen_defs), @fn:rect(@fn:add(@var:site.min.0, @cfg:govern.power.rect_dx), @fn:add(@var:site.min.1, @cfg:govern.power.rect_dy), @cfg:govern.power.rect_w, @cfg:govern.power.rect_h), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.foot, @cfg:govern.power.wind.site_kinds)",
+                    rot: "@cfg:govern.power.gen_rot"}}
     - id: maintain-turbine-windpath  # corridor stays clear + regrowth
       option: establish-power-grid    # suppressed once the gen stands
       requires: [site]
       when: {field: "@fn:find_def(@fn:first(@cfg:govern.power.gen_defs))",
              op: present}
       effect: {all:
-        [{field: "@fn:count(@fn:wind_obstructions(@cfg:govern.power.gen_defs, @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.site_kinds))",
+        [{field: "@fn:count(@fn:wind_obstructions(@cfg:govern.power.gen_defs, @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.foot, @cfg:govern.power.wind.site_kinds))",
           op: eq, value: 0},
          {any: [{field: "@cfg:govern.power.wind.suppress", op: ne, value: floor},
-                {all: [{field: "@fn:terrain_at(@fn:nth(@fn:wind_path(@fn:pos(@fn:nth(@fn:find_defs(@cfg:govern.power.gen_defs),0)), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap),0))",
+                {all: [{field: "@fn:terrain_at(@fn:nth(@fn:wind_path(@fn:pos(@fn:nth(@fn:find_defs(@cfg:govern.power.gen_defs),0)), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.foot),0))",
                         op: eq, value: "@cfg:govern.power.wind.floor_def"},
-                       {field: "@fn:terrain_at(@fn:nth(@fn:wind_path(@fn:pos(@fn:nth(@fn:find_defs(@cfg:govern.power.gen_defs),0)), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap),1))",
+                       {field: "@fn:terrain_at(@fn:nth(@fn:wind_path(@fn:pos(@fn:nth(@fn:find_defs(@cfg:govern.power.gen_defs),0)), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.foot),1))",
                         op: eq, value: "@cfg:govern.power.wind.floor_def"}]}]},
          {any: [{field: "@cfg:govern.power.wind.suppress", op: ne, value: grow},
-                {all: [{field: "@fn:zone_at(@fn:nth(@fn:wind_path(@fn:pos(@fn:nth(@fn:find_defs(@cfg:govern.power.gen_defs),0)), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap),0))",
+                {all: [{field: "@fn:zone_at(@fn:nth(@fn:wind_path(@fn:pos(@fn:nth(@fn:find_defs(@cfg:govern.power.gen_defs),0)), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.foot),0))",
                         op: present},
-                       {field: "@fn:zone_at(@fn:nth(@fn:wind_path(@fn:pos(@fn:nth(@fn:find_defs(@cfg:govern.power.gen_defs),0)), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap),1))",
+                       {field: "@fn:zone_at(@fn:nth(@fn:wind_path(@fn:pos(@fn:nth(@fn:find_defs(@cfg:govern.power.gen_defs),0)), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.foot),1))",
                         op: present}]}]}]}
       repeat: {while: {any:
-        [{field: "@fn:count(@fn:wind_obstructions(@cfg:govern.power.gen_defs, @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.site_kinds))",
+        [{field: "@fn:count(@fn:wind_obstructions(@cfg:govern.power.gen_defs, @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.foot, @cfg:govern.power.wind.site_kinds))",
           op: gt, value: 0},
          {all: [{field: "@cfg:govern.power.wind.suppress", op: eq, value: floor},
-                {any: [{field: "@fn:terrain_at(@fn:nth(@fn:wind_path(@fn:pos(@fn:nth(@fn:find_defs(@cfg:govern.power.gen_defs),0)), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap),0))",
+                {any: [{field: "@fn:terrain_at(@fn:nth(@fn:wind_path(@fn:pos(@fn:nth(@fn:find_defs(@cfg:govern.power.gen_defs),0)), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.foot),0))",
                         op: ne, value: "@cfg:govern.power.wind.floor_def"},
-                       {field: "@fn:terrain_at(@fn:nth(@fn:wind_path(@fn:pos(@fn:nth(@fn:find_defs(@cfg:govern.power.gen_defs),0)), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap),1))",
+                       {field: "@fn:terrain_at(@fn:nth(@fn:wind_path(@fn:pos(@fn:nth(@fn:find_defs(@cfg:govern.power.gen_defs),0)), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.foot),1))",
                         op: ne, value: "@cfg:govern.power.wind.floor_def"}]}]},
          {all: [{field: "@cfg:govern.power.wind.suppress", op: eq, value: grow},
-                {any: [{field: "@fn:zone_at(@fn:nth(@fn:wind_path(@fn:pos(@fn:nth(@fn:find_defs(@cfg:govern.power.gen_defs),0)), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap),0))",
+                {any: [{field: "@fn:zone_at(@fn:nth(@fn:wind_path(@fn:pos(@fn:nth(@fn:find_defs(@cfg:govern.power.gen_defs),0)), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.foot),0))",
                         op: absent},
-                       {field: "@fn:zone_at(@fn:nth(@fn:wind_path(@fn:pos(@fn:nth(@fn:find_defs(@cfg:govern.power.gen_defs),0)), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap),1))",
+                       {field: "@fn:zone_at(@fn:nth(@fn:wind_path(@fn:pos(@fn:nth(@fn:find_defs(@cfg:govern.power.gen_defs),0)), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.foot),1))",
                         op: absent}]}]}]}}
       steps:
         - {template: clear-vegetation,     # regrowth / stragglers
@@ -1188,51 +1235,51 @@ govern:
            for_each: "@fn:find_defs(@cfg:govern.power.gen_defs)",   # per gen
            when: {all:
              [{field: "@cfg:govern.power.wind.suppress", op: eq, value: floor},
-              {field: "@fn:count(@fn:wind_obstructions(@cfg:govern.power.gen_defs, @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.site_kinds))",
+              {field: "@fn:count(@fn:wind_obstructions(@cfg:govern.power.gen_defs, @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.foot, @cfg:govern.power.wind.site_kinds))",
                op: eq, value: 0},
               {field: "@fn:blueprints(@cfg:govern.power.wind.floor_def)",
                op: eq, value: 0},
-              {field: "@fn:terrain_at(@fn:nth(@fn:wind_path(@fn:pos(@var:it), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap),0))",
+              {field: "@fn:terrain_at(@fn:nth(@fn:wind_path(@fn:pos(@var:it), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.foot),0))",
                op: ne, value: "@cfg:govern.power.wind.floor_def"}]},
            params: {def: "@cfg:govern.power.wind.floor_def",
-                    rect: "@fn:nth(@fn:wind_path(@fn:pos(@var:it), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap),0)",
+                    rect: "@fn:nth(@fn:wind_path(@fn:pos(@var:it), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.foot),0)",
                     fill: true}}
         - {template: lay-floor,
            for_each: "@fn:find_defs(@cfg:govern.power.gen_defs)",
            when: {all:
              [{field: "@cfg:govern.power.wind.suppress", op: eq, value: floor},
-              {field: "@fn:count(@fn:wind_obstructions(@cfg:govern.power.gen_defs, @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.site_kinds))",
+              {field: "@fn:count(@fn:wind_obstructions(@cfg:govern.power.gen_defs, @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.foot, @cfg:govern.power.wind.site_kinds))",
                op: eq, value: 0},
               {field: "@fn:blueprints(@cfg:govern.power.wind.floor_def)",
                op: eq, value: 0},
-              {field: "@fn:terrain_at(@fn:nth(@fn:wind_path(@fn:pos(@var:it), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap),1))",
+              {field: "@fn:terrain_at(@fn:nth(@fn:wind_path(@fn:pos(@var:it), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.foot),1))",
                op: ne, value: "@cfg:govern.power.wind.floor_def"}]},
            params: {def: "@cfg:govern.power.wind.floor_def",
-                    rect: "@fn:nth(@fn:wind_path(@fn:pos(@var:it), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap),1)",
+                    rect: "@fn:nth(@fn:wind_path(@fn:pos(@var:it), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.foot),1)",
                     fill: true}}
         - {template: create-growing,       # suppress=grow: zone both sides
            for_each: "@fn:find_defs(@cfg:govern.power.gen_defs)",
            when: {all:
              [{field: "@cfg:govern.power.wind.suppress", op: eq, value: grow},
-              {field: "@fn:count(@fn:wind_obstructions(@cfg:govern.power.gen_defs, @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.site_kinds))",
+              {field: "@fn:count(@fn:wind_obstructions(@cfg:govern.power.gen_defs, @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.foot, @cfg:govern.power.wind.site_kinds))",
                op: eq, value: 0},
-              {field: "@fn:zone_at(@fn:nth(@fn:wind_path(@fn:pos(@var:it), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap),0))",
+              {field: "@fn:zone_at(@fn:nth(@fn:wind_path(@fn:pos(@var:it), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.foot),0))",
                op: absent}]},
            params: {action: create_growing,
                     label: "@cfg:govern.power.wind.grow_label",
-                    rect: "@fn:nth(@fn:wind_path(@fn:pos(@var:it), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap),0)",
+                    rect: "@fn:nth(@fn:wind_path(@fn:pos(@var:it), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.foot),0)",
                     plant: "@cfg:govern.power.wind.grow_plant"}}
         - {template: create-growing,
            for_each: "@fn:find_defs(@cfg:govern.power.gen_defs)",
            when: {all:
              [{field: "@cfg:govern.power.wind.suppress", op: eq, value: grow},
-              {field: "@fn:count(@fn:wind_obstructions(@cfg:govern.power.gen_defs, @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.site_kinds))",
+              {field: "@fn:count(@fn:wind_obstructions(@cfg:govern.power.gen_defs, @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.foot, @cfg:govern.power.wind.site_kinds))",
                op: eq, value: 0},
-              {field: "@fn:zone_at(@fn:nth(@fn:wind_path(@fn:pos(@var:it), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap),1))",
+              {field: "@fn:zone_at(@fn:nth(@fn:wind_path(@fn:pos(@var:it), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.foot),1))",
                op: absent}]},
            params: {action: create_growing,
                     label: "@cfg:govern.power.wind.grow_label",
-                    rect: "@fn:nth(@fn:wind_path(@fn:pos(@var:it), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap),1)",
+                    rect: "@fn:nth(@fn:wind_path(@fn:pos(@var:it), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.foot),1)",
                     plant: "@cfg:govern.power.wind.grow_plant"}}
     - id: build-dining-room    # 'ate without table' is a standing mood
       option: maintain-mood-stability   # debuff — roofed room, table,
@@ -1534,8 +1581,8 @@ cycle:
 # investment it needs, and its effect on colony wealth and raid threat.
 # These are OPTIONS, not committed policy — govern.goals above is the
 # committed subset; a plan may promote further options into executable
-# objectives. Catalog + provenance: packs/colony-goals-v0.yaml and
-# colony-goals-v0.notes.md.
+# objectives. Catalog + provenance: packs/colony-goals-v0/pack.yaml and
+# colony-goals-v0/notes.md.
 # Mechanics baseline (rimworldwiki.com):
 #   Storyteller Wealth = items + creatures + buildings*0.5
 #   Wealth pts: 0 below 14k; ~1pt/160.83 wealth from 14k-400k (2400@400k);
@@ -1737,3 +1784,20 @@ goal_options:
     phase: late
     prerequisites: [research-core-tech, sustain-post-raid-recovery, invest-wealth-in-defense]
     sources: ["guide ~04:53:38 (prepare for ship launch)", "guide ~05:40:59 (Ship to the Stars alternative)", "guide ~07:00 (reactor launch, 23 raids)", "wiki: Raid points (reactor min 500)"]
+
+# Feature 016 live-mutation triggers (--live-mutate runs only; sim/scored
+# never read this). The brain reflects on goal outcomes and proposes pack
+# mutations -> candidates promote at the next run boundary, revert on
+# regression. Thresholds here are the ONLY tuning surface for the loop.
+mutate:
+  goals_per_pass: 10        # cadence: one reflection per N terminal goals
+  on_failure: true          # a goal -> failed|expired fires a pass at once
+  near_failure:
+    requeues: 2             # task requeued this many times in the window
+    refusals: 3             # action.refused burst in the window
+    blocked_polls: 15       # a phase/goal stuck 'blocked' this long
+    escalate: true          # escalation steps firing counts as near-failure
+    defect_patterns: true   # improve.diagnose hits over the window
+  cooldown_polls: 40        # min polls between passes (any reason)
+  max_passes_per_run: 8     # model-call budget per run
+  max_ops: 5                # bound on mutations per proposal

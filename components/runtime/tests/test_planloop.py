@@ -66,10 +66,10 @@ def _chat_for(plan):
 def rig(tmp_path, monkeypatch):
     """Isolated packs dir (candidate writes stay out of the repo)."""
     packs = tmp_path / "packs"
-    packs.mkdir()
+    (packs / PACK).mkdir(parents=True)
     src = (REPO_ROOT / "components" / "rimbrain" / "packs"
-           / f"{PACK}.yaml")
-    shutil.copy(src, packs / f"{PACK}.yaml")
+           / PACK / "pack.yaml")
+    shutil.copy(src, packs / PACK / "pack.yaml")
     monkeypatch.setenv("RIMBRAIN_PACKS_DIR", str(packs))
     monkeypatch.setenv("RIMBRAIN_STATE_DIR", str(tmp_path / "state"))
     game = SimGame()

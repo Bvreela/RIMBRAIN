@@ -18,6 +18,7 @@ when frozen, beside this file in dev — never inside the bundle.
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -49,6 +50,29 @@ def _env() -> dict:
     return env
 
 
+def _packs_dir() -> str | None:
+    """Editable packs root — mirrors runtime.templates.packs_dir.
+
+    Frozen first run seeds ``packs/`` beside the exe from the bundled
+    copies so the overlay's pack picker edits real files, not MEIPASS.
+    """
+    env = os.environ.get("RIMBRAIN_PACKS_DIR")
+    if env:
+        return env
+    ext = ROOT / "packs"
+    if ext.is_dir():
+        return str(ext)
+    bundled = (Path(sys._MEIPASS) if FROZEN else ROOT) / \
+        "components" / "rimbrain" / "packs"
+    if FROZEN and bundled.is_dir():
+        try:
+            shutil.copytree(bundled, ext)
+            return str(ext)
+        except OSError:
+            pass
+    return str(bundled) if bundled.is_dir() else None
+
+
 def _overlay_cmd() -> list[str]:
     return ([sys.executable, "overlay"] if FROZEN
             else [sys.executable, "-m", "dashboard.overlay"])
@@ -77,12 +101,15 @@ def main(argv: list[str] | None = None) -> int:
     if cmd != "run":
         print(__doc__)
         return 2
-    if not rest:  # default: the fair live-brain pass
+    if not rest:  # default: the fair live-brain + live-mutate pass
         rest = ["--pack", "start-mode-v0", "--mode", "start",
                 "--iterations", "2000", "--live-flag", "--fair",
-                "--live-brain", "--feed"]
-    proc = subprocess.Popen(_overlay_cmd() + [
-        "--state-dir", _env()["RIMBRAIN_STATE_DIR"]], env=_env())
+                "--live-brain", "--live-mutate", "--feed"]
+    oargs = ["--state-dir", _env()["RIMBRAIN_STATE_DIR"]]
+    packs = _packs_dir()  # before _run_loop imports runtime: a fresh
+    if packs:             # frozen seed lands where the loop resolves it
+        oargs += ["--packs-dir", packs]
+    proc = subprocess.Popen(_overlay_cmd() + oargs, env=_env())
     try:
         return _run_loop(rest)
     finally:

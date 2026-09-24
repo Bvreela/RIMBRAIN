@@ -1,0 +1,28 @@
+schema_version: 0
+pack_id: pack.mini
+revision: v0
+templates:
+- id: ping
+  method: game.status
+  params_schema: {}
+jobs: []
+decision_map: []
+emergency: []
+govern:
+  goals:
+  - id: keep
+    retry_polls: 9
+    effect:
+      field: x
+    steps: []
+mutate:
+  goals_per_pass: 3
+  on_failure: true
+  near_failure:
+    requeues: 2
+    refusals: 3
+    blocked_polls: 2
+    escalate: true
+  cooldown_polls: 5
+  max_passes_per_run: 4
+  max_ops: 5
