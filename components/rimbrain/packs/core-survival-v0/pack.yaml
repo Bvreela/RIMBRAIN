@@ -168,7 +168,7 @@ fallback_plan:
 # investment it needs, and its effect on colony wealth and raid threat.
 # These are OPTIONS, not committed policy — a plan (or a govern layer)
 # promotes a subset into executable objectives. Catalog + provenance:
-# packs/colony-goals-v0.yaml and colony-goals-v0.notes.md.
+# packs/colony-goals-v0/pack.yaml and colony-goals-v0/notes.md.
 # Mechanics baseline (rimworldwiki.com):
 #   Storyteller Wealth = items + creatures + buildings*0.5
 #   Wealth pts: 0 below 14k; ~1pt/160.83 wealth from 14k-400k (2400@400k);

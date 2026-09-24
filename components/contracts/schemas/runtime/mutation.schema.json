@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rimbrainagent.dev/schemas/runtime/mutation.schema.json",
+  "title": "runtime/mutation",
+  "description": "MutationProposal contract (feature 016; FR-1405): the typed output a rimbrain.improve model must emit when reflecting on goal failure / near-failure evidence. Mutations apply to a candidate pack via the packmut ops engine; malformed output is a named error, never a guess. The proposal carries no execution authority — the deterministic gate decides.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "mutation_id", "base_revision",
+    "analysis", "mutations", "rationale"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "mutation_id": {
+      "type": "string",
+      "pattern": "^mut\\.[a-z0-9][a-z0-9._-]{0,63}$",
+      "description": "id grammar (common/id) with the mut. prefix."
+    },
+    "base_revision": {
+      "type": "string",
+      "minLength": 1,
+      "description": "sha256 canonical hash of the pack the mutations were built against; mismatch = stale proposal, rejected."
+    },
+    "analysis": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["failure_paths", "likely_paths"],
+      "properties": {
+        "failure_paths": {
+          "type": "array",
+          "items": {"type": "string", "maxLength": 500},
+          "description": "Failure paths that triggered: which goals/steps failed and the inferred mechanism."
+        },
+        "likely_paths": {
+          "type": "array",
+          "items": {"type": "string", "maxLength": 500},
+          "description": "Failure paths that look likely next run given the evidence."
+        }
+      },
+      "description": "The model's failure analysis — recorded for diagnosis, never executed."
+    },
+    "mutations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["op", "path"],
+        "properties": {
+          "op": {
+            "enum": ["set", "append", "remove", "upsert"],
+            "description": "set: write dict key at path; append: push value onto list at path; remove: drop addressed element/key; upsert: replace list element whose id == value.id, else append."
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Dotted pack path; a segment matching a list element's 'id' descends into it (e.g. govern.goals.maintain-storage.retry_polls)."
+          },
+          "value": {
+            "description": "Required for set/append/upsert; upsert values must carry 'id'. Forbidden for remove."
+          }
+        }
+      },
+      "description": "Bounded mutation set — one best change-set per pass."
+    },
+    "rationale": {
+      "type": "string",
+      "maxLength": 4000,
+      "description": "Model's stated reasoning; recorded, never executed."
+    }
+  }
+}

@@ -191,6 +191,11 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--live-brain", action="store_true",
                    help="honor brain-reset requests: reload the pack + "
                         "re-plan mid-run (FR-1107; never for scored runs)")
+    p.add_argument("--live-mutate", action="store_true",
+                   help="live pack mutation: failure/near-failure/cadence "
+                        "triggers run a rimbrain.improve reflection pass; "
+                        "candidates promote at the next run boundary "
+                        "(feature 016; never for scored runs)")
     p.add_argument("--no-hold", action="store_true",
                    help="start mode: stop at start.completed instead of "
                         "holding under the pack's govern goals")
@@ -213,6 +218,13 @@ def main(argv: list[str] | None = None) -> int:
             "code": "loop.cycle_requires_dev",
             "message": "cycle mode is a checkpoint save/load test harness; "
                        "run with --dev (development testing only)",
+            "retryable": False}}))
+        return 2
+    if args.live_mutate and args.mode not in ("start", "live"):
+        print(json.dumps({"ok": False, "error": {
+            "code": "loop.live_mutate_requires_live",
+            "message": "--live-mutate only applies to --mode start|live "
+                       "(which also require --live)",
             "retryable": False}}))
         return 2
 
@@ -254,6 +266,14 @@ def main(argv: list[str] | None = None) -> int:
             if args.fair:
                 dev_prev = _dev_off(game)
             dispatcher = Dispatcher(game, fair=args.fair)
+            if args.live_mutate:
+                # feature 016 boundary: revert a regressed promotion, then
+                # install a pending candidate — before load_pack, so the
+                # run always starts on a validated, immutable pack file.
+                from .mutate import boundary as _mut_boundary
+                from .store import state_dir as _state_dir
+                _mut_boundary(args.pack, _state_dir(), emit=sink,
+                              fair=args.fair)
             dispatcher.load_pack(args.pack)
             from .startmode import run_start
             from .tasks import TaskLedger
@@ -264,6 +284,7 @@ def main(argv: list[str] | None = None) -> int:
                 sink=sink, speed=3,  # unpause so work actually lands;
                                      # prior speed/pause restored on exit
                 live_brain=args.live_brain,
+                live_mutate=args.live_mutate,
                 hold=not args.no_hold)  # post-start: govern goals run
         elif args.mode == "combat":
             game = BridgeClient(args.bridge)
@@ -302,6 +323,11 @@ def main(argv: list[str] | None = None) -> int:
             if args.fair:
                 dev_prev = _dev_off(game)
             dispatcher = Dispatcher(game, fair=args.fair)
+            if args.live_mutate:
+                from .mutate import boundary as _mut_boundary
+                from .store import state_dir as _state_dir
+                _mut_boundary(args.pack, _state_dir(), emit=sink,
+                              fair=args.fair)
             dispatcher.load_pack(args.pack)
             result = run_loop(dispatcher, game, iterations=args.iterations,
                               decider=lambda s, i: _live_decider(),

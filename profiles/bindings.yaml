@@ -6,8 +6,10 @@ bindings:
   rimbrain.select:  { endpoint: local-laya,    model: laya }  # live on :8780 — typed_decisions API
   rimbrain.review:  { endpoint: openrouter,    model: nvidia/nemotron-3-ultra-550b-a55b:free }  # same strong model as plan; downgrade to gemini flash-lite if rate-limited
   rimbrain.embed:   { endpoint: local-lmstudio, model: text-embedding-nomic-embed-text-v1.5 }
+  rimbrain.improve: { endpoint: openrouter,    model: nvidia/nemotron-3-ultra-550b-a55b:free }  # feature 016 live-mutation reflection; planner-grade model
 degraded_paths:                                     # UR-MOD-017 fail-closed fallbacks, tried in order
   rimbrain.plan:    [gemini:gemini-3.5-flash-lite, rules-only]   # verified alternate, then unaided
   rimbrain.select:  [openrouter-decisions:~typesafe/jev-latest, rules]  # hosted decisions backup, then rules
   rimbrain.review:  [gemini:gemini-3.5-flash-lite, skip]
   rimbrain.embed:   [lexical-bm25]                   # upstream BM25 knowledge index fallback
+  rimbrain.improve: [gemini:gemini-3.5-flash-lite, rules-only]  # then pack-declared remediations

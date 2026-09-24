@@ -514,7 +514,8 @@ def wire_sink(dispatcher, sink) -> None:
 def run_start(dispatcher, game, ledger, pack: dict, *,
               iterations: int = 12, sink=None, clock=None,
               speed: int | None = None, live_brain: bool = False,
-              hold: bool = False) -> dict:
+              hold: bool = False, live_mutate: bool = False,
+              mutate_resolver=None, mutate_chat=None) -> dict:
     """Drive Start Mode: observe -> reconcile -> reflex -> phase step.
 
     `pack` is the full pack dict — phases come from ``pack['start']``,
@@ -524,6 +525,9 @@ def run_start(dispatcher, game, ledger, pack: dict, *,
     `hold` keeps the run alive after ``start.completed``: the pack's
     ``govern.goals`` take over as standing objectives (UR-RUN-009).
     Bounded sub-loops (cycle) pass ``hold=False``.
+    `live_mutate` enables the feature-016 reflection pass — pack
+    ``mutate:`` triggers fire `rimbrain.improve` proposals that
+    materialize as candidates (never touching the active pack file).
     """
     prev = None
     if speed is not None:
@@ -533,7 +537,10 @@ def run_start(dispatcher, game, ledger, pack: dict, *,
     try:
         return _run_start(dispatcher, game, ledger, pack,
                           iterations=iterations, sink=sink, clock=clock,
-                          speed=speed, live_brain=live_brain, hold=hold)
+                          speed=speed, live_brain=live_brain, hold=hold,
+                          live_mutate=live_mutate,
+                          mutate_resolver=mutate_resolver,
+                          mutate_chat=mutate_chat)
     finally:
         if prev is not None:
             game.rpc("game.speed", {"speed": prev.get("speed", 0)})
@@ -544,7 +551,8 @@ def run_start(dispatcher, game, ledger, pack: dict, *,
 def _run_start(dispatcher, game, ledger, pack: dict, *,
                iterations: int = 12, sink=None, clock=None,
                speed: int | None = None, live_brain: bool = False,
-               hold: bool = False) -> dict:
+               hold: bool = False, live_mutate: bool = False,
+               mutate_resolver=None, mutate_chat=None) -> dict:
     uni_state: dict = {}
     decisions: list = []  # Quick-Action Matrix rows for this poll window
     mode = StartMode(pack, ledger, sink=sink, clock=clock, hold=hold)
@@ -554,6 +562,23 @@ def _run_start(dispatcher, game, ledger, pack: dict, *,
     wire_sink(dispatcher, sink)
     if sink is not None:
         ledger._sink = getattr(dispatcher, "_sink", sink)
+    # FR-1401/1411: the mutation pass watches the run's own event stream —
+    # wrap the composed sink so every envelope (dispatch + ledger + mode)
+    # lands in PassState before onward emission.
+    mut = None
+    if live_mutate and (pack.get("mutate") or {}):
+        from . import mutate as _mut
+        mut = _mut.PassState(pack["mutate"])
+        _prev_emit = getattr(dispatcher, "_sink", None) or sink
+
+        def _msink(env, _prev=_prev_emit, _ps=mut):
+            _ps.note(env)
+            if _prev is not None:
+                _prev(env)
+
+        dispatcher._sink = _msink
+        ledger._sink = _msink
+        sink = _msink
     seq = max(ledger._events, getattr(dispatcher, "_events", 0))
     vstate: dict = {}  # vitals hediff-diff state across samples (FR-811)
     vitals_every = int((pack.get("vitals") or {}).get("every") or 50)
@@ -600,6 +625,23 @@ def _run_start(dispatcher, game, ledger, pack: dict, *,
                     pack, ledger, sink=sink, clock=clock, hold=hold)
                 if mode is not None:
                     mode.decisions = decisions
+                # FR-1402: a swapped pack carries its own mutate: policy —
+                # rebuild the pass state (or drop it on unload).
+                if live_mutate and not want_unload:
+                    mut = (_mut.PassState(pack["mutate"])
+                           if pack.get("mutate") else None)
+                    if mut is not None:
+                        _prev_emit = getattr(dispatcher, "_sink", None)
+
+                        def _msink2(env, _prev=_prev_emit, _ps=mut):
+                            _ps.note(env)
+                            if _prev is not None:
+                                _prev(env)
+
+                        dispatcher._sink = _msink2
+                        ledger._sink = _msink2
+                elif want_unload:
+                    mut = None
             status = {"ok": err is None, "pack_id": dispatcher._pack_file,
                       "pack_revision": (dispatcher._pack or {})
                       .get("hash"),
@@ -634,10 +676,32 @@ def _run_start(dispatcher, game, ledger, pack: dict, *,
                 dispatcher, uni_ctx, source="rule")
             out = mode.step(dispatcher, game, obs, tick, poll=i)
         outcomes.append({"iteration": i, **out})
+        # FR-1401: reflection pass — failure/near-failure/cadence triggers
+        # over the run's own event stream; never raises into the loop.
+        if mut is not None:
+            mut.note_outcome(out)
+            mut.note_decisions(decisions)
+            try:
+                _mut.maybe_trigger(
+                    mut, dispatcher=dispatcher, ledger=ledger,
+                    pack_loaded=dispatcher._pack
+                    or {"pack": pack, "hash": ""},
+                    pack=pack, pack_id=dispatcher._pack_file,
+                    state_dir=state_dir, tick=tick, poll=i,
+                    fair=getattr(dispatcher, "_fair", True),
+                    emit=dispatcher._sink or (lambda e: None),
+                    clock=clock,
+                    resolver=mutate_resolver, chat=mutate_chat)
+            except Exception as exc:
+                dispatcher._emit("system.error", {
+                    "text": f"mutate.maybe_trigger: {exc}"[:200]})
         views.write_views(
             state_dir,
             views.start_snapshot(mode, ledger, obs,
-                                 events_path=state_dir / "events.jsonl")
+                                 events_path=state_dir / "events.jsonl",
+                                 mutate_view=(mut.view()
+                                              if mut is not None
+                                              else None))
             if mode is not None else {"phase": "brain",
                                       "state": "unloaded"},
             decisions[prev:])

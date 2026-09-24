@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rimbrainagent.dev/schemas/events/types/mutation.rejected.schema.json",
+  "title": "events/types/mutation.rejected",
+  "description": "Payload for event_type 'mutation.rejected' (feature 016; FR-1407/1410): a proposal or pending candidate failed a deterministic gate. The gate that refused it is named; violations are enumerated.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["gate", "violations"],
+  "properties": {
+    "mutation_id": { "type": ["string", "null"] },
+    "candidate_id": { "type": ["string", "null"] },
+    "gate": {
+      "type": "string",
+      "enum": ["schema", "stale", "vacuous", "validation", "boundary", "budget"],
+      "description": "schema = unparseable/invalid proposal; stale = base_revision != active hash; vacuous = ops changed nothing; validation = mutated doc fails pack/policy/inventory/class checks; boundary = candidate failed re-validation at install time; budget = op count over pack max_ops."
+    },
+    "violations": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Named reasons — never a bare refusal."
+    }
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "mutation_id": "mut.bigger-buffer",
+  "endpoint_id": "openrouter",
+  "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+  "degraded": false,
+  "analysis": {"failure_paths": ["meal buffer too small for winter"], "likely_paths": ["starvation after raid"]},
+  "op_count": 1,
+  "usage": {"prompt_tokens": 900, "completion_tokens": 220}
+}

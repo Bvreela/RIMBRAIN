@@ -885,11 +885,12 @@ govern:
     rect_w: 9
     rect_h: 9
     gen_rot: N               # blueprint rotation
-    wind:                    # airflow corridor — all geometry pack-owned
-      axis: x                # path extends east-west of the cell
-      half_width: 2          # 5-cell-wide corridor (2 each side + centre)
-      depth: 5               # cells each direction
-      gap: 0                 # cells between footprint and path start
+    wind:                    # airflow corridor — all geometry pack-owned.
+      axis: z                # vanilla exclusion zone is 7x18: corridors
+      half_width: 3          # extend N/S of the unrotated 7x2 footprint,
+      depth: 8               # span 7 (hw 3), 8 deep each side
+      gap: 0                 # cells between footprint edge and corridor
+      foot: 2                # footprint depth along the corridor axis
       site_kinds: [tree, harvestable, building, resource_rock, blueprint]
       clear_kinds: [tree, harvestable]
       clear_designator: cut  # designate 'cut'|'harvest' on blockers
@@ -1053,46 +1054,45 @@ govern:
       steps:
         # clear a buildable-but-obstructed site before probing a clean one
         - {template: clear-vegetation,
-           needs: "@fn:turbine_site_blocked(@fn:first(@cfg:govern.power.gen_defs), @fn:rect(@fn:add(@var:site.min.0, @cfg:govern.power.rect_dx), @fn:add(@var:site.min.1, @cfg:govern.power.rect_dy), @cfg:govern.power.rect_w, @cfg:govern.power.rect_h), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.site_kinds, @fn:stuff(@cfg:start.shelter.stuff_preference))",
+           needs: "@fn:turbine_site_blocked(@fn:first(@cfg:govern.power.gen_defs), @fn:rect(@fn:add(@var:site.min.0, @cfg:govern.power.rect_dx), @fn:add(@var:site.min.1, @cfg:govern.power.rect_dy), @cfg:govern.power.rect_w, @cfg:govern.power.rect_h), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.foot, @cfg:govern.power.wind.site_kinds)",
            cooldown_polls: "@cfg:govern.power.wind.clear_cooldown",
            params: {designator: "@cfg:govern.power.wind.clear_designator",
-                    things: "@fn:ids(@fn:obstructions(@fn:wind_path(@fn:turbine_site_blocked(@fn:first(@cfg:govern.power.gen_defs), @fn:rect(@fn:add(@var:site.min.0, @cfg:govern.power.rect_dx), @fn:add(@var:site.min.1, @cfg:govern.power.rect_dy), @cfg:govern.power.rect_w, @cfg:govern.power.rect_h), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.site_kinds, @fn:stuff(@cfg:start.shelter.stuff_preference)), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap), @cfg:govern.power.wind.clear_kinds))"}}
+                    things: "@fn:ids(@fn:obstructions(@fn:wind_path(@fn:turbine_site_blocked(@fn:first(@cfg:govern.power.gen_defs), @fn:rect(@fn:add(@var:site.min.0, @cfg:govern.power.rect_dx), @fn:add(@var:site.min.1, @cfg:govern.power.rect_dy), @cfg:govern.power.rect_w, @cfg:govern.power.rect_h), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.foot, @cfg:govern.power.wind.site_kinds), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.foot), @cfg:govern.power.wind.clear_kinds))"}}
         - {template: build-one,
-           needs: "@fn:turbine_site(@fn:first(@cfg:govern.power.gen_defs), @fn:rect(@fn:add(@var:site.min.0, @cfg:govern.power.rect_dx), @fn:add(@var:site.min.1, @cfg:govern.power.rect_dy), @cfg:govern.power.rect_w, @cfg:govern.power.rect_h), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.site_kinds, @fn:stuff(@cfg:start.shelter.stuff_preference))",
+           needs: "@fn:turbine_site(@fn:first(@cfg:govern.power.gen_defs), @fn:rect(@fn:add(@var:site.min.0, @cfg:govern.power.rect_dx), @fn:add(@var:site.min.1, @cfg:govern.power.rect_dy), @cfg:govern.power.rect_w, @cfg:govern.power.rect_h), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.foot, @cfg:govern.power.wind.site_kinds)",
            params: {def: "@fn:first(@cfg:govern.power.gen_defs)",
-                    at: "@fn:turbine_site(@fn:first(@cfg:govern.power.gen_defs), @fn:rect(@fn:add(@var:site.min.0, @cfg:govern.power.rect_dx), @fn:add(@var:site.min.1, @cfg:govern.power.rect_dy), @cfg:govern.power.rect_w, @cfg:govern.power.rect_h), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.site_kinds, @fn:stuff(@cfg:start.shelter.stuff_preference))",
-                    rot: "@cfg:govern.power.gen_rot",
-                    stuff: "@fn:stuff(@cfg:start.shelter.stuff_preference)"}}
+                    at: "@fn:turbine_site(@fn:first(@cfg:govern.power.gen_defs), @fn:rect(@fn:add(@var:site.min.0, @cfg:govern.power.rect_dx), @fn:add(@var:site.min.1, @cfg:govern.power.rect_dy), @cfg:govern.power.rect_w, @cfg:govern.power.rect_h), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.foot, @cfg:govern.power.wind.site_kinds)",
+                    rot: "@cfg:govern.power.gen_rot"}}
     - id: maintain-turbine-windpath  # corridor stays clear + regrowth
       option: establish-power-grid    # suppressed once the gen stands
       requires: [site]
       when: {field: "@fn:find_def(@fn:first(@cfg:govern.power.gen_defs))",
              op: present}
       effect: {all:
-        [{field: "@fn:count(@fn:wind_obstructions(@cfg:govern.power.gen_defs, @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.site_kinds))",
+        [{field: "@fn:count(@fn:wind_obstructions(@cfg:govern.power.gen_defs, @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.foot, @cfg:govern.power.wind.site_kinds))",
           op: eq, value: 0},
          {any: [{field: "@cfg:govern.power.wind.suppress", op: ne, value: floor},
-                {all: [{field: "@fn:terrain_at(@fn:nth(@fn:wind_path(@fn:pos(@fn:nth(@fn:find_defs(@cfg:govern.power.gen_defs),0)), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap),0))",
+                {all: [{field: "@fn:terrain_at(@fn:nth(@fn:wind_path(@fn:pos(@fn:nth(@fn:find_defs(@cfg:govern.power.gen_defs),0)), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.foot),0))",
                         op: eq, value: "@cfg:govern.power.wind.floor_def"},
-                       {field: "@fn:terrain_at(@fn:nth(@fn:wind_path(@fn:pos(@fn:nth(@fn:find_defs(@cfg:govern.power.gen_defs),0)), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap),1))",
+                       {field: "@fn:terrain_at(@fn:nth(@fn:wind_path(@fn:pos(@fn:nth(@fn:find_defs(@cfg:govern.power.gen_defs),0)), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.foot),1))",
                         op: eq, value: "@cfg:govern.power.wind.floor_def"}]}]},
          {any: [{field: "@cfg:govern.power.wind.suppress", op: ne, value: grow},
-                {all: [{field: "@fn:zone_at(@fn:nth(@fn:wind_path(@fn:pos(@fn:nth(@fn:find_defs(@cfg:govern.power.gen_defs),0)), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap),0))",
+                {all: [{field: "@fn:zone_at(@fn:nth(@fn:wind_path(@fn:pos(@fn:nth(@fn:find_defs(@cfg:govern.power.gen_defs),0)), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.foot),0))",
                         op: present},
-                       {field: "@fn:zone_at(@fn:nth(@fn:wind_path(@fn:pos(@fn:nth(@fn:find_defs(@cfg:govern.power.gen_defs),0)), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap),1))",
+                       {field: "@fn:zone_at(@fn:nth(@fn:wind_path(@fn:pos(@fn:nth(@fn:find_defs(@cfg:govern.power.gen_defs),0)), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.foot),1))",
                         op: present}]}]}]}
       repeat: {while: {any:
-        [{field: "@fn:count(@fn:wind_obstructions(@cfg:govern.power.gen_defs, @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.site_kinds))",
+        [{field: "@fn:count(@fn:wind_obstructions(@cfg:govern.power.gen_defs, @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.foot, @cfg:govern.power.wind.site_kinds))",
           op: gt, value: 0},
          {all: [{field: "@cfg:govern.power.wind.suppress", op: eq, value: floor},
-                {any: [{field: "@fn:terrain_at(@fn:nth(@fn:wind_path(@fn:pos(@fn:nth(@fn:find_defs(@cfg:govern.power.gen_defs),0)), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap),0))",
+                {any: [{field: "@fn:terrain_at(@fn:nth(@fn:wind_path(@fn:pos(@fn:nth(@fn:find_defs(@cfg:govern.power.gen_defs),0)), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.foot),0))",
                         op: ne, value: "@cfg:govern.power.wind.floor_def"},
-                       {field: "@fn:terrain_at(@fn:nth(@fn:wind_path(@fn:pos(@fn:nth(@fn:find_defs(@cfg:govern.power.gen_defs),0)), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap),1))",
+                       {field: "@fn:terrain_at(@fn:nth(@fn:wind_path(@fn:pos(@fn:nth(@fn:find_defs(@cfg:govern.power.gen_defs),0)), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.foot),1))",
                         op: ne, value: "@cfg:govern.power.wind.floor_def"}]}]},
          {all: [{field: "@cfg:govern.power.wind.suppress", op: eq, value: grow},
-                {any: [{field: "@fn:zone_at(@fn:nth(@fn:wind_path(@fn:pos(@fn:nth(@fn:find_defs(@cfg:govern.power.gen_defs),0)), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap),0))",
+                {any: [{field: "@fn:zone_at(@fn:nth(@fn:wind_path(@fn:pos(@fn:nth(@fn:find_defs(@cfg:govern.power.gen_defs),0)), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.foot),0))",
                         op: absent},
-                       {field: "@fn:zone_at(@fn:nth(@fn:wind_path(@fn:pos(@fn:nth(@fn:find_defs(@cfg:govern.power.gen_defs),0)), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap),1))",
+                       {field: "@fn:zone_at(@fn:nth(@fn:wind_path(@fn:pos(@fn:nth(@fn:find_defs(@cfg:govern.power.gen_defs),0)), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.foot),1))",
                         op: absent}]}]}]}}
       steps:
         - {template: clear-vegetation,     # regrowth / stragglers
@@ -1105,51 +1105,51 @@ govern:
            for_each: "@fn:find_defs(@cfg:govern.power.gen_defs)",   # per gen
            when: {all:
              [{field: "@cfg:govern.power.wind.suppress", op: eq, value: floor},
-              {field: "@fn:count(@fn:wind_obstructions(@cfg:govern.power.gen_defs, @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.site_kinds))",
+              {field: "@fn:count(@fn:wind_obstructions(@cfg:govern.power.gen_defs, @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.foot, @cfg:govern.power.wind.site_kinds))",
                op: eq, value: 0},
               {field: "@fn:blueprints(@cfg:govern.power.wind.floor_def)",
                op: eq, value: 0},
-              {field: "@fn:terrain_at(@fn:nth(@fn:wind_path(@fn:pos(@var:it), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap),0))",
+              {field: "@fn:terrain_at(@fn:nth(@fn:wind_path(@fn:pos(@var:it), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.foot),0))",
                op: ne, value: "@cfg:govern.power.wind.floor_def"}]},
            params: {def: "@cfg:govern.power.wind.floor_def",
-                    rect: "@fn:nth(@fn:wind_path(@fn:pos(@var:it), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap),0)",
+                    rect: "@fn:nth(@fn:wind_path(@fn:pos(@var:it), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.foot),0)",
                     fill: true}}
         - {template: lay-floor,
            for_each: "@fn:find_defs(@cfg:govern.power.gen_defs)",
            when: {all:
              [{field: "@cfg:govern.power.wind.suppress", op: eq, value: floor},
-              {field: "@fn:count(@fn:wind_obstructions(@cfg:govern.power.gen_defs, @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.site_kinds))",
+              {field: "@fn:count(@fn:wind_obstructions(@cfg:govern.power.gen_defs, @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.foot, @cfg:govern.power.wind.site_kinds))",
                op: eq, value: 0},
               {field: "@fn:blueprints(@cfg:govern.power.wind.floor_def)",
                op: eq, value: 0},
-              {field: "@fn:terrain_at(@fn:nth(@fn:wind_path(@fn:pos(@var:it), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap),1))",
+              {field: "@fn:terrain_at(@fn:nth(@fn:wind_path(@fn:pos(@var:it), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.foot),1))",
                op: ne, value: "@cfg:govern.power.wind.floor_def"}]},
            params: {def: "@cfg:govern.power.wind.floor_def",
-                    rect: "@fn:nth(@fn:wind_path(@fn:pos(@var:it), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap),1)",
+                    rect: "@fn:nth(@fn:wind_path(@fn:pos(@var:it), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.foot),1)",
                     fill: true}}
         - {template: create-growing,       # suppress=grow: zone both sides
            for_each: "@fn:find_defs(@cfg:govern.power.gen_defs)",
            when: {all:
              [{field: "@cfg:govern.power.wind.suppress", op: eq, value: grow},
-              {field: "@fn:count(@fn:wind_obstructions(@cfg:govern.power.gen_defs, @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.site_kinds))",
+              {field: "@fn:count(@fn:wind_obstructions(@cfg:govern.power.gen_defs, @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.foot, @cfg:govern.power.wind.site_kinds))",
                op: eq, value: 0},
-              {field: "@fn:zone_at(@fn:nth(@fn:wind_path(@fn:pos(@var:it), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap),0))",
+              {field: "@fn:zone_at(@fn:nth(@fn:wind_path(@fn:pos(@var:it), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.foot),0))",
                op: absent}]},
            params: {action: create_growing,
                     label: "@cfg:govern.power.wind.grow_label",
-                    rect: "@fn:nth(@fn:wind_path(@fn:pos(@var:it), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap),0)",
+                    rect: "@fn:nth(@fn:wind_path(@fn:pos(@var:it), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.foot),0)",
                     plant: "@cfg:govern.power.wind.grow_plant"}}
         - {template: create-growing,
            for_each: "@fn:find_defs(@cfg:govern.power.gen_defs)",
            when: {all:
              [{field: "@cfg:govern.power.wind.suppress", op: eq, value: grow},
-              {field: "@fn:count(@fn:wind_obstructions(@cfg:govern.power.gen_defs, @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.site_kinds))",
+              {field: "@fn:count(@fn:wind_obstructions(@cfg:govern.power.gen_defs, @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.foot, @cfg:govern.power.wind.site_kinds))",
                op: eq, value: 0},
-              {field: "@fn:zone_at(@fn:nth(@fn:wind_path(@fn:pos(@var:it), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap),1))",
+              {field: "@fn:zone_at(@fn:nth(@fn:wind_path(@fn:pos(@var:it), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.foot),1))",
                op: absent}]},
            params: {action: create_growing,
                     label: "@cfg:govern.power.wind.grow_label",
-                    rect: "@fn:nth(@fn:wind_path(@fn:pos(@var:it), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap),1)",
+                    rect: "@fn:nth(@fn:wind_path(@fn:pos(@var:it), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.foot),1)",
                     plant: "@cfg:govern.power.wind.grow_plant"}}
     - id: research-bench       # tech progression needs somewhere to work
       option: research-core-tech
@@ -1318,7 +1318,7 @@ cycle:
 # investment it needs, and its effect on colony wealth and raid threat.
 # These are OPTIONS, not committed policy — a plan (or a govern layer)
 # promotes a subset into executable objectives. Catalog + provenance:
-# packs/colony-goals-v0.yaml and colony-goals-v0.notes.md.
+# packs/colony-goals-v0/pack.yaml and colony-goals-v0/notes.md.
 # Mechanics baseline (rimworldwiki.com):
 #   Storyteller Wealth = items + creatures + buildings*0.5
 #   Wealth pts: 0 below 14k; ~1pt/160.83 wealth from 14k-400k (2400@400k);

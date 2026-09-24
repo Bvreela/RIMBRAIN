@@ -75,6 +75,33 @@ def render_event(env: dict) -> str:
                 f"{p.get('refusal_rate', 0):.0%}, verify-fail "
                 f"{p.get('verify_failure_rate', 0):.0%}, tasks done "
                 f"{p.get('task_completion_rate', 0):.0%}.")
+    if t == "mutation.triggered":
+        return (f"Reflecting: `{p.get('reason')}` trigger at poll "
+                f"{p.get('poll')} — {p.get('evidence')}.")
+    if t == "mutation.proposed":
+        return (f"Mutation `{p.get('mutation_id')}` proposed by "
+                f"{p.get('model', '?')} — {p.get('op_count')} op(s)"
+                + (" [degraded]" if p.get("degraded") else "."))
+    if t == "mutation.candidate":
+        return (f"Mutation candidate `{p.get('candidate_id')}` written "
+                f"for `{p.get('target_pack')}` — promotes next run.")
+    if t == "mutation.rejected":
+        return (f"Mutation refused at gate `{p.get('gate')}` — "
+                f"{'; '.join(p.get('violations') or [])}.")
+    if t == "mutation.promoted":
+        return (f"Mutation `{p.get('candidate_id')}` promoted — pack "
+                f"{str(p.get('pack_hash'))[:12]} (parent "
+                f"{str(p.get('parent_hash'))[:12]}).")
+    if t == "mutation.reverted":
+        return (f"Mutation reverted: episode {p.get('episode_score')} vs "
+                f"baseline {p.get('baseline_score')} — restored parent "
+                f"{str(p.get('pack_hash'))[:12]}.")
+    if t == "mutation.degraded":
+        return (f"Mutation degraded: {p.get('detail')} "
+                f"(trigger `{p.get('reason')}`).")
+    if t == "mutation.noop":
+        return (f"Mutation pass: no change — {p.get('rationale') or ''}"
+                .rstrip())
     return f"{t}: {p}"  # structured echo — never blank
 
 

@@ -321,3 +321,18 @@ improve:
   promotion:
     episode_boundary_only: true  # immutability invariant
     incumbent_wins_ties: true    # stability bias
+
+# Feature 016: same trigger knobs available when this pack drives a
+# mutation-enabled pass (offline improve runs don't consult it).
+mutate:
+  goals_per_pass: 10
+  on_failure: true
+  near_failure:
+    requeues: 2
+    refusals: 3
+    blocked_polls: 15
+    escalate: true
+    defect_patterns: true
+  cooldown_polls: 40
+  max_passes_per_run: 8
+  max_ops: 5

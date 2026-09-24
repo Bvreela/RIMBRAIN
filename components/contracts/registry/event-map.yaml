@@ -97,6 +97,22 @@ native:
     notes: "new illness hediff onset on a colonist {pawn, hediff} - one per onset, diffed across vitals samples (FR-811)"
   colony.letter:
     notes: "new game letter observed {id, def, label, tick} - death/raid/incident backstop detection (FR-811)"
+  mutation.triggered:
+    notes: "live-mutation reflection pass fired {reason: cadence|failure|near_failure, evidence, poll} (feature 016)"
+  mutation.proposed:
+    notes: "rimbrain.improve returned a valid MutationProposal {mutation_id, endpoint_id, model, degraded, analysis, usage} (feature 016)"
+  mutation.candidate:
+    notes: "gated mutation materialized under packs/candidates {candidate_id, path, hash, target_pack} - data only, never dispatched mid-run (feature 016)"
+  mutation.rejected:
+    notes: "proposal/candidate refused at a gate {gate: schema|stale|vacuous|validation|boundary|budget, violations} (feature 016)"
+  mutation.promoted:
+    notes: "pending candidate installed over the pack file at run boundary {candidate_id, pack_hash, parent_hash, episode_boundary: true, baseline_score} - never mid-run (feature 016)"
+  mutation.reverted:
+    notes: "promoted mutation regressed vs baseline; parent pack restored {pack_hash, restored_parent, episode_score, baseline_score} (feature 016)"
+  mutation.degraded:
+    notes: "pass ran with no model and rules-only remediation found nothing {reason, detail} (feature 016)"
+  mutation.noop:
+    notes: "pass completed, no change proposed {reason, rationale} (feature 016)"
 strict_execution:
   reject:
     - legacy.unmapped

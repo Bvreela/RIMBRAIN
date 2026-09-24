@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rimbrainagent.dev/schemas/events/types/mutation.promoted.schema.json",
+  "title": "events/types/mutation.promoted",
+  "description": "Payload for event_type 'mutation.promoted' (feature 016; FR-1408/1410): a pending candidate passed boundary re-validation and was installed over the target pack file at run start, before any dispatch. Scored-episode immutability preserved — promotion never lands mid-run.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["candidate_id", "pack_hash", "parent_hash", "episode_boundary", "baseline_score"],
+  "properties": {
+    "candidate_id": { "type": "string", "minLength": 1 },
+    "pack_hash": {
+      "type": "string",
+      "minLength": 8,
+      "description": "Canonical hash of the installed pack — the run's new revision identity."
+    },
+    "parent_hash": {
+      "type": "string",
+      "minLength": 8,
+      "description": "Hash of the pack content this promotion replaced (rollback lineage)."
+    },
+    "episode_boundary": {
+      "type": "boolean",
+      "enum": [true],
+      "description": "Must be true; mid-run promotion is a contract violation."
+    },
+    "baseline_score": {
+      "type": "number",
+      "description": "improve.score of the episode that produced the candidate — the regression baseline."
+    }
+  }
+}

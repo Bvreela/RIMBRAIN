@@ -1,0 +1,7 @@
+{
+  "candidate_id": "cand-mut-bigger-buffer-a1b2c3d4",
+  "path": "packs/candidates/cand-mut-bigger-buffer-a1b2c3d4.yaml",
+  "hash": "a1b2c3d4e5f6a7b8",
+  "target_pack": "start-mode-v0",
+  "mutation_id": "mut.bigger-buffer"
+}

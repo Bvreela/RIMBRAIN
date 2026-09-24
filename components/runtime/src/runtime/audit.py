@@ -26,6 +26,9 @@ DECISION_TYPES = {
     "task.transition", "start.completed",
     "selfcheck.diagnosed", "audit.verdict",
     "improvement.promoted", "improvement.rejected", "episode.metrics",
+    "mutation.triggered", "mutation.proposed", "mutation.candidate",
+    "mutation.rejected", "mutation.promoted", "mutation.reverted",
+    "mutation.degraded", "mutation.noop",
 }
 
 

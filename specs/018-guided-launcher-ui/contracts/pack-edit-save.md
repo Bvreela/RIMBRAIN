@@ -70,3 +70,8 @@ freezes the run.
 
 When feature 017's v1 loader lands, this map is the only editor surface
 that changes — forms and save semantics are unchanged.
+
+**Forward-compat**: `decide`/`reflexes`/`rules`/`standing_goals` v1 paths
+have no v0 on-disk equivalent — the outline shows those sections only when
+the loaded doc actually contains them (post-017 packs). v0 packs simply
+omit them; this is expected, not a gap.

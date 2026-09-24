@@ -10,12 +10,20 @@ def probe_live(role: str, *, timeout_s: int = 10) -> dict
 ```
 
 Resolves the role offline (`resolve_role`), then executes ONE live call
-against the bound model, shaped by endpoint api:
+against the bound model, shaped by the role's **required capability**
+(`registry.ROLE_REQUIREMENTS`), not just the endpoint api:
 
-| resolved.api | Call |
+| role capability | Call |
 |---|---|
-| `systemone` | POST `{base_url}{decide_path}` — minimal typed question (existing `_decide_probe` shape), `model` included when bound |
-| `openai-compat` | POST `{base_url}/chat/completions` — `{model, messages:[{role:"user","content":"ping"}], max_tokens:1}` |
+| `typed_decisions` | POST `{base_url}{decide_path}` — minimal typed question (existing `_decide_probe` shape), `model` included when bound |
+| `chat` | POST `{base_url}/chat/completions` — `{model, messages:[{role:"user","content":"ping"}], max_tokens:1}` |
+| `embeddings` | POST `{base_url}/embeddings` — `{model, input:["ping"]}` (existing `openai_compat_embed` shape) |
+
+Note: a role binding to an endpoint lacking its required capability already
+fails `resolve_role`'s capability gate — the shaped call only runs on
+capable resolutions. For `systemone`: local single-family servers may 422
+on a `model` field — implementation verifies and omits `model` for local
+endpoints if so (hosted decisions requires it).
 
 ### Result envelope
 
@@ -85,3 +93,34 @@ touching the filesystem.
 - Class/inventory checks identical: a doc passing here MUST pass `load_pack`
   for the same content (modulo file-not-found/parse, which the editor
   controls).
+
+## policy_vocabulary() — dialect vocabulary for guided editing
+
+```python
+def policy_vocabulary() -> dict
+```
+
+Returns the pack dialect vocabulary the editor's structured builders and
+insert-assist need, sourced from `policy.py` (the dialect's owner — the
+dashboard MUST NOT import it directly):
+
+```jsonc
+{
+  "ok": true,
+  "ops": ["eq", "ne", "gt", "gte", "lt", "lte", "in", "not_in", "empty",
+          "not_empty", "truthy", "falsy", "contains", "contains_any",
+          "matches", "absent", "present"],
+  "combinators": ["all", "any", "not"],
+  "functions": ["add", "sub", "min", "max", "anchor", "find_kind", ...],
+  "resolvers": ["@cfg:", "@obs:", "@var:"]
+}
+```
+
+### Rules
+
+- Read-only, no I/O beyond what policy.py already does at import.
+- The vocabulary is authoritative — dropdowns and insert-assist lists MUST
+  come from here, never a duplicated constant in dashboard code (drift).
+- If the facade is unavailable (runtime not importable — standalone
+  overlay), guided builders degrade to freeform text entry; they MUST NOT
+  fall back to a copied vocabulary table.

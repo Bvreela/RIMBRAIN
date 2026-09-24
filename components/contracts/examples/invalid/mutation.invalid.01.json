@@ -1,0 +1,8 @@
+{
+  "schema_version": 0,
+  "mutation_id": "mut.bad-op",
+  "base_revision": "a1b2c3d4e5f6a7b8c9d0",
+  "analysis": {"failure_paths": [], "likely_paths": []},
+  "mutations": [{"op": "delete_everything", "path": "govern.goals"}],
+  "rationale": "illegal op must be refused"
+}

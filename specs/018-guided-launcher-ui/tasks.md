@@ -23,9 +23,9 @@
 
 ## Phase 2: Foundational (Blocking Prerequisites)
 
-- [ ] T004 [P] Implement role-shaped live probing in `components/runtime/src/runtime/probe.py` per `contracts/probe-live.md`: `probe_live(role, timeout_s=10)` — offline `resolve_role` → `systemone`⇒reuse `_decide_probe` with bound model, `openai-compat`⇒POST `{base}/chat/completions` `{model, messages:[{role:"user","content":"ping"}], max_tokens:1}` via `client._post_json`, `resolved.kind=="fallback"`⇒`fallback_only`; verdicts `answered|model_failed|unreachable|missing_secret|fallback_only|unbound` + `endpoint/model/api/latency_ms/fallbacks(degraded_paths verbatim)/degraded/checked_utc`; 429/5xx ⇒ `retryable:true`
-- [ ] T005 [P] Expose `probe_live` and `validate_pack_doc` in `components/runtime/src/runtime/api.py` (+`__all__`) per `contracts/probe-live.md` — `validate_pack_doc(doc)` runs the identical `load_pack` sequence (`validate_pack` → `policy.validate_policy` when `policy_version` → sealed-inventory check) as a pure function returning `{ok, issues[]}`
-- [ ] T006 [P] Create `components/runtime/tests/test_probe_live.py` — verdict matrix with stubbed transports: answered (both apis), model_failed (endpoint up, call fails), unreachable (TCP fail), missing_secret, fallback_only sentinel, unbound role; verify `max_tokens:1` + minimal decide payload + `fallbacks` passthrough
+- [ ] T004 [P] Implement role-shaped live probing in `components/runtime/src/runtime/probe.py` per `contracts/probe-live.md`: `probe_live(role, timeout_s=10)` — offline `resolve_role` → call shaped by the role's required capability (`registry.ROLE_REQUIREMENTS`): `typed_decisions`⇒reuse `_decide_probe` (omit `model` for local endpoints if they 422 on it), `chat`⇒POST `{base}/chat/completions` `{model, messages:[{role:"user","content":"ping"}], max_tokens:1}` via `client._post_json`, `embeddings`⇒`openai_compat_embed`-shaped `{model, input:["ping"]}`; `resolved.kind=="fallback"`⇒`fallback_only`; verdicts `answered|model_failed|unreachable|missing_secret|fallback_only|unbound` + `endpoint/model/api/latency_ms/fallbacks(degraded_paths verbatim)/degraded/checked_utc`; 429/5xx ⇒ `retryable:true`
+- [ ] T005 [P] Expose `probe_live`, `validate_pack_doc`, and `policy_vocabulary` in `components/runtime/src/runtime/api.py` (+`__all__`) per `contracts/probe-live.md` — `validate_pack_doc(doc)` runs the identical `load_pack` sequence (`validate_pack` → `policy.validate_policy` when `policy_version` → sealed-inventory check) as a pure function returning `{ok, issues[]}`; `policy_vocabulary()` returns `{ops, combinators, functions, resolvers}` sourced from `policy.py` (authoritative — dashboard never duplicates the table)
+- [ ] T006 [P] Create `components/runtime/tests/test_probe_live.py` — verdict matrix with stubbed transports: answered (decide, chat, embeddings shapes), model_failed (endpoint up, call fails), unreachable (TCP fail), missing_secret, fallback_only sentinel, unbound role; verify `max_tokens:1` + minimal decide/embeddings payloads + `fallbacks` passthrough
 - [ ] T007 Refactor `components/dashboard/src/dashboard/overlay.py` to a stacked-screen shell: `Setup`/`Monitor` frames swapped in one Tk window; existing goals/learning/actions/brain-status widgets move under Monitor unchanged; window close handler terminates any owned child (placeholder Run Handle until T008)
 - [ ] T008 Implement Run Handle in `components/dashboard/src/dashboard/overlay.py`: `RIMBRAIN_LOOP_CMD` (`json.loads` env, malformed/missing ⇒ GO disabled + label) + assembled flags → `subprocess.Popen`; `proc.poll()` on the existing refresh cadence; status line `running pid N` / `exited code N`; `terminate()` on window close (kill on timeout)
 
@@ -59,7 +59,7 @@
 ### Implementation for User Story 2
 
 - [ ] T013 [P] [US2] Create `components/dashboard/tests/test_brains.py` — verdict→row mapping (answered/model_failed/unreachable/missing_secret/fallback_only/unbound), fallback-chain display, stubbed `api.probe_live`/`list_bindings`; no Tk, no network
-- [ ] T014 [US2] Create `components/dashboard/src/dashboard/brains.py` — `ROLES` table (label→role: BIGbrain plan/review/improve, fastbrain select, embed), `check_all(api,on_result)` spawning one `threading.Thread` per role posting `Brain Status` dicts to a `queue.Queue`; pure verdict classifier per `contracts/probe-live.md`
+- [ ] T014 [US2] Create `components/dashboard/src/dashboard/brains.py` — `ROLES` table (label→role: BIGbrain plan/review/improve, fastbrain select, embed), `check_all(api,on_result)` spawning one `threading.Thread` per role posting `Brain Status` dicts to a `queue.Queue`; pure verdict classifier per `contracts/probe-live.md`; facade import wrapped try/except like `server.py`'s `_RUNTIME_OK` — unimportable runtime ⇒ rows show `runtime unavailable`, never a crash (standalone overlay case)
 - [ ] T015 [US2] Mount the brains panel in the Setup screen (`overlay.py`) — row per role: status dot → role → `endpoint · model` → verdict/latency → dimmed fallback chain; `queue.Queue` drained on the refresh cadence; auto-check on screen open + manual "Re-check"; GO never blocked
 
 **Checkpoint**: healthy endpoints show `✓ live Nms`; failures show the right verdict + which fallback engages.
@@ -74,7 +74,7 @@
 
 ### Implementation for User Story 3
 
-- [ ] T016 [US3] Add pack descriptors to the Setup screen (`overlay.py` + `packedit.py` helper): extend `scan_packs` output with `class`/`pack_id`/`derived_from` parsed from each `pack.yaml` (fail-open defaults `fair`); radio list w/ `[fair]`/`[dev]` badges + `(from <derived_from>)` lineage
+- [ ] T016 [US3] Add pack descriptors to the Setup screen (`overlay.py` + `packedit.py` helper): extend `scan_packs` output with `class`/`pack_id`/`derived_from` parsed from each discovered pack file (folder `pack.yaml` or flat `<id>.yaml`; fail-open defaults `fair`); radio list w/ `[fair]`/`[dev]` badges + `(from <derived_from>)` lineage
 - [ ] T017 [US3] Enforce fair gating: `class==dev` ⇒ unselectable while fair checked, reason shown; selection drives the Launch Configuration `pack` field
 - [ ] T018 [US3] Mid-run swap: selected pack + Use posts `{"pack": id}` to `brain_reset.request` (existing `write_reset_request`), `brain_status.json` follow already present
 
@@ -91,7 +91,7 @@
 ### Implementation for User Story 4
 
 - [ ] T019 [P] [US4] Create `components/dashboard/tests/test_packedit.py` — doc→outline map (`pack-edit-save.md` table), form→doc writes, slug enforcement `[a-z0-9-]+`, save-as-new writes `packs/<name>/pack.yaml` with `pack_id: pack.<name>` + `derived_from` + unchanged `class`/`revision`, source file byte-identical, `candidates/` refused, `validate_pack_doc` stub wiring
-- [ ] T020 [US4] Create `components/dashboard/src/dashboard/packedit.py` — Guided Edit Session (load `yaml.safe_load`, dirty tracking, outline model per v0→v1 label map), node-type→form dispatch (scalar→typed control; predicate→combinator/field/op-from-dialect/value builder; steps→template dropdown + `params_schema`-generated rows + reorder; cfg→typed grid), freeform fields with insert-assist list (@fn/@cfg/@var names)
+- [ ] T020 [US4] Create `components/dashboard/src/dashboard/packedit.py` — Guided Edit Session (load `yaml.safe_load`, dirty tracking, outline model per v0→v1 label map; `decide`/`reflexes` v1-only sections shown only when present), node-type→form dispatch (scalar→typed control; predicate→combinator/field/op/value builder; steps→template dropdown + `params_schema`-generated rows + reorder; cfg→typed grid), op dropdown + insert-assist lists fed from `api.policy_vocabulary()` — facade unavailable ⇒ freeform text entry only, never a copied vocabulary table
 - [ ] T021 [US4] Build the editor Toplevel in `overlay.py`: left outline tree + right form pane + template `description:` as helper text; Save → `api.validate_pack_doc` → blocked-with-issues or write-new + rescan/select; name dialog prefilled `<id>-custom`; collision → rename-or-overwrite-user-pack prompt; Raw YAML tab (existing `_edit_brain` text box retained per FR-020)
 - [ ] T022 [US4] Active-pack guard: overwrite path only when target is the running pack — confirm "hot-swaps the live brain" → write + `brain_reset.request {}` (drift window ≈ one poll); non-active packs unrestricted, never post reset
 
@@ -129,8 +129,8 @@
 ### Phase Dependencies
 
 - **Phase 1 Setup**: no dependencies — T001/T002/T003 parallel-able
-- **Phase 2 Foundational**: T004/T005 need nothing upstream (runtime-only); T007/T008 need T002 (env var contract); T009 (US1 test) needs T003's API shape
-- **US1 (P1)**: needs Phase 1+2 — the whole screen stack + spawn path
+- **Phase 2 Foundational**: T004/T005 need nothing upstream (runtime-only); T007/T008 need T002 (env var contract)
+- **US1 (P1)**: needs Phase 1+2 — the whole screen stack + spawn path; T009 (its test) specifically needs T003's API shape
 - **US2 (P2)**: needs T004/T005/T007 (facade + screen frame); panel mounts into US1's Setup screen but the module is independently testable
 - **US3 (P2)**: needs T007; integrates with US1's Setup screen
 - **US4 (P3)**: needs T001/T005; editor is a Toplevel — independent of US1

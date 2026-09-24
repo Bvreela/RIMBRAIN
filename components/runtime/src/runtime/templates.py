@@ -1,6 +1,9 @@
 """Policy-pack loading for the dispatcher (feature 004; FR-302/305, FR-304).
 
-A pack is validated data under ``components/rimbrain/packs/``. Loading:
+A pack is validated data under ``components/rimbrain/packs/``. A pack id is
+a relative path resolved folder-first (``<id>/pack.yaml``, the canonical
+form — aux files like notes live beside it) then flat (``<id>.yaml``,
+kept for ``candidates/``). Loading:
 
 1. parse + schema-validate (jsonschema when available, else a builtin mirror);
 2. cross-check every template ``method`` against the sealed bridge inventory
@@ -40,13 +43,46 @@ INVENTORY = bundle_root() / "baselines" / "upstream-85cb050" / "rpc-inventory.js
 
 PACK_SCHEMA = bundle_root() / "components" / "contracts" / "schemas" / "runtime" / "pack.schema.json"
 
-__all__ = ["PackError", "packs_dir", "load_pack", "current_hash", "pack_drift",
-           "inventory_methods"]
+__all__ = ["PackError", "packs_dir", "pack_path", "list_packs", "load_pack",
+           "current_hash", "pack_drift", "inventory_methods"]
 
 
 def packs_dir() -> Path:
     override = os.environ.get(PACKS_ENV)
     return Path(override) if override else DEFAULT_PACKS
+
+
+def pack_path(pack_id: str) -> Path:
+    """Resolve a pack id to its YAML file — ``<id>/pack.yaml`` when the
+    folder exists, else ``<id>.yaml``. Ids are relative paths under
+    ``packs_dir()``; absolute ids and ``..`` segments are refused
+    fail-closed (ids can arrive from the UI reset channel)."""
+    rel = Path(pack_id)
+    if rel.is_absolute() or ".." in rel.parts or not str(pack_id).strip():
+        raise PackError(err("pack.invalid_id",
+                            f"pack id '{pack_id}' is not a relative path",
+                            {"pack": pack_id}))
+    folder = packs_dir() / rel / "pack.yaml"
+    return folder if folder.is_file() else packs_dir() / f"{pack_id}.yaml"
+
+
+def list_packs() -> list[str]:
+    """Pack ids under ``packs_dir()``: folder packs (``<dir>/pack.yaml`` ->
+    ``<dir>``) plus flat ``*.yaml`` (aux files inside a folder pack are
+    not packs)."""
+    base = packs_dir()
+    out: set[str] = set()
+    for f in base.rglob("*.yaml"):
+        try:
+            rel = f.relative_to(base)
+        except ValueError:
+            continue
+        if f.name == "pack.yaml":
+            if rel.parent.parts:
+                out.add(rel.parent.as_posix())
+        elif not (f.parent / "pack.yaml").is_file():
+            out.add(rel.with_suffix("").as_posix())
+    return sorted(out)
 
 
 def err(code: str, message: str, details: dict | None = None) -> dict:
@@ -121,12 +157,13 @@ def _hash_of(doc: dict) -> str:
 
 
 def load_pack(pack_id: str) -> dict:
-    """Load + validate ``<packs_dir>/<pack_id>.yaml`` -> ``{pack, hash, path}``.
+    """Load + validate the pack at ``pack_path(pack_id)`` -> ``{pack, hash,
+    path}``.
 
     Raises :class:`PackError` (fail-closed) on any violation; never returns a
     partially validated pack.
     """
-    path = packs_dir() / f"{pack_id}.yaml"
+    path = pack_path(pack_id)
     if not path.is_file():
         raise PackError(err("pack.not_found",
                             f"no pack '{pack_id}' at {path}",
@@ -169,7 +206,10 @@ def load_pack(pack_id: str) -> dict:
 
 def current_hash(pack_id: str) -> str | None:
     """Hash of the pack file as it is right now (drift check); None if gone."""
-    path = packs_dir() / f"{pack_id}.yaml"
+    try:
+        path = pack_path(pack_id)
+    except PackError:
+        return None
     if not path.is_file():
         return None
     try:
