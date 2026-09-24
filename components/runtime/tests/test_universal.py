@@ -1,7 +1,7 @@
-"""Universal rules + policy-engine tests (feature 011/012): pack-declared
-idle correction, combat discipline (downed skip, flee-chase), post-combat
-strip — plus proofs that behavior follows the pack, not the code
-(SC-1001..1003)."""
+"""Standing-rules + policy-engine tests (feature 011/012, ported to the
+017 v1 surface): pack-declared idle correction, combat discipline
+(downed skip, flee-chase), post-combat strip — plus proofs that
+behavior follows the pack, not the code (SC-1001..1003)."""
 
 import copy
 import json
@@ -9,12 +9,11 @@ import json
 import pytest
 
 from runtime.dispatch import Dispatcher
+from runtime.loop import run
 from runtime.tasks import TaskLedger
-from runtime import universal, policy
-from runtime.combatmode import run_combat
-from runtime.startmode import run_start
+from runtime import policy, templates
 
-from test_startmode import StartSim
+from test_phase import StartSim
 from test_combat import _pack_with
 
 
@@ -32,8 +31,17 @@ def rig(tmp_path, monkeypatch):
 
 
 def _mark_completed(state_dir):
-    (state_dir / "startmode.json").write_text(
+    (state_dir / "runstate.json").write_text(
         json.dumps({"completed": True}))
+
+
+def _apply(d, game, obs, pack, state, *, poll=None):
+    """v0 `universal.apply_rules` on the v1 surface: pack `rules` via
+    policy.run_rules."""
+    ctx = policy.Ctx(cfg=pack, obs=obs, game=game, state=state,
+                     poll=poll)
+    return policy.run_rules(templates.rules_of(pack), d, ctx,
+                            source="rule")
 
 
 def _issued(events, template):
@@ -45,8 +53,7 @@ def test_idle_pawn_gets_work(rig):
     """FR-902/SC-901: a wandering colonist is assigned within one poll."""
     d, game, ledger, pack, events, tmp = rig
     game.pawns[1]["job"] = "wandering."
-    fired = universal.apply_rules(d, game, {"items": game.items},
-                                  pack, {}, poll=0)
+    fired = _apply(d, game, {"items": game.items}, pack, {}, poll=0)
     assert fired and fired[0]["rule"] == "idle-work"
     assert fired[0]["params"]["pawn"] == "c1"
     assert _issued(events, "assign-job")
@@ -55,7 +62,7 @@ def test_idle_pawn_gets_work(rig):
 def test_busy_pawn_not_touched(rig):
     """Zero writes when every colonist has a real job."""
     d, game, ledger, pack, events, tmp = rig
-    fired = universal.apply_rules(d, game, {}, pack, {}, poll=0)
+    fired = _apply(d, game, {}, pack, {}, poll=0)
     assert fired == []
     assert not _issued(events, "assign-job")
 
@@ -65,10 +72,8 @@ def test_idle_cooldown_prevents_spam(rig):
     d, game, ledger, pack, events, tmp = rig
     game.pawns[1]["job"] = "idle"
     state = {}
-    universal.apply_rules(d, game, {"items": game.items}, pack,
-                          state, poll=0)
-    universal.apply_rules(d, game, {"items": game.items}, pack,
-                          state, poll=1)
+    _apply(d, game, {"items": game.items}, pack, state, poll=0)
+    _apply(d, game, {"items": game.items}, pack, state, poll=1)
     assert len(_issued(events, "assign-job")) == 1
 
 
@@ -76,11 +81,10 @@ def test_no_idle_rule_means_no_correction(rig):
     """SC-1003: remove the rule from the pack -> idle pawn untouched."""
     d, game, ledger, pack, events, tmp = rig
     pack = copy.deepcopy(pack)
-    pack["universal"]["rules"] = [
-        r for r in pack["universal"]["rules"] if r["id"] != "idle-work"]
+    pack["rules"] = [
+        r for r in pack["rules"] if r["id"] != "idle-work"]
     game.pawns[1]["job"] = "wandering."
-    fired = universal.apply_rules(d, game, {"items": game.items},
-                                  pack, {}, poll=0)
+    _apply(d, game, {"items": game.items}, pack, {}, poll=0)
     assert not _issued(events, "assign-job")
 
 
@@ -89,13 +93,12 @@ def test_pack_edits_change_behavior(rig):
     swap the idle fallback order and Mine fires first."""
     d, game, ledger, pack, events, tmp = rig
     pack = copy.deepcopy(pack)
-    rules = pack["universal"]["rules"]
+    rules = pack["rules"]
     idle = next(r for r in rules if r["id"] == "idle-work")
     idle["try"] = [idle["try"][2]] + [t for t in idle["try"]
                                      if t is not idle["try"][2]]
     game.pawns[1]["job"] = "wandering."
-    universal.apply_rules(d, game, {"items": game.items}, pack,
-                          {}, poll=0)
+    _apply(d, game, {"items": game.items}, pack, {}, poll=0)
     issued = _issued(events, "assign-job")
     assert issued[0]["payload"]["params"]["job"] == "Mine"
 
@@ -108,9 +111,9 @@ def test_downed_hostiles_never_targeted(rig):
     pack = d.pack["pack"]
     game.hostiles = [{"id": "h-down", "downed": True},
                      {"id": "h-live"}]
-    res = run_combat(d, game, ledger,
-                     _pack_with(pack, rounds=1, tick_budget=200),
-                     iterations=10, mode_state_dir=tmp / "state")
+    res = run(d, game, ledger,
+              _pack_with(pack, rounds=1, tick_budget=200),
+              iterations=10, scripted=True, stage="combat")
     assert res["ok"]
     attacked = [e["payload"]["params"]["target"]
                 for e in _issued(events, "attack-target")]
@@ -135,10 +138,9 @@ def test_strip_sweep_after_round(rig):
     d2 = Dispatcher(g2, sink=events.append,
                     clock=lambda: "2026-01-01T00:00:00Z")
     d2.load_pack("dev-lab-v0")  # combat scripting is dev-class
-    res = run_combat(d2, g2, ledger,
-                     _pack_with(d2.pack["pack"], rounds=1,
-                                tick_budget=10),
-                     iterations=8, mode_state_dir=tmp / "state")
+    res = run(d2, g2, ledger,
+              _pack_with(d2.pack["pack"], rounds=1, tick_budget=10),
+              iterations=8, scripted=True, stage="combat")
     assert res["ok"]
     assert g2.stripped  # something was stripped
     assert _issued(events, "strip-pawn")
@@ -162,17 +164,19 @@ def test_no_strip_step_means_no_strip(rig):
     d2 = Dispatcher(g2, sink=events.append,
                     clock=lambda: "2026-01-01T00:00:00Z")
     d2.load_pack("dev-lab-v0")  # combat scripting is dev-class
-    pack2 = _pack_with(d2.pack["pack"], rounds=1, tick_budget=10)
-    pack2 = copy.deepcopy(pack2)
-    # strip lives in both cleanup steps and universal rules — drop both
-    pack2["combat"]["cleanup"] = [
-        s for s in pack2["combat"]["cleanup"]
-        if s.get("template") != "strip-pawn"]
-    pack2["universal"]["rules"] = [
-        r for r in pack2["universal"]["rules"]
+    pack2 = copy.deepcopy(
+        _pack_with(d2.pack["pack"], rounds=1, tick_budget=10))
+    # strip lives in both cleanup steps and standing rules — drop both
+    for ph in pack2["phases"]:
+        if ph.get("kind") == "combat":
+            ph["combat"]["cleanup"] = [
+                s for s in ph["combat"]["cleanup"]
+                if s.get("template") != "strip-pawn"]
+    pack2["rules"] = [
+        r for r in pack2["rules"]
         if r["id"] != "strip-downed"]
-    res = run_combat(d2, g2, ledger, pack2, iterations=8,
-                     mode_state_dir=tmp / "state")
+    res = run(d2, g2, ledger, pack2, iterations=8,
+              scripted=True, stage="combat")
     assert res["ok"]
     assert not _issued(events, "strip-pawn")
 
@@ -188,8 +192,8 @@ def test_fleeing_hostile_chased_by_melee(rig):
         game.hostiles = [{"id": "h1", "dist_home": d_home,
                           "health": 80.0},
                          {"id": "h2", "dist_home": 10, "health": 80.0}]
-        fired = universal.apply_rules(d, game, {}, pack, state,
-                                      poll=int(d_home / 10))
+        fired = _apply(d, game, {}, pack, state,
+                       poll=int(d_home / 10))
     chase = [f for f in fired if f["rule"] == "chase-fleeing"]
     assert chase and chase[0]["params"]["pawn"] == "c1"
     assert chase[0]["params"]["target"] == "h1"
@@ -206,7 +210,7 @@ def test_all_armed_defend_together(rig):
     game.hostiles = [{"id": "h1", "dist_home": 30, "health": 80.0}]
     game.pawns[0]["weapon"] = "w-gun"
     game.pawns[1]["weapon"] = "w-melee"
-    fired = universal.apply_rules(d, game, {}, pack, state, poll=0)
+    fired = _apply(d, game, {}, pack, state, poll=0)
     defend = [f for f in fired if f["rule"] == "defend-colony"]
     pairs = {(f["params"]["pawn"], f["params"]["target"])
              for f in defend}
@@ -219,7 +223,7 @@ def test_all_armed_defend_together(rig):
 def test_arm_phase_ranks_by_skill(rig):
     """FR-905: gun -> best shooter (c0) via the pack's arm steps."""
     d, game, ledger, pack, events, tmp = rig
-    ph = next(p for p in pack["start"]["phases"] if p["id"] == "arm")
+    ph = next(p for p in pack["phases"][0]["steps"] if p["id"] == "arm")
     ctx = policy.Ctx(cfg=pack, obs={"colonists": {"count": 3}, "tick": 0},
                      game=game, persist={"site": {"min": [14, 14],
                                                  "rect": [14, 14, 9, 9]}})
@@ -235,10 +239,11 @@ def test_phases_come_from_pack(rig):
     never required for completion; the pack's phase list is the order."""
     d, game, ledger, pack, events, tmp = rig
     pack = copy.deepcopy(pack)
-    pack["start"]["phases"] = [p for p in pack["start"]["phases"]
-                               if p["id"] != "recreation"]
-    pack["start"]["exit"]["conditions"].pop("recreation", None)
-    res = run_start(d, game, ledger, pack, iterations=40)
+    init = pack["phases"][0]
+    init["steps"] = [p for p in init["steps"] if p["id"] != "recreation"]
+    init["complete"]["conditions"].pop("recreation", None)
+    res = run(d, game, ledger, pack, iterations=40,
+              stop_on_complete=True)
     assert res["completed"]
     assert not _issued(events, "build-one") or all(
         e["payload"]["params"].get("def") != "HorseshoesPin"
@@ -250,10 +255,10 @@ def test_validate_policy_fail_closed(rig):
     """FR-1007: unknown fn/selector/template is a named pack error."""
     _d, _g, _l, pack, _e, _t = rig
     bad = copy.deepcopy(pack)
-    bad["start"]["phases"][0]["steps"][0]["params"]["cell"] = \
+    bad["phases"][0]["steps"][0]["steps"][0]["params"]["cell"] = \
         "@fn:bogus()"
-    bad["universal"]["rules"][0]["for_each"] = "bogus_selector"
-    bad["universal"]["rules"][0]["try"][0]["template"] = "bogus-tpl"
+    bad["rules"][0]["for_each"] = "bogus_selector"
+    bad["rules"][0]["try"][0]["template"] = "bogus-tpl"
     problems = policy.validate_policy(bad)
     assert any("bogus" in p for p in problems)
     assert any("selector" in p for p in problems)
@@ -278,7 +283,7 @@ def test_naming_dialog_answered(rig):
     d2 = Dispatcher(g2, sink=events.append,
                     clock=lambda: "2026-01-01T00:00:00Z")
     d2.load_pack("start-mode-v0")
-    fired = universal.apply_rules(d2, g2, {}, d2.pack["pack"], {}, poll=0)
+    fired = _apply(d2, g2, {}, d2.pack["pack"], {}, poll=0)
     rows = [f for f in fired if f["rule"] == "answer-naming"]
     assert rows and rows[0]["params"] == {"i": 3, "choice": "OK"}
     assert _issued(events, "answer-dialog")
@@ -287,7 +292,7 @@ def test_naming_dialog_answered(rig):
 def test_no_dialogs_no_dispatch(rig):
     """Empty state.dialogs -> zero ui.dialog calls."""
     d, game, ledger, pack, events, tmp = rig
-    fired = universal.apply_rules(d, game, {}, pack, {}, poll=0)
+    fired = _apply(d, game, {}, pack, {}, poll=0)
     assert not _issued(events, "answer-dialog")
 
 

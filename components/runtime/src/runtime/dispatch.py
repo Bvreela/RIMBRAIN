@@ -24,7 +24,7 @@ try:
 except ImportError:  # pragma: no cover - tests install it
     jsonschema = None  # type: ignore[assignment]
 
-from . import templates
+from . import policy, templates
 from ._root import repo_root
 from .bridgeclient import BridgeClient
 from .templates import PackError
@@ -203,7 +203,7 @@ class Dispatcher:
             return self._refuse("", params, "dispatch.pack_drift",
                                 "policy pack changed on disk since load",
                                 decision_id)
-        template = next((t for t in self._pack["pack"]["templates"]
+        template = next((t for t in templates.templates_of(self._pack["pack"])
                          if t["id"] == action_id), None)
         if template is None:
             return self._refuse(action_id, params, "dispatch.unknown_action",
@@ -301,13 +301,21 @@ class Dispatcher:
 
         Returns the list of dispatch envelopes for rules that fired, ordered by
         ``priority``. Reflexes never wait for a model (SC-305).
+
+        One predicate dialect (feature 017; FR-1405): rules carry ``when``
+        in policy.check form; legacy v0 ``{combinator, predicates}``
+        conditions are adapted — predicate ``field`` dotted paths resolve
+        as ``@obs:`` lookups and ops map 1:1.
         """
         if self._pack is None:
             return []
+        pack = self._pack["pack"]
+        ctx = policy.Ctx(cfg=pack, obs=state, game=self.bridge)
         fired: list[dict] = []
-        for rule in sorted(self._pack["pack"].get("emergency", []),
+        for rule in sorted(templates.reflexes_of(pack),
                            key=lambda r: r.get("priority", 999)):
-            if self._condition(rule.get("condition"), state):
+            pred = _reflex_pred(rule)
+            if pred is not None and policy.check(pred, ctx):
                 params = substitute_params(
                     rule["action"].get("params") or {}, state, None)
                 self._emit("action.emergency", {
@@ -319,36 +327,42 @@ class Dispatcher:
                                            params))
         return fired
 
-    @staticmethod
-    def _condition(condition: dict | None, state: dict) -> bool:
-        if not condition:
-            return False
-        results = []
-        for p in condition.get("predicates", []):
-            observed = _dotted(state, p["field"])
-            results.append(_op_holds(p["op"], observed, p["value"]))
-        combo = condition.get("combinator", "all")
-        return all(results) if combo == "all" else any(results)
+
+def wire_sink(dispatcher, sink) -> None:
+    """Route dispatcher evidence through `sink`, composing with any prior
+    sink so resumed runs don't double-write."""
+    if sink is None:
+        return
+    prev = getattr(dispatcher, "_sink", None)
+    if prev is None or prev is sink:
+        dispatcher._sink = sink
+    else:
+        def _s(env: dict) -> None:
+            prev(env)
+            sink(env)
+        dispatcher._sink = _s
 
 
-def _op_holds(op: str, observed, expected) -> bool:
-    if observed is None:
-        return False
-    try:
-        if op == "eq":
-            return observed == expected
-        if op == "ne":
-            return observed != expected
-        if op == "gt":
-            return observed > expected
-        if op == "gte":
-            return observed >= expected
-        if op == "lt":
-            return observed < expected
-        if op == "lte":
-            return observed <= expected
-        if op == "contains":
-            return expected in observed
-    except TypeError:
-        return False
-    return False
+def _reflex_pred(rule: dict) -> dict | None:
+    """Normalize a reflex rule's trigger to one policy.check predicate.
+
+    Accepts v1 ``when`` (policy dialect) or legacy ``condition``
+    (``{combinator, predicates: [{field, op, value}]}`` — fields become
+    ``@obs:`` paths). A v1 ``when`` written in the legacy shape is also
+    adapted so migrated packs behave identically."""
+    when = rule.get("when")
+    cond = rule.get("condition")
+    legacy = cond or (when if isinstance(when, dict)
+                      and "predicates" in when else None)
+    if legacy is not None:
+        preds = [{"field": f"@obs:{p['field']}",
+                  "op": p["op"], "value": p.get("value")}
+                 for p in legacy.get("predicates") or []
+                 if isinstance(p, dict) and p.get("field")
+                 and p.get("op")]
+        if not preds:
+            return None
+        return ({"all": preds}
+                if legacy.get("combinator", "all") == "all"
+                else {"any": preds})
+    return when if isinstance(when, dict) else None

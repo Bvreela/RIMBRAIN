@@ -20,7 +20,6 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO_ROOT / "components" / "runtime" / "src"))
 sys.path.insert(0, str(REPO_ROOT / "components" / "contracts" / "src"))
 
-from runtime.loop import run_loop  # noqa: E402
 from runtime.dispatch import Dispatcher  # noqa: E402
 from runtime.simgame import SimGame  # noqa: E402
 from runtime.tasks import TaskLedger, TRANSITIONS, TERMINAL  # noqa: E402
@@ -175,22 +174,24 @@ def test_deterministic_fold(tmp_path, monkeypatch):
 
 
 def test_loop_reconcile_before_attend(tmp_path, monkeypatch):
-    """FR-606: with a ledger, reconcile outcome precedes any dispatch."""
+    """FR-606: reconcile precedes any dispatch — unified run() (017)."""
+    from runtime.loop import run
     monkeypatch.setenv("RIMBRAIN_STATE_DIR", str(tmp_path / "state"))
     game = SimGame()
-    d = Dispatcher(game, clock=lambda: "2026-01-01T00:00:00Z")
+    events: list[dict] = []
+    d = Dispatcher(game, clock=lambda: "2026-01-01T00:00:00Z",
+                   sink=events.append)
     d.load_pack("core-survival-v0")
-    led = TaskLedger(tmp_path / "state" / "tasks.jsonl")
+    led = TaskLedger(tmp_path / "state" / "tasks.jsonl",
+                     sink=events.append)
     # stale task whose effect is observed -> reconciled to succeeded
     led.propose(_task("stale", resources=[], lease_ticks=0), tick=0)
     led.acquire("stale", tick=0)
     led.mark_dispatched("stale", tick=0)
-    result = run_loop(d, game, iterations=1, ledger=led,
-                      decider=lambda s, i: {"choice": "none"})
-    kinds = [o["kind"] for o in result["outcomes"]]
-    assert kinds[0] == "reconcile"
+    result = run(d, game, led, d.pack["pack"], iterations=1)
+    assert "reconcile" in result["outcomes"][0]
     assert led.tasks["stale"]["state"] == "succeeded"  # map.fires==0 at t0
-    types = [e["event_type"] for e in result["events"]]
+    types = [e["event_type"] for e in events]
     assert "task.transition" in types
 
 

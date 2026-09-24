@@ -18,9 +18,9 @@
 
 **Purpose**: Baseline + branch
 
-- [ ] T001 Verify feature 016 landed: `components/runtime/tests/test_mutate.py` green, `specs/016-live-pack-mutation/spec.md` status Implemented — do not proceed if open
-- [ ] T002 Create branch `feature/017-unified-phase-engine` from main (include all 016 work)
-- [ ] T003 [P] Record baseline: run full suite (`cd components/runtime && uv run pytest -q`) — save pass count for regression comparison
+- [x] T001 Verify feature 016 landed: `components/runtime/tests/test_mutate.py` green, `specs/016-live-pack-mutation/spec.md` status Implemented — do not proceed if open
+- [x] T002 Create branch `feature/017-unified-phase-engine` from main (include all 016 work)
+- [x] T003 [P] Record baseline: run full suite (`cd components/runtime && uv run pytest -q`) — save pass count for regression comparison — **baseline: 211 passed**
 
 ---
 
@@ -30,12 +30,12 @@
 
 **⚠ CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T004 Implement canonical `observe(game, pack)` in `components/runtime/src/runtime/observe.py` merging `startmode.observe_start` + `planloop.enrich` + `vitals.sample` into sectioned obs `{tick, colony, pawns, map, stocks, vitals, threats}`; keep per-section keys stable for existing `@obs:` resolvers
-- [ ] T005 [P] Implement `RunState` in `components/runtime/src/runtime/runstate.py` consolidating mode vars, rule state, mutation PassState, and vitals state into one owned object persisted to `state/runstate.json` (replaces `startmode.json` load/save semantics)
-- [ ] T006 [P] Implement v0→v1 pack migration in `components/runtime/src/runtime/templates.py` per `contracts/pack-schema-v1.md`: `start.phases`→`phases[0]` (`id: init, prescriptive: true`), `start.exit`→`phases[0].complete`, `govern.goals`→`standing_goals`, `universal.rules`→`rules`, `emergency`→`reflexes`, `goal_options`→`options`, `jobs`/`decision_map`/`cycle` dropped; `@cfg:start.*`/`@cfg:govern.*` alias map preserved; hash computed on normalized doc; `schema_version > 1` rejected
-- [ ] T007 Extend `components/contracts/schemas/runtime/pack.schema.json` for v1 shape (`phases`, `standing_goals`, `options`, `reflexes`, `rules`, `senses`, `decide`, `action_list.max_items≤20`); keep v0 documents valid through migration
-- [ ] T008 Unify reflex dialect: load `emergency`/`reflexes` rules into the `policy.check` dialect in `components/runtime/src/runtime/templates.py`, make `Dispatcher.reflex` in `components/runtime/src/runtime/dispatch.py` evaluate via `policy.run_rules`/`policy.check` preserving priority order and pre-decide position, then delete `_condition`/`_op_holds`
-- [ ] T009 Implement decision-record writer in `components/runtime/src/runtime/select.py` (or `store.py` helper): append `{poll, tick, phase, offered, pick, applied, fallback, shadow, inputs_hash, latency_ms}` rows to `state/decisions.jsonl`
+- [x] T004 Implement canonical `observe(game, pack)` in `components/runtime/src/runtime/observe.py` merging `startmode.observe_start` + `planloop.enrich` + `vitals.sample` into sectioned obs `{tick, colony, pawns, map, stocks, vitals, threats}`; keep per-section keys stable for existing `@obs:` resolvers
+- [x] T005 [P] Implement `RunState` in `components/runtime/src/runtime/runstate.py` consolidating mode vars, rule state, mutation PassState, and vitals state into one owned object persisted to `state/runstate.json` (replaces `startmode.json` load/save semantics)
+- [x] T006 [P] Implement v0→v1 pack migration in `components/runtime/src/runtime/templates.py` per `contracts/pack-schema-v1.md`: `start.phases`→`phases[0]` (`id: init, prescriptive: true`), `start.exit`→`phases[0].complete`, `govern.goals`→`standing_goals`, `universal.rules`→`rules`, `emergency`→`reflexes`, `goal_options`→`options`, `jobs`/`decision_map`/`cycle` dropped; `@cfg:start.*`/`@cfg:govern.*` alias map preserved; hash computed on normalized doc; `schema_version > 1` rejected
+- [x] T007 Extend `components/contracts/schemas/runtime/pack.schema.json` for v1 shape (`phases`, `standing_goals`, `options`, `reflexes`, `rules`, `senses`, `decide`, `action_list.max_items≤20`); keep v0 documents valid through migration
+- [x] T008 Unify reflex dialect: load `emergency`/`reflexes` rules into the `policy.check` dialect in `components/runtime/src/runtime/templates.py`, make `Dispatcher.reflex` in `components/runtime/src/runtime/dispatch.py` evaluate via `policy.run_rules`/`policy.check` preserving priority order and pre-decide position, then delete `_condition`/`_op_holds`
+- [x] T009 Implement decision-record writer in `components/runtime/src/runtime/select.py` (or `store.py` helper): append `{poll, tick, phase, offered, pick, applied, fallback, shadow, inputs_hash, latency_ms}` rows to `state/decisions.jsonl`
 
 **Checkpoint**: Foundation ready — obs contract, pack v1, single predicate dialect, RunState, decision logging all in place
 
@@ -49,18 +49,18 @@
 
 ### Tests for User Story 1
 
-- [ ] T010 [P] [US1] Port `components/runtime/tests/test_startmode.py` → `components/runtime/tests/test_phase.py` against `PhaseEngine` (phase ordering, requires-gating, effect verification, exit/fix chains, retry backoff, drift freeze, standing-goal re-arm)
-- [ ] T011 [P] [US1] Write `components/runtime/tests/test_pack_migration.py` — v0 `start-mode-v0` loads normalized; `emergency` rules fire in `policy.check` dialect; cfg aliases resolve; normalized hash stable across v0 file / v1 candidate
+- [x] T010 [P] [US1] Port `components/runtime/tests/test_startmode.py` → `components/runtime/tests/test_phase.py` against `PhaseEngine` (phase ordering, requires-gating, effect verification, exit/fix chains, retry backoff, drift freeze, standing-goal re-arm)
+- [x] T011 [P] [US1] Write `components/runtime/tests/test_pack_migration.py` — v0 `start-mode-v0` loads normalized; `emergency` rules fire in `policy.check` dialect; cfg aliases resolve; normalized hash stable across v0 file / v1 candidate
 
 ### Implementation for User Story 1
 
-- [ ] T012 [US1] Implement `PhaseEngine` in `components/runtime/src/runtime/phase.py` — ordered `pack.phases` driver porting `StartMode` mechanics: var bindings, `_propose`/`_drive` step lifecycle, `requires`/`need` gates, ledger-verified effects, `complete` contract + `fix` fallback chains, `retry_polls` backoff; `prescriptive: true` phases run deterministic `steps`; port `completed_event` envelope emission (`start.completed`/completion events — FR-705/707 evidence feeds improve metrics)
-- [ ] T013 [US1] Implement standing-goal evaluation in `components/runtime/src/runtime/phase.py` — port `_govern_step` semantics (declared order, `when` gates, effect-lapse re-arm, `govern_retry` backoff) reading `standing_goals` (+ migrated `govern.goals`)
-- [ ] T014 [US1] Port the `run_start` poll body into `run()` in `components/runtime/src/runtime/loop.py` — observe (T004) → brain-reset (`brain.poll_request` + `ledger.reset_ns` reinit) → vitals sample → `ledger.reconcile` → `dispatcher.reflex` → pack `rules` via `policy.run_rules` → `mode.step`/`PhaseEngine.step` → `views.write_views` → reflect triggers — using `RunState` (T005)
-- [ ] T015 [US1] Restructure `components/rimbrain/packs/start-mode-v0/pack.yaml` to schema v1 (phases/init/standing_goals/rules/reflexes/senses/decide/options/mutate/metrics) — verified loadable via T006 migration AND as native v1
-- [ ] T016 [US1] Delete `components/runtime/src/runtime/universal.py`, `run_loop`/`_live_decider`/`_sim_decider` from `components/runtime/src/runtime/loop.py`, and `components/runtime/src/runtime/startmode.py` internals (leave import shim until T044); update all imports
-- [ ] T045 [US1] Pack-ify combat mode per FR-1429: move `combatmode.py`'s raid-scenario behavior into a dev-class pack (`packs/dev-lab-v0` combat phases/rules using existing dev.* spawn methods); delete `components/runtime/src/runtime/combatmode.py`; verify `cycle` drives it via the unified loop under `--dev`
-- [ ] T017 [US1] Update `views.py` `start_snapshot`/`planning_snapshot` → phase snapshot: current phase, phase list w/ effect holds, standing goals — same `holds` live-eval semantics
+- [x] T012 [US1] Implement `PhaseEngine` in `components/runtime/src/runtime/phase.py` — ordered `pack.phases` driver porting `StartMode` mechanics: var bindings, `_propose`/`_drive` step lifecycle, `requires`/`need` gates, ledger-verified effects, `complete` contract + `fix` fallback chains, `retry_polls` backoff; `prescriptive: true` phases run deterministic `steps`; port `completed_event` envelope emission (`start.completed`/completion events — FR-705/707 evidence feeds improve metrics)
+- [x] T013 [US1] Implement standing-goal evaluation in `components/runtime/src/runtime/phase.py` — port `_govern_step` semantics (declared order, `when` gates, effect-lapse re-arm, `govern_retry` backoff) reading `standing_goals` (+ migrated `govern.goals`)
+- [x] T014 [US1] Port the `run_start` poll body into `run()` in `components/runtime/src/runtime/loop.py` — observe (T004) → brain-reset (`brain.poll_request` + `ledger.reset_ns` reinit) → vitals sample → `ledger.reconcile` → `dispatcher.reflex` → pack `rules` via `policy.run_rules` → `mode.step`/`PhaseEngine.step` → `views.write_views` → reflect triggers — using `RunState` (T005)
+- [x] T015 [US1] Restructure `components/rimbrain/packs/start-mode-v0/pack.yaml` to schema v1 (phases/init/standing_goals/rules/reflexes/senses/decide/options/mutate/metrics) — verified loadable via T006 migration AND as native v1
+- [x] T016 [US1] Delete `components/runtime/src/runtime/universal.py`, `run_loop`/`_live_decider`/`_sim_decider` from `components/runtime/src/runtime/loop.py`, and `components/runtime/src/runtime/startmode.py` internals (leave import shim until T044); update all imports — **done: `universal.py`, `startmode.py` internals (shim until T044), `run_loop`/`_sim_decider`/`_live_decider` all deleted; `__main__.py`/`rimbrain.py`/`cycle.py` rewired to `run()`
+- [x] T045 [US1] Pack-ify combat mode per FR-1429: move `combatmode.py`'s raid-scenario behavior into a dev-class pack (`packs/dev-lab-v0` combat phases/rules using existing dev.* spawn methods); delete `components/runtime/src/runtime/combatmode.py`; verify `cycle` drives it via the unified loop under `--dev`
+- [x] T017 [US1] Update `views.py` `start_snapshot`/`planning_snapshot` → phase snapshot: current phase, phase list w/ effect holds, standing goals — same `holds` live-eval semantics
 
 **Checkpoint**: `--mode run` sim episode completes init + holds standing goals; ported suite green; deleted modules unreferenced
 
@@ -74,16 +74,16 @@
 
 ### Tests for User Story 2
 
-- [ ] T018 [P] [US2] Write `components/runtime/tests/test_select.py` — candidate compile/scoring/truncation, batch rendering per `contracts/select-batch.md`, answer validation paths, fallback matrix, shadow mode, decision-record fields
+- [x] T018 [P] [US2] Write `components/runtime/tests/test_select.py` — candidate compile/scoring/truncation, batch rendering per `contracts/select-batch.md`, answer validation paths, fallback matrix, shadow mode, decision-record fields
 
 ### Implementation for User Story 2
 
-- [ ] T019 [US2] Implement action-list compiler in `components/runtime/src/runtime/select.py` — enumerate satisfiable standing-goal/phase ops (colony scope) + per-pawn job options (pawn scope, idle/drafted-aware), score by pack `action_list.priority` expression, truncate to 20 (hard bound, not pack-editable)
-- [ ] T020 [US2] Implement batched systemone render + answer application in `components/runtime/src/runtime/select.py` per `contracts/select-batch.md` — `q.colony` + `q.pawn.<id>` criteria keyed by candidate ids, context stats payload (colony/pawn/efficiency/plan), membership validation, `select.invalid`/`select.degraded` events, pack `fallback` resolution
-- [ ] T021 [US2] Implement shadow mode in `components/runtime/src/runtime/select.py` — model pick recorded `shadow: true`, deterministic fallback dispatched, divergence count exposed for qualification
-- [ ] T022 [US2] Wire decide stage into the poll loop (`components/runtime/src/runtime/loop.py`): after rules, before/instead-of direct goal drive per pack `decide.select`; `init` structural steps bypass select while `init` pawn jobs route through it (FR-1410); decision records via T009
-- [ ] T046 [US2] Implement `decide.select.cadence_polls` (default 1) per FR-1430 in `components/runtime/src/runtime/select.py` — when the select endpoint lags beyond the poll window the engine skips the decision rather than queuing it; fallback continues unaffected
-- [ ] T047 [US2] Implement selector-authority registry per FR-1424 in `components/runtime/src/runtime/select.py` — persist per-(model,prompt,context)-tuple rung (`shadow`/`trial`/`authority`) + divergence counts to `state/select_authority.json`; shadow→trial→authority transitions recorded as events; `decide.select` cfg may request a rung but persisted qualification evidence governs actual authority
+- [x] T019 [US2] Implement action-list compiler in `components/runtime/src/runtime/select.py` — enumerate satisfiable standing-goal/phase ops (colony scope) + per-pawn job options (pawn scope, idle/drafted-aware), score by pack `action_list.priority` expression, truncate to 20 (hard bound, not pack-editable)
+- [x] T020 [US2] Implement batched systemone render + answer application in `components/runtime/src/runtime/select.py` per `contracts/select-batch.md` — `q.colony` + `q.pawn.<id>` criteria keyed by candidate ids, context stats payload (colony/pawn/efficiency/plan), membership validation, `select.invalid`/`select.degraded` events, pack `fallback` resolution
+- [x] T021 [US2] Implement shadow mode in `components/runtime/src/runtime/select.py` — model pick recorded `shadow: true`, deterministic fallback dispatched, divergence count exposed for qualification
+- [x] T022 [US2] Wire decide stage into the poll loop (`components/runtime/src/runtime/loop.py`): after rules, before/instead-of direct goal drive per pack `decide.select`; `init` structural steps bypass select while `init` pawn jobs route through it (FR-1410); decision records via T009
+- [x] T046 [US2] Implement `decide.select.cadence_polls` (default 1) per FR-1430 in `components/runtime/src/runtime/select.py` — when the select endpoint lags beyond the poll window the engine skips the decision rather than queuing it; fallback continues unaffected
+- [x] T047 [US2] Implement selector-authority registry per FR-1424 in `components/runtime/src/runtime/select.py` — persist per-(model,prompt,context)-tuple rung (`shadow`/`trial`/`authority`) + divergence counts to `state/select_authority.json`; shadow→trial→authority transitions recorded as events; `decide.select` cfg may request a rung but persisted qualification evidence governs actual authority
 
 **Checkpoint**: sim with stubbed select executes goal ops from validated picks; fallback paths proven; records in `state/decisions.jsonl`
 
@@ -97,14 +97,14 @@
 
 ### Tests for User Story 5
 
-- [ ] T023 [P] [US5] Write `components/runtime/tests/test_determinism.py` — repeated sim episode byte-identical event streams; endpoint-call counter asserts zero in sim
-- [ ] T024 [P] [US5] Write flag-matrix tests in `components/runtime/tests/test_modes.py` — every (fair/dev × live-brain × live-mutate × boundary) combination either defined or fails closed
+- [x] T023 [P] [US5] Write `components/runtime/tests/test_determinism.py` — repeated sim episode byte-identical event streams; endpoint-call counter asserts zero in sim
+- [x] T024 [P] [US5] Write flag-matrix tests in `components/runtime/tests/test_modes.py` — every (fair/dev × live-brain × live-mutate × boundary) combination either defined or fails closed
 
 ### Implementation for User Story 5
 
-- [ ] T025 [US5] Enforce sim determinism: sim decider path resolves answers from pack `fallback`/`priority_head` only — no endpoint resolution attempted in sim (`components/runtime/src/runtime/select.py` + `loop.py`)
-- [ ] T026 [US5] Implement `--mode run` (+ deprecated `start` alias with warning), `--stage plan|reflect` debug entries, and `--game sim|live` (sim default) orthogonal backend selection per FR-1422 in `components/runtime/src/runtime/__main__.py`; delete dead mode paths; explicit flag-interaction table with fail-closed defaults
-- [ ] T027 [US5] Update `rimbrain.py` launcher defaults to `--mode run`; keep `--live-mutate` per 016
+- [x] T025 [US5] Enforce sim determinism: sim decider path resolves answers from pack `fallback`/`priority_head` only — no endpoint resolution attempted in sim (`components/runtime/src/runtime/select.py` + `loop.py`)
+- [x] T026 [US5] Implement `--mode run` (+ deprecated `start` alias with warning), `--stage plan|reflect` debug entries, and `--game sim|live` (sim default) orthogonal backend selection per FR-1422 in `components/runtime/src/runtime/__main__.py`; delete dead mode paths; explicit flag-interaction table with fail-closed defaults
+- [x] T027 [US5] Update `rimbrain.py` launcher defaults to `--mode run`; keep `--live-mutate` per 016
 
 **Checkpoint**: CLI surface reduced to `run`/`cycle`/`--stage`; flag contract enforced; sim proven deterministic
 
@@ -118,14 +118,14 @@
 
 ### Tests for User Story 3
 
-- [ ] T028 [P] [US3] Write `components/runtime/tests/test_planstage.py` — cadence/boundary/event triggers, gate rejections (unknown ids, bad params, dev-class), promote→goal materialization, last-plan-standing
+- [x] T028 [P] [US3] Write `components/runtime/tests/test_planstage.py` — cadence/boundary/event triggers, gate rejections (unknown ids, bad params, dev-class), promote→goal materialization, last-plan-standing
 
 ### Implementation for User Story 3
 
-- [ ] T029 [US3] Implement plan-stage scheduler in `components/runtime/src/runtime/planstage.py` — pack `decide.plan` triggers (cadence_s default 150, `on_phase_boundary`, `on_events`), non-blocking request, in-force plan object with staleness timestamp
-- [ ] T030 [US3] Implement plan digest builder in `components/runtime/src/runtime/planstage.py` — compact obs+ledger projection per `contracts/plan-output.md` (shared digest machinery reused by evolve)
-- [ ] T031 [US3] Implement plan gate + application per `contracts/plan-output.md` — id-existence, param-schema, fair-class checks; `goal_order`→priority feed into select scoring (T019); `activate`/`deactivate`; `promote` materializes `options` into run goals/phases
-- [ ] T032 [US3] Convert `planloop.run_plan` into the stage entry used by `--stage plan` and the scheduler; remove its standalone promotion machinery (absorbed in Phase 7)
+- [x] T029 [US3] Implement plan-stage scheduler in `components/runtime/src/runtime/planstage.py` — pack `decide.plan` triggers (cadence_s default 150, `on_phase_boundary`, `on_events`), non-blocking request, in-force plan object with staleness timestamp
+- [x] T030 [US3] Implement plan digest builder in `components/runtime/src/runtime/planstage.py` — compact obs+ledger projection per `contracts/plan-output.md` (shared digest machinery reused by evolve)
+- [x] T031 [US3] Implement plan gate + application per `contracts/plan-output.md` — id-existence, param-schema, fair-class checks; `goal_order`→priority feed into select scoring (T019); `activate`/`deactivate`; `promote` materializes `options` into run goals/phases
+- [x] T032 [US3] Convert `planloop.run_plan` into the stage entry used by `--stage plan` and the scheduler; remove its standalone promotion machinery (absorbed in Phase 7) — **stage entry = `planstage.tick(force=True)`; standalone promotion machinery removal deferred to T034/T037 (evolve absorb)**
 
 **Checkpoint**: planner cadence observable in sim; accepted plans measurably reorder action lists; outage causes zero stalls
 
@@ -139,15 +139,15 @@
 
 ### Tests for User Story 4
 
-- [ ] T033 [P] [US4] Port `components/runtime/tests/test_mutate.py` → `components/runtime/tests/test_evolve.py` + add phase/action-list/decide mutation round-trips and v0-path op rewriting
+- [x] T033 [P] [US4] Port `components/runtime/tests/test_mutate.py` → `components/runtime/tests/test_evolve.py` + add phase/action-list/decide mutation round-trips and v0-path op rewriting
 
 ### Implementation for User Story 4
 
-- [ ] T034 [US4] Create `components/runtime/src/runtime/evolve.py` — absorb `mutate.py` machinery (PassState→RunState, triggers, digest, reflect, gate, materialize, boundary) + `planloop` candidate promotion
-- [ ] T035 [US4] Reduce `components/runtime/src/runtime/improve.py` to evidence functions (`diagnose`, `score`, `predict_metrics`, metrics windows); `_apply_ops`/`propose`/promotion machinery moves to `evolve.py`
-- [ ] T036 [US4] Extend `components/runtime/src/runtime/packmut.py` path whitelist += `phases`, `action_list`, `decide`, `reflexes`, `rules`, `options`, `senses`, `metrics`; v0-path ops rewritten through the T006 migration map before `apply_ops`
-- [ ] T037 [US4] Merge gate implementations into one (schema `validate_pack` + sealed-inventory + fair-class + budget checks); single candidate format + lineage
-- [ ] T038 [US4] Wire reflect triggers into the poll loop's reflect stage (from `mutate.maybe_trigger` semantics — failure/near-failure/cadence/cooldown/budget) using `RunState`
+- [x] T034 [US4] Create `components/runtime/src/runtime/evolve.py` — absorb `mutate.py` machinery (PassState→RunState, triggers, digest, reflect, gate, materialize, boundary) + `planloop` candidate promotion
+- [x] T035 [US4] Reduce `components/runtime/src/runtime/improve.py` to evidence functions (`diagnose`, `score`, `predict_metrics`, metrics windows); `_apply_ops`/`propose`/promotion machinery moves to `evolve.py`
+- [x] T036 [US4] Extend `components/runtime/src/runtime/packmut.py` path whitelist += `phases`, `action_list`, `decide`, `reflexes`, `rules`, `options`, `senses`, `metrics`; v0-path ops rewritten through the T006 migration map before `apply_ops`
+- [x] T037 [US4] Merge gate implementations into one (schema `validate_pack` + sealed-inventory + fair-class + budget checks); single candidate format + lineage
+- [x] T038 [US4] Wire reflect triggers into the poll loop's reflect stage (from `mutate.maybe_trigger` semantics — failure/near-failure/cadence/cooldown/budget) using `RunState`
 
 **Checkpoint**: one pipeline mutates every pack surface; init-phase mutation round-trips through boundary promotion; duplicate gate/promote code deleted
 
@@ -157,12 +157,12 @@
 
 **Purpose**: Views, docs, catalog, traceability, final validation
 
-- [ ] T039 [P] Update `views.py` + `components/dashboard/src/dashboard/overlay.py` — unified snapshot: current phase, pending action list, last select pick (+fallback/shadow marker), active plan + staleness, reflection status
-- [ ] T040 [P] Update `components/rimbrain/capability-catalog.yaml` + `tools/capability_audit.py` baseline for new/removed fns
-- [ ] T041 [P] Update `AGENTS.md` (phase engine, mode surface, determinism contract), `components/rimbrain/CUSTOMIZE.md` (v1 pack shape + migration)
-- [ ] T042 Update `specs/40-work-packages/TRACEABILITY.md` rows for FR-1401..FR-1430 linking test evidence
-- [ ] T043 Run all `quickstart.md` scenarios (sim end-to-end, select bound, migration, planner cadence, reflect round-trip) — all green; live smoke deferred to bridge availability
-- [ ] T044 Full-suite regression: `uv run pytest -q` — all green vs T003 baseline + new coverage; remove `startmode.py` shim and verify zero references
+- [x] T039 [P] Update `views.py` + `components/dashboard/src/dashboard/overlay.py` — unified snapshot: current phase, pending action list, last select pick (+fallback/shadow marker), active plan + staleness, reflection status
+- [x] T040 [P] Update `components/rimbrain/capability-catalog.yaml` + `tools/capability_audit.py` baseline for new/removed fns
+- [x] T041 [P] Update `AGENTS.md` (phase engine, mode surface, determinism contract), `components/rimbrain/CUSTOMIZE.md` (v1 pack shape + migration)
+- [x] T042 Update `specs/40-work-packages/TRACEABILITY.md` rows for FR-1401..FR-1430 linking test evidence
+- [x] T043 Run all `quickstart.md` scenarios (sim end-to-end, select bound, migration, planner cadence, reflect round-trip) — all green; live smoke deferred to bridge availability
+- [x] T044 Full-suite regression: `uv run pytest -q` — all green vs T003 baseline + new coverage; remove `startmode.py` shim and verify zero references
 
 ---
 

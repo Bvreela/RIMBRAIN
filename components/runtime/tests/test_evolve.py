@@ -1,7 +1,9 @@
-"""Live pack-mutation tests (feature 016; FR-1401..1411).
+"""Reflection-pipeline tests (feature 017 US4; ex-test_mutate).
 
-Unit tests drive mutate.py directly; the integration tests run
-``run_start(live_mutate=True)`` against StartSim with the packs dir and
+Unit tests drive evolve.py directly; the integration tests run
+
+Unit tests drive evolve.py directly; the integration tests run
+``run(live_mutate=True)`` against StartSim with the packs dir and
 state dir redirected to tmp (monkeypatched env), so candidate/lineage
 writes never touch the repo or a real pack file.
 """
@@ -21,12 +23,12 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO_ROOT / "components" / "runtime" / "src"))
 sys.path.insert(0, str(REPO_ROOT / "components" / "contracts" / "src"))
 
-from runtime import mutate, packmut, templates  # noqa: E402
+from runtime import evolve, packmut, templates  # noqa: E402
 from runtime.dispatch import Dispatcher  # noqa: E402
 from runtime.tasks import TaskLedger  # noqa: E402
 
-from test_startmode import StartSim  # noqa: E402
-from runtime.startmode import run_start  # noqa: E402
+from test_phase import StartSim  # noqa: E402
+from runtime.loop import run  # noqa: E402
 
 
 def _env(t, payload, seq=1):
@@ -59,6 +61,10 @@ def _loaded(pack=None):
     pack = pack or MINI
     return {"pack": pack, "hash": templates._hash_of(pack),
             "path": "mini.yaml"}
+
+
+# mutation ops target the v1 surface — gate inputs are migrated docs
+MINI_V1 = templates.migrate_v0(MINI)
 
 
 def _stub_dispatcher(pack=None):
@@ -117,9 +123,9 @@ def _chat_broken(*a, **kw):
 
 def _maybe(ps, dispatcher=None, ledger=None, pack=None, poll=10,
            state_dir=None, emit=None, **kw):
-    pack = pack or MINI
+    pack = templates.migrate_v0(pack or MINI)  # gate input = loaded doc
     state_dir = state_dir or Path.cwd()
-    return mutate.maybe_trigger(
+    return evolve.maybe_trigger(
         ps, dispatcher=dispatcher or _stub_dispatcher(pack),
         ledger=ledger or _Ledger(),
         pack_loaded=_loaded(pack), pack=pack, pack_id="mini",
@@ -130,93 +136,93 @@ def _maybe(ps, dispatcher=None, ledger=None, pack=None, poll=10,
 # -- triggers -----------------------------------------------------------------
 
 def test_cadence_fires_after_n_terminal_goals():
-    ps = mutate.PassState(copy.deepcopy(MINI["mutate"]))
+    ps = evolve.PassState(copy.deepcopy(MINI["mutate"]))
     for i in range(2):
         ps.note(_transition(f"govern.g{i}", "succeeded", i))
-    assert mutate.check_triggers(ps, MINI, poll=10) == (None, {})
+    assert evolve.check_triggers(ps, MINI, poll=10) == (None, {})
     ps.note(_transition("govern.g2", "succeeded", 3))
-    reason, ev = mutate.check_triggers(ps, MINI, poll=10)
+    reason, ev = evolve.check_triggers(ps, MINI, poll=10)
     assert reason == "cadence" and ev["terminal_goals"] == 3
 
 
 def test_failure_trigger_immediate():
-    ps = mutate.PassState(copy.deepcopy(MINI["mutate"]))
+    ps = evolve.PassState(copy.deepcopy(MINI["mutate"]))
     ps.note(_transition("govern.keep", "failed"))
-    reason, ev = mutate.check_triggers(ps, MINI, poll=1)
+    reason, ev = evolve.check_triggers(ps, MINI, poll=1)
     assert reason == "failure" and ev["tasks"] == ["govern.keep"]
 
 
 def test_non_goal_transitions_do_not_count():
-    ps = mutate.PassState(copy.deepcopy(MINI["mutate"]))
+    ps = evolve.PassState(copy.deepcopy(MINI["mutate"]))
     for i in range(5):
         ps.note(_transition("misc.x", "failed", i))
-    assert mutate.check_triggers(ps, MINI, poll=10) == (None, {})
+    assert evolve.check_triggers(ps, MINI, poll=10) == (None, {})
 
 
 def test_near_failure_requeue_burst():
     cfg = copy.deepcopy(MINI["mutate"])
     cfg["on_failure"] = False
-    ps = mutate.PassState(cfg)
+    ps = evolve.PassState(cfg)
     ps.note(_transition("govern.keep", "requeued", 1))
     ps.note(_transition("govern.keep", "requeued", 2))
-    reason, ev = mutate.check_triggers(ps, MINI, poll=10)
+    reason, ev = evolve.check_triggers(ps, MINI, poll=10)
     assert reason == "near_failure" and ev["requeued"]
 
 
 def test_near_failure_refusal_burst_and_blocked():
     cfg = copy.deepcopy(MINI["mutate"])
     cfg["on_failure"] = False
-    ps = mutate.PassState(cfg)
+    ps = evolve.PassState(cfg)
     for i in range(3):
         ps.note(_env("action.refused",
                      {"template_id": "t", "error": {"code": "x"}}, i))
-    reason, ev = mutate.check_triggers(ps, MINI, poll=10)
+    reason, ev = evolve.check_triggers(ps, MINI, poll=10)
     assert reason == "near_failure" and len(ev["refusals"]) == 3
 
-    ps2 = mutate.PassState(cfg)
+    ps2 = evolve.PassState(cfg)
     ps2.note_outcome({"state": "blocked"})
     ps2.note_outcome({"state": "blocked"})
-    reason, ev = mutate.check_triggers(ps2, MINI, poll=10)
+    reason, ev = evolve.check_triggers(ps2, MINI, poll=10)
     assert reason == "near_failure" and ev["blocked_polls"] == 2
     ps2.note_outcome({"state": "ok"})
     assert ps2.blocked_run == 0
 
 
 def test_cooldown_and_pass_budget():
-    ps = mutate.PassState(copy.deepcopy(MINI["mutate"]))
+    ps = evolve.PassState(copy.deepcopy(MINI["mutate"]))
     ps.last_pass_poll = 9           # cooldown_polls=5 -> poll 10 blocked
     ps.note(_transition("govern.keep", "failed"))
-    assert mutate.check_triggers(ps, MINI, poll=10) == (None, {})
-    reason, _ = mutate.check_triggers(ps, MINI, poll=15)
+    assert evolve.check_triggers(ps, MINI, poll=10) == (None, {})
+    reason, _ = evolve.check_triggers(ps, MINI, poll=15)
     assert reason == "failure"
     ps.passes = 4                   # max_passes_per_run=4 -> hard stop
     ps.last_pass_poll = -10**9
-    assert mutate.check_triggers(ps, MINI, poll=30) == (None, {})
+    assert evolve.check_triggers(ps, MINI, poll=30) == (None, {})
 
 
 def test_no_mutate_section_no_triggers():
-    ps = mutate.PassState({})
+    ps = evolve.PassState({})
     ps.note(_transition("govern.keep", "failed"))
-    assert mutate.check_triggers(ps, MINI, poll=10) == (None, {})
+    assert evolve.check_triggers(ps, MINI, poll=10) == (None, {})
 
 
 def test_escalate_counts_decision_rows():
     cfg = copy.deepcopy(MINI["mutate"])
     cfg["on_failure"] = False
-    ps = mutate.PassState(cfg)
+    ps = evolve.PassState(cfg)
     ps.note_decisions([{"source": "govern.keep:escalate", "ok": True}])
-    reason, ev = mutate.check_triggers(ps, MINI, poll=10)
+    reason, ev = evolve.check_triggers(ps, MINI, poll=10)
     assert reason == "near_failure" and ev["escalations"] == 1
 
 
 # -- digest --------------------------------------------------------------------
 
 def test_digest_bounded_and_grounded():
-    ps = mutate.PassState(copy.deepcopy(MINI["mutate"]))
+    ps = evolve.PassState(copy.deepcopy(MINI["mutate"]))
     ps.note(_transition("govern.keep", "failed"))
     ledger = _Ledger()
     ledger.tasks = {"govern.keep": {"state": "failed", "attempts": 2}}
-    d = mutate.build_digest(ps, ledger, _loaded(), MINI,
+    d = evolve.build_digest(ps, ledger, _loaded(), MINI,
                             "failure", {"tasks": ["govern.keep"]}, 1, 2)
     assert d["pack"]["hash"] == _loaded()["hash"]
     assert d["goals"][0]["id"] == "govern.keep"
@@ -227,8 +233,8 @@ def test_digest_bounded_and_grounded():
 # -- reflect -------------------------------------------------------------------
 
 def test_reflect_model_proposal_accepted():
-    ps = mutate.PassState(copy.deepcopy(MINI["mutate"]))
-    r = mutate.reflect(ps, {}, _loaded(), MINI, "cadence",
+    ps = evolve.PassState(copy.deepcopy(MINI["mutate"]))
+    r = evolve.reflect(ps, {}, _loaded(), MINI, "cadence",
                        resolver=_resolver_endpoint, chat=_chat_ok)
     assert r["ok"] and r["proposal"]["mutation_id"] == "mut.test-bump"
     assert r["proposal"]["base_revision"] == _loaded()["hash"]
@@ -236,26 +242,26 @@ def test_reflect_model_proposal_accepted():
 
 
 def test_reflect_malformed_output_rejected():
-    ps = mutate.PassState(copy.deepcopy(MINI["mutate"]))
-    r = mutate.reflect(ps, {}, _loaded(), MINI, "cadence",
+    ps = evolve.PassState(copy.deepcopy(MINI["mutate"]))
+    r = evolve.reflect(ps, {}, _loaded(), MINI, "cadence",
                        resolver=_resolver_endpoint, chat=_chat_bad)
     assert not r["ok"] and not r.get("degraded")
     assert r["violations"]
 
 
 def test_reflect_endpoint_down_is_degraded():
-    ps = mutate.PassState(copy.deepcopy(MINI["mutate"]))
-    r = mutate.reflect(ps, {}, _loaded(), MINI, "cadence",
+    ps = evolve.PassState(copy.deepcopy(MINI["mutate"]))
+    r = evolve.reflect(ps, {}, _loaded(), MINI, "cadence",
                        resolver=_resolver_endpoint, chat=_chat_broken)
     assert not r["ok"] and r["degraded"]
 
 
 def test_reflect_unresolved_role_is_degraded():
-    ps = mutate.PassState(copy.deepcopy(MINI["mutate"]))
-    r = mutate.reflect(ps, {}, _loaded(), MINI, "cadence",
+    ps = evolve.PassState(copy.deepcopy(MINI["mutate"]))
+    r = evolve.reflect(ps, {}, _loaded(), MINI, "cadence",
                        resolver=_resolver_broken, chat=_chat_ok)
     assert not r["ok"] and r["degraded"]
-    assert r["error"]["code"] == "mutate.unresolved"
+    assert r["error"]["code"] == "evolve.unresolved"
 
 
 def test_reflect_rules_only_applies_declared_remediation():
@@ -268,9 +274,9 @@ def test_reflect_rules_only_applies_declared_remediation():
         "remediation": {"ops": [{"op": "set_cfg",
                                  "path": "govern.goals.keep.retry_polls",
                                  "value": 7}]}}]}
-    ps = mutate.PassState(copy.deepcopy(MINI["mutate"]))
+    ps = evolve.PassState(copy.deepcopy(MINI["mutate"]))
     ps.note(_env("action.refused", {"template_id": "ping"}))
-    r = mutate.reflect(ps, {}, _loaded(pack), pack, "near_failure",
+    r = evolve.reflect(ps, {}, _loaded(pack), pack, "near_failure",
                        resolver=_resolver_rules, chat=_chat_broken)
     assert r["ok"] and r["degraded"]
     assert r["proposal"]["mutations"] == [
@@ -279,11 +285,11 @@ def test_reflect_rules_only_applies_declared_remediation():
 
 
 def test_reflect_rules_only_no_findings_degrades():
-    ps = mutate.PassState(copy.deepcopy(MINI["mutate"]))
-    r = mutate.reflect(ps, {}, _loaded(), MINI, "cadence",
+    ps = evolve.PassState(copy.deepcopy(MINI["mutate"]))
+    r = evolve.reflect(ps, {}, _loaded(), MINI, "cadence",
                        resolver=_resolver_rules, chat=_chat_broken)
     assert not r["ok"] and r["degraded"]
-    assert r["error"]["code"] == "mutate.rules_only_noop"
+    assert r["error"]["code"] == "evolve.rules_only_noop"
 
 
 # -- gate ------------------------------------------------------------------------
@@ -305,80 +311,90 @@ def test_gate_full_pack_ops_apply():
                    "effect": {"field": "y"}, "steps": []}},
         {"op": "append", "path": "emergency",
          "value": {"id": "er", "priority": 1,
-                   "condition": {"combinator": "any",
-                                 "predicates": [{"field": "x",
-                                                 "op": "gte",
-                                                 "value": 1}]},
+                   "when": {"field": "x", "op": "gte", "value": 1},
                    "action": {"template_id": "ping", "params": {}}}},
-        {"op": "set", "path": "start.cfg.build_shelter", "value": False},
+        {"op": "set", "path": "decide.select.cadence_polls",
+         "value": 3},
     ]
-    g = mutate.gate(_proposal(ops), _loaded(), MINI, MINI["mutate"],
-                    fair=False)
+    g = evolve.gate(_proposal(ops, MINI_V1), _loaded(MINI_V1), MINI_V1,
+                    MINI["mutate"], fair=False)
     assert g["ok"], g
     doc = g["doc"]
-    assert doc["govern"]["goals"][0]["retry_polls"] == 9
-    assert any(g2["id"] == "new-goal" for g2 in doc["govern"]["goals"])
-    assert doc["emergency"][0]["id"] == "er"
-    assert doc["start"]["cfg"]["build_shelter"] is False
+    # v0 ops rewrote onto the v1 surfaces
+    assert doc["standing_goals"][0]["retry_polls"] == 9
+    assert any(g2["id"] == "new-goal" for g2 in doc["standing_goals"])
+    assert doc["reflexes"][0]["id"] == "er"
+    assert doc["decide"]["select"]["cadence_polls"] == 3
 
 
 def test_gate_remove_ops():
     pack = copy.deepcopy(MINI)
     pack["universal"] = {"rules": [{"id": "bad-rule", "when": {},
                                     "steps": []}]}
+    pack_v1 = templates.migrate_v0(pack)
     ops = [{"op": "remove", "path": "universal.rules.bad-rule"},
            {"op": "remove", "path": "govern.goals.keep"}]
-    g = mutate.gate(_proposal(ops, pack), _loaded(pack), pack,
+    g = evolve.gate(_proposal(ops, pack_v1), _loaded(pack_v1), pack_v1,
                     MINI["mutate"], fair=False)
     assert g["ok"]
-    assert g["doc"]["universal"]["rules"] == []
-    assert g["doc"]["govern"]["goals"] == []
+    assert g["doc"]["rules"] == []
+    assert g["doc"]["standing_goals"] == []
 
 
 def test_gate_rejects_budget_stale_vacuous_miss():
-    ld = _loaded()
-    many = [{"op": "set", "path": f"govern.k{i}", "value": i}
+    ld = _loaded(MINI_V1)
+    many = [{"op": "set", "path": f"senses.govern.k{i}", "value": i}
             for i in range(6)]   # > max_ops 5
-    g = mutate.gate(_proposal(many), ld, MINI, MINI["mutate"], fair=False)
+    g = evolve.gate(_proposal(many, MINI_V1), ld, MINI_V1,
+                    MINI["mutate"], fair=False)
     assert g["gate"] == "budget"
 
-    stale = _proposal([{"op": "set", "path": "govern.x", "value": 1}])
+    stale = _proposal(
+        [{"op": "set", "path": "senses.govern.x", "value": 1}], MINI_V1)
     stale["base_revision"] = "0" * 64
-    g = mutate.gate(stale, ld, MINI, MINI["mutate"], fair=False)
+    g = evolve.gate(stale, ld, MINI_V1, MINI["mutate"], fair=False)
     assert g["gate"] == "stale"
 
     same = _proposal([{"op": "set",
                        "path": "govern.goals.keep.retry_polls",
-                       "value": 5}])     # already 5 -> no change
-    g = mutate.gate(same, ld, MINI, MINI["mutate"], fair=False)
+                       "value": 5}], MINI_V1)     # already 5 -> no change
+    g = evolve.gate(same, ld, MINI_V1, MINI["mutate"], fair=False)
     assert g["gate"] == "vacuous"
 
     miss = _proposal([{"op": "remove", "path": "govern.goals.nope"},
-                      {"op": "set", "path": "govern.x", "value": 1}])
-    g = mutate.gate(miss, ld, MINI, MINI["mutate"], fair=False)
+                      {"op": "remove", "path": "rules.nope"}],
+                     MINI_V1)
+    g = evolve.gate(miss, ld, MINI_V1, MINI["mutate"], fair=False)
     assert g["gate"] == "validation" and g["violations"]
+
+    # identity surfaces are not mutable
+    imm = _proposal([{"op": "set", "path": "pack_id",
+                      "value": "pack.hijack"}], MINI_V1)
+    g = evolve.gate(imm, ld, MINI_V1, MINI["mutate"], fair=False)
+    assert not g["ok"] and "not a mutable surface" in g["violations"][0]
 
 
 def test_gate_rejects_unknown_method_and_fair_dev():
     ops = [{"op": "append", "path": "templates",
             "value": {"id": "evil", "method": "no.such.rpc",
                       "params_schema": {}}}]
-    g = mutate.gate(_proposal(ops), _loaded(), MINI, MINI["mutate"],
-                    fair=False)
+    g = evolve.gate(_proposal(ops, MINI_V1), _loaded(MINI_V1), MINI_V1,
+                    MINI["mutate"], fair=False)
     assert not g["ok"] and "sealed inventory" in g["violations"][0]
 
     dev = [{"op": "append", "path": "templates",
             "value": {"id": "dv", "method": "dev.spawn",
                       "params_schema": {}}}]
-    g = mutate.gate(_proposal(dev), _loaded(), MINI, MINI["mutate"],
-                    fair=True)
+    g = evolve.gate(_proposal(dev, MINI_V1), _loaded(MINI_V1),
+                    MINI_V1, MINI["mutate"], fair=True)
     assert not g["ok"] and "dev-class" in g["violations"][0]
 
 
 def test_gate_rejects_schema_breaking_mutation():
-    ops = [{"op": "set", "path": "templates", "value": []}]  # minItems 1
-    g = mutate.gate(_proposal(ops), _loaded(), MINI, MINI["mutate"],
-                    fair=False)
+    ops = [{"op": "set", "path": "templates",
+            "value": []}]  # rewrites to capabilities.templates -> empty
+    g = evolve.gate(_proposal(ops, MINI_V1), _loaded(MINI_V1), MINI_V1,
+                    MINI["mutate"], fair=False)
     assert not g["ok"] and g["gate"] == "validation"
 
 
@@ -386,7 +402,7 @@ def test_gate_rejects_schema_breaking_mutation():
 
 def test_maybe_trigger_candidate_and_active_pack_untouched(tmp_path):
     emitted: list[dict] = []
-    ps = mutate.PassState(copy.deepcopy(MINI["mutate"]))
+    ps = evolve.PassState(copy.deepcopy(MINI["mutate"]))
     ps.note(_transition("govern.keep", "failed"))
     d = _stub_dispatcher()
     pack_bytes = json.dumps(MINI, sort_keys=True)
@@ -398,7 +414,7 @@ def test_maybe_trigger_candidate_and_active_pack_untouched(tmp_path):
     assert "mutation.candidate" in types
     # active pack object never mutated by the pass
     assert json.dumps(MINI, sort_keys=True) == pack_bytes
-    rows = mutate.lineage_rows(tmp_path)
+    rows = evolve.lineage_rows(tmp_path)
     assert rows[-1]["state"] == "pending"
     assert Path(rows[-1]["candidate_path"]).is_file()
 
@@ -411,7 +427,7 @@ def test_maybe_trigger_noop_when_no_ops(tmp_path):
                     "failure_paths": [], "likely_paths": []},
                 "mutations": [], "rationale": "looks fine"})}}]}}
     emitted: list[dict] = []
-    ps = mutate.PassState(copy.deepcopy(MINI["mutate"]))
+    ps = evolve.PassState(copy.deepcopy(MINI["mutate"]))
     ps.note(_transition("govern.keep", "failed"))
     r = _maybe(ps, state_dir=tmp_path, emit=emitted.append,
                resolver=_resolver_endpoint, chat=chat_noop)
@@ -421,7 +437,7 @@ def test_maybe_trigger_noop_when_no_ops(tmp_path):
 
 def test_maybe_trigger_rejection_path(tmp_path):
     emitted: list[dict] = []
-    ps = mutate.PassState(copy.deepcopy(MINI["mutate"]))
+    ps = evolve.PassState(copy.deepcopy(MINI["mutate"]))
     ps.note(_transition("govern.keep", "failed"))
     r = _maybe(ps, state_dir=tmp_path, emit=emitted.append,
                resolver=_resolver_endpoint, chat=_chat_bad)
@@ -432,7 +448,7 @@ def test_maybe_trigger_rejection_path(tmp_path):
 
 
 def test_maybe_trigger_disabled_returns_none(tmp_path):
-    ps = mutate.PassState({})
+    ps = evolve.PassState({})
     ps.note(_transition("govern.keep", "failed"))
     assert _maybe(ps, state_dir=tmp_path) is None
 
@@ -469,17 +485,17 @@ def test_boundary_promotes_pending_candidate(packs, tmp_path):
     parent_hash = templates.current_hash("start-mode-v0")
     cand, cand_hash = _mk_candidate(
         packs, tweak=lambda d: dict(d, revision="v0+mut.test"))
-    mutate._append_lineage(state, {
+    evolve._append_lineage(state, {
         "candidate_id": cand.stem, "target_pack": "start-mode-v0",
         "candidate_path": str(cand), "candidate_hash": cand_hash,
         "state": "pending"})
     events: list[dict] = []
-    out = mutate.boundary("start-mode-v0", state, emit=events.append)
+    out = evolve.boundary("start-mode-v0", state, emit=events.append)
     assert out["promoted"] == cand.stem
     assert templates.current_hash("start-mode-v0") == cand_hash
     assert templates.current_hash("start-mode-v0") != parent_hash
     assert any(e["event_type"] == "mutation.promoted" for e in events)
-    rows = mutate.lineage_rows(state)
+    rows = evolve.lineage_rows(state)
     promoted = [r for r in rows if r["state"] == "promoted"]
     assert promoted and promoted[-1]["parent_hash"] == parent_hash
     assert Path(promoted[-1]["parent_path"]).is_file()  # parent backup
@@ -487,13 +503,13 @@ def test_boundary_promotes_pending_candidate(packs, tmp_path):
 
 def test_boundary_rejects_missing_candidate(packs, tmp_path):
     state = tmp_path / "state"
-    mutate._append_lineage(state, {
+    evolve._append_lineage(state, {
         "candidate_id": "gone", "target_pack": "start-mode-v0",
         "candidate_path": str(packs / "candidates" / "gone.yaml"),
         "candidate_hash": "x", "state": "pending"})
     events: list[dict] = []
     before = templates.current_hash("start-mode-v0")
-    out = mutate.boundary("start-mode-v0", state, emit=events.append)
+    out = evolve.boundary("start-mode-v0", state, emit=events.append)
     assert out["promoted"] is None and out["rejected"] == ["gone"]
     assert templates.current_hash("start-mode-v0") == before
 
@@ -512,7 +528,7 @@ def test_boundary_reverts_regressed_promotion(packs, tmp_path):
     bad["revision"] = "v0+bad"
     templates.pack_path("start-mode-v0") \
         .write_text(yaml.safe_dump(bad), encoding="utf-8")
-    mutate._append_lineage(state, {
+    evolve._append_lineage(state, {
         "candidate_id": "cand-bad", "target_pack": "start-mode-v0",
         "candidate_path": str(backup), "candidate_hash": "x",
         "state": "promoted", "parent_hash": parent_hash,
@@ -523,7 +539,7 @@ def test_boundary_reverts_regressed_promotion(packs, tmp_path):
         (state / "events.jsonl").open("a").write(
             json.dumps(_transition(f"govern.g{i}", "failed", i)) + "\n")
     events: list[dict] = []
-    out = mutate.boundary("start-mode-v0", state, emit=events.append)
+    out = evolve.boundary("start-mode-v0", state, emit=events.append)
     assert out["reverted"] == "cand-bad"
     assert templates.current_hash("start-mode-v0") == parent_hash
     assert any(e["event_type"] == "mutation.reverted" for e in events)
@@ -534,7 +550,7 @@ def test_boundary_keeps_improved_promotion(packs, tmp_path):
     backup = packs / "candidates" / "p.yaml"
     backup.parent.mkdir(exist_ok=True)
     backup.write_bytes(b"keepme")
-    mutate._append_lineage(state, {
+    evolve._append_lineage(state, {
         "candidate_id": "cand-ok", "target_pack": "start-mode-v0",
         "candidate_path": str(backup), "candidate_hash": "x",
         "state": "promoted", "parent_hash": "p", "parent_path": str(backup),
@@ -542,9 +558,9 @@ def test_boundary_keeps_improved_promotion(packs, tmp_path):
     for i in range(3):   # clean episode -> score 0 < 0.9 -> keep
         (state / "events.jsonl").open("a").write(
             json.dumps(_transition(f"govern.g{i}", "succeeded", i)) + "\n")
-    out = mutate.boundary("start-mode-v0", state)
+    out = evolve.boundary("start-mode-v0", state)
     assert out["reverted"] is None
-    assert mutate.lineage_rows(state)[-1]["state"] == "promoted"
+    assert evolve.lineage_rows(state)[-1]["state"] == "promoted"
 
 
 # -- packmut compile_legacy -------------------------------------------------------
@@ -557,14 +573,17 @@ def test_compile_legacy_drop_rule_targets_only_the_list_that_has_it():
         [{"op": "drop_rule", "ids": ["a", "c", "nope"]}], doc)
     assert ops == [{"op": "remove", "path": "universal.rules.a"},
                    {"op": "remove", "path": "combat.raid.rules.c"}]
-    changed, misses = packmut.apply_ops(doc, ops)
+    # v0 paths rewrite to v1 surfaces on the migrated doc
+    doc_v1 = templates.migrate_v0(doc)
+    changed, misses = packmut.apply_ops(doc_v1, ops)
     assert changed and not misses
-    assert doc["universal"]["rules"] == []
+    assert doc_v1["rules"] == []
+    assert doc_v1["combat"]["raid"]["rules"] == []
 
 
-# -- integration: run_start --------------------------------------------------------
+# -- integration: run --------------------------------------------------------
 
-def test_run_start_live_mutate_off_emits_nothing(packs, tmp_path):
+def test_run_live_mutate_off_emits_nothing(packs, tmp_path):
     events: list[dict] = []
     game = StartSim()
     d = Dispatcher(game, sink=events.append,
@@ -572,14 +591,14 @@ def test_run_start_live_mutate_off_emits_nothing(packs, tmp_path):
     d.load_pack("start-mode-v0")
     ledger = TaskLedger(tmp_path / "state" / "tasks.jsonl",
                         sink=events.append)
-    res = run_start(d, game, ledger, d.pack["pack"], iterations=30,
-                    live_mutate=False)
+    res = run(d, game, ledger, d.pack["pack"], iterations=30,
+          live_mutate=False, stop_on_complete=True)
     assert res["completed"]
     assert not [e for e in events
                 if str(e["event_type"]).startswith("mutation.")]
 
 
-def test_run_start_live_mutate_fires_and_pack_stays_put(packs, tmp_path):
+def test_run_live_mutate_fires_and_pack_stays_put(packs, tmp_path):
     """A held run under --live-mutate: goals go terminal -> reflection
     passes fire; the loaded pack file hash never changes mid-run."""
     events: list[dict] = []
@@ -592,10 +611,10 @@ def test_run_start_live_mutate_fires_and_pack_stays_put(packs, tmp_path):
     pack["mutate"]["goals_per_pass"] = 5
     ledger = TaskLedger(tmp_path / "state" / "tasks.jsonl",
                         sink=events.append)
-    res = run_start(d, game, ledger, pack, iterations=40, hold=True,
-                    live_mutate=True,
-                    mutate_resolver=_resolver_rules,
-                    mutate_chat=_chat_broken)
+    res = run(d, game, ledger, pack, iterations=40,
+          live_mutate=True,
+          mutate_resolver=_resolver_rules,
+          mutate_chat=_chat_broken)
     assert res["completed"]
     mut_events = [e["event_type"] for e in events
                   if str(e["event_type"]).startswith("mutation.")]
@@ -605,3 +624,47 @@ def test_run_start_live_mutate_fires_and_pack_stays_put(packs, tmp_path):
                ("mutation.candidate", "mutation.degraded",
                 "mutation.rejected", "mutation.noop"))
     assert d.pack["hash"] == templates.current_hash("start-mode-v0")
+
+
+# -- v1-surface round-trips (T033) ---------------------------------------
+
+
+def test_phase_and_decide_ops_round_trip():
+    doc = templates.migrate_v0({
+        "schema_version": 0, "pack_id": "pack.rt", "revision": "v0",
+        "templates": [{"id": "ping", "method": "game.status",
+                       "params_schema": {}}],
+        "jobs": [], "decision_map": [], "emergency": [],
+        "start": {"phases": [{"id": "shelter", "steps": []}],
+                  "exit": {}},
+        "decide": {"select": {"cadence_polls": 1}},
+    })
+    ops = [
+        {"op": "upsert", "path": "phases",
+         "value": {"id": "expand", "goals": [],
+                   "complete": {"all": []}}},
+        {"op": "set", "path": "phases.init.steps.shelter.tag",
+         "value": "x"},
+        {"op": "set", "path": "decide.plan.cadence_s", "value": 60},
+        {"op": "set", "path": "action_list.max_items", "value": 12},
+        {"op": "append", "path": "rules",
+         "value": {"id": "r1", "when": {}, "steps": []}},
+        {"op": "upsert", "path": "options",
+         "value": {"id": "opt-x", "summary": "s"}},
+    ]
+    changed, misses = packmut.apply_ops(doc, ops)
+    assert changed and not misses, misses
+    assert doc["phases"][0]["steps"][0]["tag"] == "x"
+    assert any(p["id"] == "expand" for p in doc["phases"])
+    assert doc["decide"]["plan"]["cadence_s"] == 60
+    assert doc["action_list"]["max_items"] == 12
+    assert doc["rules"][-1]["id"] == "r1"
+    assert doc["options"][-1]["id"] == "opt-x"
+    # gated candidate validates through the shared gate
+    g = evolve.gate(
+        {"schema_version": 0, "mutation_id": "mut.rt",
+         "base_revision": templates._hash_of(doc),
+         "analysis": {}, "mutations": ops, "rationale": "r"},
+        {"pack": doc, "hash": templates._hash_of(doc)}, doc,
+        {"max_ops": 10}, fair=False)
+    assert g["ok"], g

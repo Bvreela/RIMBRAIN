@@ -1549,35 +1549,53 @@ def validate_policy(pack: dict, template_ids=None) -> list[str]:
     problems: list[str] = []
     known_templates = set(template_ids or [])
     if template_ids is None:
-        known_templates = {t.get("id") for t in pack.get("templates") or []
+        from .templates import (phases_of, rules_of,  # noqa: E501
+                                standing_goals_of, templates_of)
+        # lazy import: templates loads policy for pack validation
+        known_templates = {t.get("id") for t in templates_of(pack)
                            if isinstance(t, dict)}
-    start = pack.get("start") or {}
-    phases = start.get("phases")
-    if phases is not None and not isinstance(phases, list):
-        problems.append("start.phases: must be a list")
-    for ph in phases or []:
+
+    def _check_unit(unit: dict, label: str) -> None:
+        """Work-unit checks shared by prescriptive steps and goals:
+        declared effect predicate + template refs in steps/escalate."""
+        if not isinstance(unit, dict) or not unit.get("id"):
+            problems.append(f"{label}s[]: every entry needs an id")
+            return
+        uid = unit["id"]
+        if "effect" not in unit:
+            problems.append(f"{label} {uid}: no effect predicate")
+        for st in unit.get("steps") or []:
+            tid = st.get("template") if isinstance(st, dict) else None
+            if not tid:
+                problems.append(f"{label} {uid}: step missing template")
+            elif tid not in known_templates:
+                problems.append(
+                    f"{label} {uid}: unknown template '{tid}'")
+        for st in (unit.get("escalate") or {}).get("steps") or []:
+            tid = st.get("template") if isinstance(st, dict) else None
+            if not tid:
+                problems.append(
+                    f"{label} {uid}: escalate step missing template")
+            elif tid not in known_templates:
+                problems.append(
+                    f"{label} {uid}: escalate unknown template '{tid}'")
+
+    # v1 surfaces (accessors cover migrated v0 too): lifecycle phases —
+    # prescriptive `steps` hold the work units; `goals` are phase-scoped
+    # standing goals — then pack-level rules and standing_goals.
+    phases = phases_of(pack)
+    if not isinstance(phases, list):
+        problems.append("phases: must be a list")
+        phases = []
+    for ph in phases:
         if not isinstance(ph, dict) or not ph.get("id"):
-            problems.append("start.phases[]: every phase needs an id")
+            problems.append("phases[]: every phase needs an id")
             continue
-        if "effect" not in ph:
-            problems.append(f"phase {ph['id']}: no effect predicate")
-        for st in ph.get("steps") or []:
-            tid = st.get("template") if isinstance(st, dict) else None
-            if not tid:
-                problems.append(f"phase {ph['id']}: step missing template")
-            elif tid not in known_templates:
-                problems.append(
-                    f"phase {ph['id']}: unknown template '{tid}'")
-        for st in (ph.get("escalate") or {}).get("steps") or []:
-            tid = st.get("template") if isinstance(st, dict) else None
-            if not tid:
-                problems.append(
-                    f"phase {ph['id']}: escalate step missing template")
-            elif tid not in known_templates:
-                problems.append(
-                    f"phase {ph['id']}: escalate unknown template '{tid}'")
-    uni = pack.get("universal") or {}
-    for rule in uni.get("rules") or []:
+        for unit in ph.get("steps") or []:
+            _check_unit(unit, "phase")
+        for g in ph.get("goals") or []:
+            _check_unit(g, "goal")
+    for rule in rules_of(pack):
         if not isinstance(rule, dict) or not rule.get("id"):
             problems.append("universal.rules[]: every rule needs an id")
             continue
@@ -1597,38 +1615,19 @@ def validate_policy(pack: dict, template_ids=None) -> list[str]:
             if tid and tid not in known_templates:
                 problems.append(
                     f"combat.{section}: unknown template '{tid}'")
-    gov = pack.get("govern") or {}
-    goals = gov.get("goals")
-    if goals is not None and not isinstance(goals, list):
-        problems.append("govern.goals: must be a list")
-    for g in goals or []:
-        if not isinstance(g, dict) or not g.get("id"):
-            problems.append("govern.goals[]: every goal needs an id")
-            continue
-        if "effect" not in g:
-            problems.append(f"goal {g['id']}: no effect predicate")
-        for st in g.get("steps") or []:
-            tid = st.get("template") if isinstance(st, dict) else None
-            if not tid:
-                problems.append(f"goal {g['id']}: step missing template")
-            elif tid not in known_templates:
-                problems.append(
-                    f"goal {g['id']}: unknown template '{tid}'")
-        for st in (g.get("escalate") or {}).get("steps") or []:
-            tid = st.get("template") if isinstance(st, dict) else None
-            if not tid:
-                problems.append(
-                    f"goal {g['id']}: escalate step missing template")
-            elif tid not in known_templates:
-                problems.append(
-                    f"goal {g['id']}: escalate unknown template '{tid}'")
+    for g in standing_goals_of(pack):
+        _check_unit(g, "goal")
     for s in _walk_strings(pack):
         for m in _FN_RE.finditer(s) if s.startswith("@fn:") else []:
             if m.group(1) not in FN:
                 problems.append(f"unknown @fn:{m.group(1)}")
+    # predicate-op audit covers every predicate-bearing surface: v1
+    # phases/goals/rules via accessors + the retained cfg alias blocks
     for pred in _walk_preds(
-            {"s": start.get("phases"), "e": start.get("exit"),
-             "u": uni.get("rules"), "c": combat, "g": gov.get("goals")}):
+            {"phases": phases, "rules": rules_of(pack),
+             "goals": standing_goals_of(pack), "c": combat,
+             "cfg": {k: v for k, v in pack.items()
+                     if k in ("start", "govern", "universal")}}):
         op = pred.get("op")
         if op and op not in _OPS:
             problems.append(f"unknown predicate op '{op}'")

@@ -1,7 +1,10 @@
 """Save-reset improvement cycle (feature 010): iterated training loop.
 
-Per iteration: load checkpoint -> wait until playing -> run_start ->
-run_combat -> run_improve -> emit `cycle.completed`. The checkpoint is
+Per iteration: load checkpoint -> wait until playing -> run(start leg) ->
+run(combat stage, scripted) -> run_improve -> emit `cycle.completed`.
+Feature 017: both game legs ride the unified loop — start is the
+bounded prescriptive stage, combat is the pack's `kind: combat` phase
+driven under --dev. The checkpoint is
 created once (game.save) before the loop and reloaded every iteration so
 each cycle faces the identical world state — honest cross-cycle evidence.
 
@@ -15,9 +18,9 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from .combatmode import _wait_playing, run_combat
-from .improve import run_improve
-from .startmode import run_start
+from .evolve import run_improve
+from .phase import _wait_playing
+from .loop import run
 from .tasks import TaskLedger
 
 
@@ -74,21 +77,29 @@ def run_cycle(dispatcher, game, pack: dict, store, *,
         if "start" in order:
             dispatcher.dispatch("load-game", {"name": checkpoint})
             _wait_playing(game)
-            res = run_start(dispatcher, game, ledger, pack,
-                            iterations=int(cycle_cfg.get(
-                                "start_iterations", 400)),
-                            sink=sink, clock=clock, speed=speed,
-                            hold=False)  # bounded phase: hand off to combat
+            res = run(dispatcher, game, ledger, pack,
+                      iterations=int(cycle_cfg.get(
+                          "start_iterations", 400)),
+                      sink=sink, clock=clock, speed=speed,
+                      stop_on_complete=True)  # bounded phase: hand off
             phases["start"] = ("completed" if res.get("completed")
                                else "incomplete")
         if "combat" in order:
-            res = run_combat(dispatcher, game, ledger, pack,
-                             iterations=int(cycle_cfg.get(
-                                 "combat_iterations", 400)),
-                             sink=sink, clock=clock, speed=speed,
-                             mode_state_dir=cdir)
-            phases["combat"] = res.get("verdict") or (
-                res.get("error", {}).get("code", "failed"))
+            # unified loop drives the pack's kind:combat phase — the
+            # combat leg is just `run()` staged on that phase under
+            # the dev harness flag (feature 017; FR-1429)
+            res = run(dispatcher, game, ledger, pack,
+                      iterations=int(cycle_cfg.get(
+                          "combat_iterations", 400)),
+                      sink=sink, clock=clock, speed=speed,
+                      scripted=True, stage="combat")
+            verdict = next((o.get("combat", {}).get("verdict")
+                            for o in reversed(res.get("outcomes") or [])
+                            if "combat" in o), None)
+            phases["combat"] = verdict or next(
+                (o.get("error") for o in reversed(
+                    res.get("outcomes") or []) if o.get("error")),
+                "failed")
         if "improve" in order and store is not None:
             res = run_improve(store, pack.get("improve") or {},
                               active_pack=pack, iterations=1,

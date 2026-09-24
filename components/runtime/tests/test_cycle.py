@@ -9,7 +9,7 @@ from runtime.dispatch import Dispatcher
 from runtime.store import EventStore
 from runtime.cycle import run_cycle
 
-from test_startmode import StartSim
+from test_phase import StartSim
 
 
 @pytest.fixture()

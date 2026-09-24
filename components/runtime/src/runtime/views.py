@@ -53,9 +53,22 @@ def _goal_rows(mode, ledger, ctx=None) -> list[dict]:
     `holds` is the effect's live truth so a terminal-but-lapsed goal
     doesn't sit green."""
     rows = []
-    sections = [("start", mode.cfg.get("phases") or [], ""),
-                ("govern", ((mode.pack.get("govern") or {})
-                            .get("goals") or []), "govern.")]
+    if hasattr(mode, "phases"):
+        # PhaseEngine (feature 017): lifecycle phases — prescriptive
+        # steps, phase-scoped goals — then pack standing goals.
+        sections = []
+        for ph in mode.phases:
+            pid = ph.get("id")
+            if ph.get("prescriptive"):
+                sections.append(("start", ph.get("steps") or [], ""))
+            else:
+                sections.append((f"phase.{pid}",
+                                 ph.get("goals") or [], f"{pid}."))
+        sections.append(("govern", mode.standing or [], "govern."))
+    else:
+        sections = [("start", mode.cfg.get("phases") or [], ""),
+                    ("govern", ((mode.pack.get("govern") or {})
+                                .get("goals") or []), "govern.")]
     for ns, entries, prefix in sections:
         for g in entries:
             gid = g.get("id")
@@ -152,6 +165,25 @@ def write_planning(state_dir: str | Path, snapshot: dict) -> None:
                     lines.append(f"- **{k}**: {lh[k]}")
         else:
             lines.append(str(lh))
+    sl = snapshot.get("select")
+    if sl:
+        tag = "shadow" if sl.get("shadow") else \
+            ("fallback" if sl.get("fallback") else "applied")
+        lines += ["", "## Last select", "",
+                  f"pick: `{sl.get('picked') or '—'}`  "
+                  f"applied: `{sl.get('applied')}`  "
+                  f"offered: {sl.get('offered', 0)}  `{tag}`"
+                  + (f"  {sl['latency_ms']:.0f} ms"
+                     if sl.get("latency_ms") is not None else "")]
+    pl = snapshot.get("plan")
+    if pl:
+        lines += ["", "## In-force plan", "",
+                  f"id: `{pl.get('id')}`  issued: t{pl.get('issued_tick')}"
+                  f"  stale: {pl.get('stale_ticks')} ticks",
+                  f"goal_order: `{pl.get('goal_order') or '—'}`",
+                  f"deactivated: `{pl.get('deactivate') or '—'}`",
+                  f"promoted: `{pl.get('promoted') or '—'}`",
+                  f"horizon: `{pl.get('horizon') or '—'}`"]
     mv = snapshot.get("mutation")
     if mv:
         lines += ["", "## Pack mutation", "",
@@ -233,6 +265,45 @@ def start_snapshot(mode, ledger, obs, events_path=None,
         mode, ledger, obs,
         latest_plan=latest_plan_summary(events_path) if events_path
         else None, mutate_view=mutate_view)
+
+
+def phase_snapshot(engine, ledger, obs, events_path=None,
+                   mutate_view=None) -> dict:
+    """Planning snapshot for the unified phase run (feature 017;
+    FR-1428): current phase, per-phase step/goal rows with live
+    `holds`, standing goals — same semantics as start_snapshot."""
+    snap = planning_snapshot(
+        engine, ledger, obs,
+        latest_plan=latest_plan_summary(events_path) if events_path
+        else None, mutate_view=mutate_view)
+    snap["mode"] = "run"
+    snap["phase"] = next(
+        (p.get("id") for p in engine.phases
+         if p.get("id") and not engine._done(p["id"])), None)
+    snap["phases"] = [
+        {"id": p.get("id"), "prescriptive": bool(p.get("prescriptive")),
+         "done": engine._done(p.get("id"))}
+        for p in engine.phases]
+    # T039: unified snapshot — pending action list, last select pick
+    # (+fallback/shadow marker), in-force plan + staleness
+    sel = [r for r in (engine.decisions or []) if r.get("select")]
+    last = sel[-1] if sel else None
+    snap["select"] = ({
+        "picked": last.get("pick"), "applied": last.get("applied"),
+        "fallback": bool(last.get("fallback")),
+        "shadow": bool(last.get("shadow")),
+        "offered": len(last.get("offered") or []),
+        "latency_ms": last.get("latency_ms")} if last else None)
+    plan = getattr(engine.rs, "plan", None)
+    snap["plan"] = ({
+        "id": plan.get("id"), "issued_tick": plan.get("tick"),
+        "stale_ticks": (obs.get("tick") or 0) - (plan.get("tick") or 0),
+        "goal_order": plan.get("goal_order"),
+        "deactivate": plan.get("deactivate"),
+        "promoted": [p.get("option")
+                     for p in plan.get("promoted") or []],
+        "horizon": plan.get("horizon")} if plan else None)
+    return snap
 
 
 def simple_snapshot(mode, obs, poll, goals=None, pack=None,

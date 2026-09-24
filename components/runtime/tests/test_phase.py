@@ -1,4 +1,5 @@
-"""Start-mode tests (feature 008; FR-701..709, SC-701..705).
+"""Phase-engine tests (feature 017; FR-1401..1403) — ported from
+test_startmode (feature 008; FR-701..709, SC-701..705).
 
 StartSim models a fresh-map rpc surface: drop-pile items, open rects,
 no zones/rooms/stocks. Writes mutate it deterministically on advance()
@@ -19,8 +20,9 @@ sys.path.insert(0, str(REPO_ROOT / "components" / "runtime" / "src"))
 sys.path.insert(0, str(REPO_ROOT / "components" / "contracts" / "src"))
 
 from runtime.dispatch import Dispatcher  # noqa: E402
-from runtime.startmode import StartMode, observe_start, \
-    run_start  # noqa: E402
+from runtime.loop import run  # noqa: E402
+from runtime.observe import observe_start  # noqa: E402
+from runtime.phase import PhaseEngine  # noqa: E402
 from runtime.tasks import TaskLedger  # noqa: E402
 from runtime import policy  # noqa: E402
 
@@ -550,7 +552,7 @@ def rig(tmp_path, monkeypatch):
 def test_full_bootstrap_to_completed(rig):
     """SC-701: ordered trace site->...->baseline -> start.completed."""
     d, game, ledger, cfg, events = rig
-    res = run_start(d, game, ledger, cfg, iterations=30)
+    res = run(d, game, ledger, cfg, iterations=30, stop_on_complete=True)
     assert res["completed"]
     assert res["site"]["min"] == [14, 14]  # nearest the item cluster
     phases = [t for t in ledger.tasks.values()]
@@ -566,7 +568,7 @@ def test_hold_governs_after_completed(rig):
     standing goals dispatch/verify, and a lapsed effect re-arms."""
     d, game, ledger, cfg, events = rig
     game.letters = [{"id": "l-quest", "choices": ["Accept", "Reject"]}]
-    res = run_start(d, game, ledger, cfg, iterations=60, hold=True)
+    res = run(d, game, ledger, cfg, iterations=60)
     assert res["completed"]
     types = [e["event_type"] for e in events]
     assert "start.completed" in types
@@ -589,7 +591,7 @@ def test_hold_governs_after_completed(rig):
     assert game.letters == []  # the offer was accepted via ui.letter
     # a fresh offer re-arms the terminal goal on the next held run
     game.letters.append({"id": "l2", "choices": ["Accept"]})
-    res2 = run_start(d, game, ledger, cfg, iterations=10, hold=True)
+    res2 = run(d, game, ledger, cfg, iterations=10)
     assert res2["completed"]
     assert game.letters == []
     # every write has evidence: issued + terminal
@@ -609,10 +611,10 @@ def test_haul_stall_escalates_to_storage(rig):
     d, game, ledger, cfg, events = rig
     game.storage_full = True  # first stockpile can't sink the items
     pack = copy.deepcopy(cfg)
-    haul = next(p for p in pack["start"]["phases"]
+    haul = next(p for p in pack["phases"][0]["steps"]
                 if p["id"] == "haul")
     haul["lease_ticks"] = 60   # sim ticks +25 per advance
-    res = run_start(d, game, ledger, pack, iterations=120)
+    res = run(d, game, ledger, pack, iterations=120, stop_on_complete=True)
     assert res["completed"]
     assert ledger.tasks["start.haul"]["state"] == "succeeded"
     assert ledger.tasks["start.haul"]["attempts"] >= 2
@@ -629,10 +631,10 @@ def test_deleted_zones_rebuild_under_hold(rig):
     goals — stockpiles come back instead of haul jobs spamming into
     nothing (UR-RUN-006, UR-RUN-009)."""
     d, game, ledger, cfg, events = rig
-    res = run_start(d, game, ledger, cfg, iterations=60, hold=True)
+    res = run(d, game, ledger, cfg, iterations=60)
     assert res["completed"]
     game.zones.clear()   # construction deleted every zone
-    run_start(d, game, ledger, cfg, iterations=30, hold=True)
+    run(d, game, ledger, cfg, iterations=30)
     labels = [z.get("label") for z in game.zones]
     assert "start.storage" in labels
     assert "start.overflow" in labels
@@ -643,15 +645,15 @@ def test_hunting_suspends_when_fed(rig):
     is farmed slowly, not drained); below scarce -> resumed at the
     low slow-farm target."""
     d, game, ledger, cfg, events = rig
-    res = run_start(d, game, ledger, cfg, iterations=60, hold=True)
+    res = run(d, game, ledger, cfg, iterations=60)
     assert res["completed"]
     game.stocks_nutrition = 20.0
-    run_start(d, game, ledger, cfg, iterations=20, hold=True)
+    run(d, game, ledger, cfg, iterations=20)
     jobs = {j["kind"]: j for j in game.stock_jobs}
     assert jobs["hunting"]["suspended"] is True
     assert jobs["hunting_leather"]["suspended"] is True
     game.stocks_nutrition = 0.0   # runway gone -> resume slow farming
-    run_start(d, game, ledger, cfg, iterations=20, hold=True)
+    run(d, game, ledger, cfg, iterations=20)
     assert jobs["hunting"]["suspended"] is False
     assert jobs["hunting"]["target"] == 200
 
@@ -662,7 +664,7 @@ def test_turbine_sited_cleared_and_windpath_suppressed(rig):
     blocked sites get cut-designated before the blueprint lands, and
     the corridor is floored so trees can't regrow into it."""
     d, game, ledger, cfg, events = rig
-    res = run_start(d, game, ledger, cfg, iterations=80, hold=True)
+    res = run(d, game, ledger, cfg, iterations=80)
     assert res["completed"]
     assert ledger.tasks["govern.establish-power-grid"]["state"] \
         == "succeeded"
@@ -708,19 +710,19 @@ def test_failed_goal_backs_off_not_starves(rig):
     goal declared below it."""
     d, game, ledger, cfg, events = rig
     pack = copy.deepcopy(cfg)
-    pack["govern"]["goals"].insert(0, {
+    pack["standing_goals"].insert(0, {
         "id": "never",
         "lease_ticks": 60,   # sim ticks +25/advance -> fast retries
         "effect": {"field": "@fn:zone_named(no.such.zone)",
                    "op": "truthy"},
         "steps": []})
-    res = run_start(d, game, ledger, pack, iterations=60, hold=True)
+    res = run(d, game, ledger, pack, iterations=60)
     assert res["completed"]
     assert ledger.tasks["govern.never"]["state"] == "failed"
     # despite 'never' failing at the top of the order, a later goal
     # still gets evaluated and fires
     game.stocks_nutrition = 20.0
-    run_start(d, game, ledger, pack, iterations=40, hold=True)
+    run(d, game, ledger, pack, iterations=40)
     jobs = {j["kind"]: j for j in game.stock_jobs}
     assert jobs["hunting"]["suspended"] is True
 
@@ -731,7 +733,7 @@ def test_brain_reset_unload_reload_loop(rig):
     zero writes while unloaded, clean resume, durable replay."""
     d, game, ledger, cfg, events = rig
     state_dir = ledger._path.parent
-    res = run_start(d, game, ledger, cfg, iterations=60, hold=True,
+    res = run(d, game, ledger, cfg, iterations=60,
                     live_brain=True)
     assert res["completed"]
 
@@ -741,7 +743,7 @@ def test_brain_reset_unload_reload_loop(rig):
     # 1) refresh {} — reloads the active pack; every pack task
     #    namespace is tombstoned with durable rows (UR-BRN-020)
     post("{}")
-    run_start(d, game, ledger, cfg, iterations=6, hold=True,
+    run(d, game, ledger, cfg, iterations=6,
               live_brain=True)
     resets = [e for e in events if e["event_type"] == "brain.reset"]
     assert resets[-1]["payload"]["ok"]
@@ -762,7 +764,7 @@ def test_brain_reset_unload_reload_loop(rig):
     issued = lambda: sum(1 for e in events
                          if e["event_type"] == "action.issued")
     n0 = issued()
-    out = run_start(d, game, ledger, cfg, iterations=6, hold=True,
+    out = run(d, game, ledger, cfg, iterations=6,
                     live_brain=True)
     assert all(o.get("state") == "unloaded"
                for o in out["outcomes"][-5:])
@@ -773,14 +775,14 @@ def test_brain_reset_unload_reload_loop(rig):
 
     # 3) reload {} — driving resumes; no residual unload state
     post("{}")
-    out = run_start(d, game, ledger, cfg, iterations=6, hold=True,
+    out = run(d, game, ledger, cfg, iterations=6,
                     live_brain=True)
     assert all(o.get("state") != "unloaded"
                for o in out["outcomes"])
 
     # 4) swap to a different pack — load by id mid-run
     post('{"pack": "dev-lab-v0"}')
-    run_start(d, game, ledger, cfg, iterations=6, hold=True,
+    run(d, game, ledger, cfg, iterations=6,
               live_brain=True)
     assert d._pack_file == "dev-lab-v0"
     resets = [e for e in events if e["event_type"] == "brain.reset"]
@@ -804,7 +806,7 @@ def test_established_colony_zero_writes(tmp_path, monkeypatch):
     d.load_pack("start-mode-v0")
     cfg = d.pack["pack"]
     ledger = TaskLedger(tmp_path / "state" / "tasks.jsonl")
-    res = run_start(d, game, ledger, cfg, iterations=15)
+    res = run(d, game, ledger, cfg, iterations=15, stop_on_complete=True)
     assert res["completed"]
     # no zone/build/designate writes — only skips + verify
     write_types = [e["event_type"] for e in events
@@ -818,7 +820,7 @@ def test_forced_restart_resumes(rig):
     """SC-702: crash mid-graph -> fresh ledger+mode resume, no replays."""
     d, game, ledger, cfg, events = rig
     path = ledger._path
-    mode = StartMode(cfg, ledger)
+    mode = PhaseEngine(cfg, ledger)
     for tick in (0, 25, 50):
         obs = observe_start(game)
         ledger.reconcile(obs, tick)
@@ -827,16 +829,16 @@ def test_forced_restart_resumes(rig):
     states = {t: s["state"] for t, s in ledger.tasks.items()}
     del ledger, mode
     ledger2 = TaskLedger(path)
-    mode2 = StartMode(cfg, ledger2)
+    mode2 = PhaseEngine(cfg, ledger2)
     assert {t: s["state"] for t, s in ledger2.tasks.items()} == states
     assert mode2.site == mode_site_persisted(path)
     # continue from a fresh mode — no phase re-dispatches
-    res = run_start(d, game, ledger2, cfg, iterations=40)
+    res = run(d, game, ledger2, cfg, iterations=40, stop_on_complete=True)
     assert res["completed"]
 
 
 def mode_site_persisted(path: Path):
-    p = path.parent / "startmode.json"
+    p = path.parent / "runstate.json"
     if not p.is_file():
         return None
     saved = json.loads(p.read_text())
@@ -855,7 +857,7 @@ def test_partial_coverage_stays_active(tmp_path, monkeypatch):
     d = Dispatcher(game, clock=lambda: "2026-01-01T00:00:00Z")
     d.load_pack("start-mode-v0")
     ledger = TaskLedger(tmp_path / "state" / "tasks.jsonl")
-    mode = StartMode(d.pack["pack"], ledger)
+    mode = PhaseEngine(d.pack["pack"], ledger)
     mode._game = game
     obs = observe_start(game)
     ev = mode._exit_eval(obs, mode._ctx(obs))
