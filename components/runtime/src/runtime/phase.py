@@ -370,6 +370,19 @@ class PhaseEngine:
                     tid, "dispatched", "skipped_effect_present", tick)
                 self.ledger.verify(tid, obs, tick)
 
+    def prescriptive_active(self) -> bool:
+        """A prescriptive phase still drives — the start contract isn't
+        met yet, so phase-0 structural work runs before any
+        model-assisted stage engages."""
+        for ph in self.phases:
+            pid = ph.get("id")
+            if not pid or self._done(pid):
+                continue
+            if self.only and pid != self.only:
+                continue
+            return bool(ph.get("prescriptive"))
+        return False
+
     def goal_sources(self) -> list[tuple[str, list]]:
         """(ns, goals) pairs feeding the select stage's colony scope:
         the active non-prescriptive phase's goals, or standing goals

@@ -137,3 +137,86 @@ def test_live_shaped_status_feeds_reflexes(tmp_path, monkeypatch):
     assert any(e["event_type"] == "action.emergency" for e in records)
     # resolved against observed state — not literal placeholders
     assert any(e["event_type"] == "action.completed" for e in records)
+
+
+def test_paused_caller_freezes_colony_around_call():
+    """BIGbrain replies arrive to a frozen colony: pause before the
+    model call, prior speed restored after."""
+    from runtime.loop import _paused_caller
+    game = _LiveShapedGame()
+    seen = {}
+
+    def fake_model(*_a):
+        seen["calls"] = [m for m, _ in game.calls]
+        return {"ok": True}
+
+    out = _paused_caller(game, fake_model)("x")
+    assert out == {"ok": True}
+    assert seen["calls"] == ["game.status", "game.pause"]
+    methods = [m for m, _ in game.calls]
+    assert methods[-2:] == ["game.speed", "game.pause"]
+
+
+def test_paused_caller_already_paused_passes_through():
+    """Nested-safe: inside an existing pause (e.g. fast-evolve's
+    reflection window) the wrapper does not touch the game."""
+    from runtime.loop import _paused_caller
+
+    class Paused(_LiveShapedGame):
+        def rpc(self, method, params=None):
+            r = super().rpc(method, params)
+            if method == "game.status":
+                r = {"ok": True,
+                     "result": dict(r["result"], paused=True)}
+            return r
+
+    game = Paused()
+    assert _paused_caller(game, lambda: 1)() == 1
+    assert [m for m, _ in game.calls] == ["game.status"]
+
+
+def test_paused_caller_restores_on_raise():
+    from runtime.loop import _paused_caller
+    game = _LiveShapedGame()
+
+    def boom():
+        raise RuntimeError("model died")
+
+    with pytest.raises(RuntimeError):
+        _paused_caller(game, boom)()
+    methods = [m for m, _ in game.calls]
+    assert methods[-2:] == ["game.speed", "game.pause"]
+
+
+def test_prescriptive_phase_gates_decide_stages(tmp_path, monkeypatch):
+    """Phase-0-first: while the structured start phase drives, the
+    plan/select stages never run; brains engage once the start
+    contract is met."""
+    monkeypatch.setenv("RIMBRAIN_STATE_DIR", str(tmp_path / "state"))
+    records: list[dict] = []
+    game = SimGame()
+    d = Dispatcher(game, sink=records.append,
+                   clock=lambda: "2026-01-01T00:00:00Z")
+    d.load_pack("start-mode-v0")
+    ledger = TaskLedger(tmp_path / "state" / "tasks.jsonl",
+                        sink=records.append)
+    calls = []
+    from runtime import planstage as _pst
+    from runtime import select as _sel
+    real_decide, real_tick = _sel.decide, _pst.tick
+
+    def spy_decide(*a, **kw):
+        calls.append("select")
+        return real_decide(*a, **kw)
+
+    def spy_tick(*a, **kw):
+        calls.append("plan")
+        return real_tick(*a, **kw)
+
+    monkeypatch.setattr(_sel, "decide", spy_decide)
+    monkeypatch.setattr(_pst, "tick", spy_tick)
+    run(d, game, ledger, d.pack["pack"], iterations=3)
+    assert calls == []          # init still driving -> brains quiet
+    res = run(d, game, ledger, d.pack["pack"], iterations=60)
+    assert res["completed"]
+    assert calls                # post-init the decide stages engaged

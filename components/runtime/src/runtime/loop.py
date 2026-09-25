@@ -137,6 +137,16 @@ def run(dispatcher: Dispatcher, game, ledger, pack: dict, *,
         st = game.rpc("game.status")
         prev_speed = st.get("result") if st.get("ok") else None
         game.rpc("game.speed", {"speed": speed})
+    # BIGbrain calls pause the colony while a reply is in flight —
+    # plan (planstage) and improve (evolve reflect) tiers only; the
+    # fastbrain select caller stays unpaused (~ms local round-trip).
+    plan_caller = None
+    chat_fn = mutate_chat
+    if select_caller:
+        from . import planstage as _ps
+        from .client import openai_compat_chat
+        plan_caller = _paused_caller(game, _ps._default_caller)
+        chat_fn = _paused_caller(game, chat_fn or openai_compat_chat)
     try:
         for i in range(iterations):
             # pause-on-load / event letters can re-pause mid-run —
@@ -146,7 +156,8 @@ def run(dispatcher: Dispatcher, game, ledger, pack: dict, *,
                 res = st.get("result") if st.get("ok") else {}
                 if res.get("paused"):
                     game.rpc("game.speed", {"speed": speed})
-            obs = observe.observe(game, senses)
+            obs = observe.observe(game, senses,
+                                  combat=pack.get("combat"))
             tick = obs.get("tick") or i
             dispatcher._last_tick = tick  # evidence carries the live tick
             prev = len(decisions)
@@ -251,9 +262,11 @@ def run(dispatcher: Dispatcher, game, ledger, pack: dict, *,
                 # action list and owns goal drive when configured;
                 # prescriptive phases never see it (init structural
                 # steps stay deterministic). Scripted harness phases
-                # (combat) bypass the endpoint entirely.
+                # (combat) bypass the endpoint entirely. A still-driving
+                # prescriptive phase means the start contract isn't met
+                # yet — phase-0 work runs first, brains stay quiet.
                 select_out = None
-                if not scripted:
+                if not scripted and not engine.prescriptive_active():
                     from . import planstage
                     # FR-1411: cadence/boundary/event triggers; the
                     # in-force plan reorders this poll's action list.
@@ -262,8 +275,7 @@ def run(dispatcher: Dispatcher, game, ledger, pack: dict, *,
                     plan = planstage.tick(
                         dispatcher, pack, engine, ledger, obs,
                         tick=tick, poll=i, state_dir=state_dir,
-                        caller=planstage._default_caller
-                        if select_caller else None,
+                        caller=plan_caller,
                         emit=lambda e: dispatcher._emit(
                             e["event_type"], e["payload"]),
                         events=emitted_types)
@@ -293,7 +305,7 @@ def run(dispatcher: Dispatcher, game, ledger, pack: dict, *,
                         dispatcher, game, ledger, pack, obs,
                         tick=tick, poll=i, emit=dispatcher._sink,
                         pack_id=dispatcher._pack_file,
-                        resolver=mutate_resolver, chat=mutate_chat)
+                        resolver=mutate_resolver, chat=chat_fn)
                     if reinit and reinit.get("reinit"):
                         # save-scum retry = brain-reset wipe: fresh
                         # RunState/tasks/phases; day evidence stays in
@@ -321,7 +333,7 @@ def run(dispatcher: Dispatcher, game, ledger, pack: dict, *,
                             fair=getattr(dispatcher, "_fair", True),
                             emit=dispatcher._sink or (lambda e: None),
                             clock=clock,
-                            resolver=mutate_resolver, chat=mutate_chat)
+                            resolver=mutate_resolver, chat=chat_fn)
                     except Exception as exc:
                         dispatcher._emit("system.error", {
                             "text": f"evolve.maybe_trigger: {exc}"[:200]})
@@ -371,6 +383,39 @@ def run(dispatcher: Dispatcher, game, ledger, pack: dict, *,
     return {"ok": True, "outcomes": outcomes,
             "completed": rs.completed,
             "site": rs.vars.get("site")}
+
+
+def _paused_caller(game, fn):
+    """Wrap a model caller so the colony freezes while the brain waits
+    on a reply — the decision then applies to the world it observed
+    rather than a colony that kept moving (live runs only). Nested-safe:
+    when the game is already paused (e.g. inside fast-evolve's own
+    reflection window) the call passes straight through, and a status
+    read failure means don't touch the game at all."""
+    if fn is None:
+        return None
+
+    def call(*a, **kw):
+        try:
+            st = game.rpc("game.status")
+            res = st.get("result") if st.get("ok") else {}
+            prev = {"speed": res.get("speed", 1),
+                    "paused": bool(res.get("paused", True))}
+        except Exception:
+            prev = None
+        if prev is None or prev["paused"]:
+            return fn(*a, **kw)
+        game.rpc("game.pause", {"paused": True})
+        try:
+            return fn(*a, **kw)
+        finally:
+            try:
+                game.rpc("game.speed", {"speed": prev["speed"]})
+                game.rpc("game.pause", {"paused": False})
+            except Exception:
+                pass
+
+    return call
 
 
 def _dev_off(game):
