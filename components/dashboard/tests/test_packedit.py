@@ -176,3 +176,16 @@ def test_validate_wiring_via_facade():
     assert bad["ok"] is False
     assert any("inventory" in i or "bogus" in i
                for i in bad["issues"])
+
+
+def test_scan_skips_candidates(tmp_path):
+    """packs/candidates is pipeline-owned — never a selectable pack."""
+    from dashboard import overlay
+    packs = tmp_path / "packs"
+    (packs / "demo").mkdir(parents=True)
+    (packs / "demo" / "pack.yaml").write_text("pack_id: pack.demo")
+    (packs / "candidates").mkdir()
+    (packs / "candidates" / "cand-mut-x.yaml").write_text(
+        "pack_id: pack.cand")
+    ids = [d["id"] for d in overlay.scan_pack_descriptors(packs)]
+    assert ids == ["demo"]

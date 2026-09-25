@@ -99,6 +99,8 @@ def scan_pack_descriptors(root: Path | None) -> list[dict]:
             rel = f.relative_to(root)
         except ValueError:
             continue
+        if rel.parts[0] == "candidates":
+            continue                    # reserved for the mutation pipeline
         if f.name == "pack.yaml":
             if not rel.parent.parts:
                 continue
@@ -727,12 +729,25 @@ class SetupFrame(ttk.Frame):
 
     def _start_brain(self, role):
         """Spawn the endpoint's local server in its own console, then
-        re-check once it has had time to load the model."""
+        re-check once it has had time to load the model. Never spawns a
+        second instance — a port that already accepts means a server
+        (ours or a manually started one) is live."""
         row = self._brain_rows.get(role) or {}
         ep = row.get("serve_ep") or {}
         cmd = brains.serve_cmd(ep)
         if not cmd:
             return
+        if self._port_open(ep):
+            row["verdict"].config(text="already running")
+            self.recheck()
+            return
+        pending = getattr(self, "_serve_pending", None)
+        if pending is None:
+            pending = self._serve_pending = set()
+        if role in pending:
+            row["verdict"].config(text="starting…")
+            return                              # spawn already in flight
+        pending.add(role)
         env = dict(os.environ)
         pre = [str(p) for p
                in (ep.get("serve") or {}).get("path_prepend") or []]
@@ -744,6 +759,7 @@ class SetupFrame(ttk.Frame):
                 cmd, env=env, creationflags=getattr(
                     subprocess, "CREATE_NEW_CONSOLE", 0))
         except Exception as e:
+            pending.discard(role)
             row["verdict"].config(text="start failed")
             messagebox.showerror(
                 "Start server",
@@ -753,20 +769,32 @@ class SetupFrame(ttk.Frame):
         row["verdict"].config(text="starting…")
         self._await_server(role)
 
+    @staticmethod
+    def _port_open(ep: dict) -> bool:
+        """True when the endpoint's host:port already accepts TCP."""
+        try:
+            u = urlparse(ep.get("base_url", ""))
+            socket.create_connection(
+                (u.hostname or "127.0.0.1", u.port or 80),
+                timeout=1).close()
+            return True
+        except OSError:
+            return False
+
     def _await_server(self, role, attempts=30):
         """Watch the spawned server's port; re-check the brains the
         moment it accepts (model load can take ~90s — up to ~2.5min)."""
         row = self._brain_rows.get(role) or {}
         ep = row.get("serve_ep") or {}
-        try:
-            host = urlparse(ep.get("base_url", "")).hostname or "127.0.0.1"
-            port = urlparse(ep.get("base_url", "")).port or 80
-            socket.create_connection((host, port), timeout=1).close()
-        except OSError:
+        if not self._port_open(ep):
             if attempts > 0:
                 self.after(5000, lambda: self._await_server(
                     role, attempts - 1))
+            else:
+                (getattr(self, "_serve_pending", set())
+                 or set()).discard(role)
             return
+        (getattr(self, "_serve_pending", set()) or set()).discard(role)
         self.recheck()
 
     # -- pack actions -------------------------------------------------------

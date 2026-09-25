@@ -24,7 +24,8 @@ hiddenimports = (
     + collect_submodules("dashboard")
     + collect_submodules("contracts")
     + ["yaml", "jsonschema", "referencing", "referencing.jsonschema",
-       "tkinter"]
+       "tkinter", "encodings.idna"]   # getaddrinfo needs the codec;
+                                     # PyInstaller misses it (runtime ref)
 )
 
 a = Analysis(

@@ -322,8 +322,9 @@ class FastEvolve:
                              {"paused": bool(prev_speed.get("paused"))})
             s.passes_used += 1
         attempt["reflect_verdict"] = (verdict or {}).get("verdict")
-        attempt["candidate_id"] = (verdict or {}).get("path") and \
-            Path(verdict["path"]).stem
+        attempt["candidate_id"] = (verdict or {}).get("candidate_id") \
+            or ((verdict or {}).get("path")
+                and Path(verdict["path"]).stem)
 
         if can_reload:
             promoted = self._promote(dispatcher, pack_id, emit)
