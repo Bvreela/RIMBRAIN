@@ -213,7 +213,8 @@ def test_propose_mutation_ops(tmp_path):
     findings = [{"defect_class": "poor_mood", "affected": ["colony.vitals"],
                  "remediation": VITALS_CFG["defect_patterns"][0]["remediation"],
                  "count": 3, "span": {"first_seq": 1, "last_seq": 3}}]
-    out = propose(findings, MUTABLE_PACK, tmp_path)
+    out, cls = propose(findings, MUTABLE_PACK, tmp_path)
+    assert cls == "poor_mood"
     cand = yaml.safe_load(out.read_text(encoding="utf-8"))
     assert cand["start"]["cooking"]["buffer"] == 6
     assert cand["revision"].endswith("+mut.poor_mood")
@@ -226,7 +227,8 @@ def test_propose_drop_rule(tmp_path):
                  "affected": ["colony.vitals"],
                  "remediation": VITALS_CFG["defect_patterns"][2]["remediation"],
                  "count": 1, "span": {"first_seq": 1, "last_seq": 1}}]
-    out = propose(findings, MUTABLE_PACK, tmp_path)
+    out, cls = propose(findings, MUTABLE_PACK, tmp_path)
+    assert cls == "multiple_downed"
     cand = yaml.safe_load(out.read_text(encoding="utf-8"))
     ids = [r["id"] for r in cand["universal"]["rules"]]
     assert "chase-fleeing" not in ids and "idle-work" in ids
@@ -325,7 +327,8 @@ def test_propose_drop_rule_reaches_emergency_and_combat(tmp_path):
                      {"op": "drop_rule",
                       "ids": ["fire-active", "chase-fleeing"]}]},
                  "count": 2, "span": {"first_seq": 1, "last_seq": 2}}]
-    out = propose(findings, pack, tmp_path)
+    out, cls = propose(findings, pack, tmp_path)
+    assert cls == "fire_rampant"
     cand = yaml.safe_load(out.read_text(encoding="utf-8"))
     assert [r["id"] for r in cand["emergency"]] == ["colonist-downed"]
     assert [r["id"] for r in cand["combat"]["engage"]["rules"]] == \

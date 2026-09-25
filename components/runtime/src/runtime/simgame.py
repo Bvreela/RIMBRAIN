@@ -32,10 +32,15 @@ TEMPLATE_SURFACE = (
     "map.find", "map.open_rects", "map.cell",
     "anchor.set",
     "steward.status", "steward.stock.set", "steward.stock.run",
-    "steward.research",
+    "steward.research", "steward.orders.explain",
+    "steward.orders.set", "steward.orders.rally",
+    "steward.orders.run", "steward.orders.release",
+    "state.areas", "defs.get",
     "ui.set_work", "ui.job", "ui.designate", "ui.zone", "ui.storage",
     "ui.build", "ui.build_many", "ui.add_bill", "ui.draft",
-    "ui.attack", "ui.letter", "ui.set_research",
+    "ui.attack", "ui.letter", "ui.set_research", "ui.goto",
+    "ui.cancel_job", "ui.set_policies", "ui.press", "ui.order",
+    "ui.animal",
     "dev.incident", "dev.spawn_pawn", "dev.heal",
 )
 
@@ -107,6 +112,24 @@ class SimGame:
         self._save_meta: dict[str, str] = {}
         self.hostiles: list[dict] = []
         self.drafted: set[str] = set()
+        # feature 019: delegate-order stub — `combat` is the fair path's
+        # standing order; the order itself drafts/releases colonists
+        self.orders: dict[str, dict] = {}
+        self.rally = [44, 44, 13, 13]
+        self.areas = [{"id": "Home", "rect": [40, 40, 21, 21]}]
+        self._hostile_free = 0
+        self.defs = {
+            "Gun_Revolver": {"stats": {"range": 26, "dps": 4.0,
+                                       "warmup": 0.3, "cooldown": 1.6,
+                                       "burst": 1, "is_melee": False}},
+            "MeleeWeapon_Gladius": {"stats": {"range": 2, "dps": 5.0,
+                                              "is_melee": True}}}
+        self.policies: dict[str, dict] = {}
+        self.goto_log: list[tuple] = []
+        self.presses: list[tuple] = []
+        self.order_cmds: list[tuple] = []
+        self.animal_cmds: list[dict] = []
+        self.cancelled: list[str] = []
         self.pawns = [{"id": m["id"], "name": m["name"],
                        "faction": "Player", "job": "Construct",
                        "weapon": None}
@@ -261,6 +284,56 @@ class SimGame:
             self._state["colonists"]["downed"] = 0
             self._state["colonists"]["downed_id"] = None
             self._state["colonists"]["members"][1]["downed"] = False
+        for oid in list(self.orders):
+            self._order_tick(oid)
+
+    def _order_release(self, oid: str) -> None:
+        """Stand the order down: undraft colonists, record the ledger
+        event the fair pack reads via order_state().last."""
+        o = self.orders.get(oid)
+        if o is None:
+            return
+        self.drafted.clear()
+        o.update({"enabled": False, "engaged": False, "overrun": False,
+                  "acting_on": None, "last": "combat_released",
+                  "summary": "released"})
+        self._hostile_free = 0
+
+    def _order_tick(self, oid: str, force: bool = False) -> None:
+        """One pass of the standing-order executor (Order_Combat shape):
+        while enabled, living hostiles -> draft able colonists + engage
+        + mark overrun on a Home/rally breach; one fight resolves per
+        pass; a 600-tick hostile-free window releases."""
+        o = self.orders.get(oid)
+        if o is None or not o.get("enabled"):
+            return
+        living = [h for h in self.hostiles
+                  if not h.get("downed") and not h.get("dead")]
+        if living:
+            self._hostile_free = 0
+            o["engaged"] = True
+            for m in self._state["colonists"]["members"]:
+                if not m.get("downed"):
+                    self.drafted.add(m["id"])
+            x0, z0, w, hh = (self.areas[0]["rect"] if self.areas
+                             else (0, 0, 0, 0))
+            rc = [self.rally[0] + self.rally[2] // 2,
+                  self.rally[1] + self.rally[3] // 2]
+            o["overrun"] = any(
+                (x0 <= (hh_pos := (h.get("pos") or [0, 0]))[0]
+                 <= x0 + w - 1 and z0 <= hh_pos[1] <= z0 + hh - 1)
+                or ((hh_pos[0] - rc[0]) ** 2
+                    + (hh_pos[1] - rc[1]) ** 2) ** 0.5 <= 5
+                for h in living)
+            o["acting_on"] = living[0].get("id")
+            o["last"] = o.get("last") or "combat_engaged"
+            o["summary"] = ("overrun" if o["overrun"]
+                            else f"engaged {len(living)} hostiles")
+            living[0]["downed"] = True   # the order wins one fight/pass
+            return
+        self._hostile_free += 25
+        if o.get("engaged") and self._hostile_free >= 600:
+            self._order_release(oid)
 
     def _roster(self) -> list[dict]:
         return [{"id": m["id"], "name": m["name"], "kind": "Colonist",
@@ -409,7 +482,14 @@ class SimGame:
         if method == "steward.status":
             return {"ok": True, "result": {
                 "enabled": {"scorer": True, "stock": True},
-                "pawns": [], "stock": [dict(j) for j in self.stock_jobs]}}
+                "pawns": [], "stock": [dict(j) for j in self.stock_jobs],
+                "orders": [{"id": oid,
+                            "enabled": o.get("enabled", False),
+                            "summary": o.get("summary", ""),
+                            "acting_on": o.get("acting_on"),
+                            "last": o.get("last")}
+                           for oid, o in self.orders.items()],
+                "rally": list(self.rally)}}
         if method == "steward.stock.set":
             row = next((j for j in self.stock_jobs
                         if j["kind"] == params.get("kind")
@@ -437,6 +517,22 @@ class SimGame:
             return {"ok": True, "result": {
                 "hostiles": list(self.hostiles),
                 "home_center": [50, 50]}}
+        if method == "state.areas":
+            return {"ok": True, "result": {
+                "areas": [dict(a) for a in self.areas]}}
+        if method == "defs.get":
+            d = self.defs.get(params.get("def"))
+            return {"ok": True, "result": dict(d) if d else {}}
+        if method == "steward.orders.explain":
+            o = self.orders.get(params.get("id"))
+            if o is None:
+                return {"ok": True, "result": {}}
+            return {"ok": True, "result": {
+                "id": params.get("id"),
+                "enabled": o.get("enabled", False),
+                "summary": o.get("summary", ""),
+                "last": o.get("last"),
+                "hands_off": list(o.get("hands_off") or [])}}
         if method == "game.list_saves":
             # bridge shape: [{name, modified}] — modified is a
             # deterministic monotonic tag (sim-tNNNNNN), not wall time
@@ -491,7 +587,7 @@ class SimGame:
             return {"ok": True, "result": {"zone": params.get("zone")}}
         if method == "ui.designate":
             d = params.get("designator")
-            handled = ("forbid", "unforbid", "haul", "strip",
+            handled = ("forbid", "unforbid", "haul", "strip", "hunt",
                        "Designator_AreaBuildRoof", "cut", "harvest")
             if d not in handled:
                 return err("sim.params_invalid",
@@ -570,12 +666,20 @@ class SimGame:
                      "dist_home": 40})
             return {"ok": True, "result": {"fired": params.get("def")}}
         if method == "dev.spawn_pawn":
+            cell = params.get("cell")
+            pos = ([int(cell[0]), int(cell[1])]
+                   if isinstance(cell, (list, tuple)) and len(cell) >= 2
+                   else [20 + len(self.hostiles), 20])
+            hx, hz, hw, hh = (self.areas[0]["rect"] if self.areas
+                              else (0, 0, 0, 0))
+            cx, cz = hx + hw // 2, hz + hh // 2
             self.hostiles.append(
                 {"id": f"pawn-{len(self.hostiles)}",
                  "kind": params.get("kind"),
                  "faction": params.get("faction"),
-                 "pos": [20 + len(self.hostiles), 20],
-                 "dist_home": 40})
+                 "pos": pos,
+                 "dist_home": round(((pos[0] - cx) ** 2
+                                     + (pos[1] - cz) ** 2) ** 0.5)})
             return {"ok": True,
                     "result": [{"id": self.hostiles[-1]["id"]}]}
         if method == "state.factions":
@@ -587,6 +691,56 @@ class SimGame:
             (self.drafted.add if params.get("drafted")
              else self.drafted.discard)(params.get("pawn"))
             return {"ok": True, "result": {"drafted": params["drafted"]}}
+        if method == "steward.orders.set":
+            oid = str(params.get("id") or "combat")
+            o = self.orders.setdefault(
+                oid, {"enabled": False, "engaged": False,
+                      "overrun": False, "last": None,
+                      "hands_off": [], "summary": "standing by"})
+            if params.get("enabled") is False:
+                self._order_release(oid)
+            elif "enabled" in params:
+                o["enabled"] = True
+            if isinstance(params.get("summary"), str):
+                o["summary"] = params["summary"]
+            return {"ok": True, "result": {"id": oid,
+                                           "enabled": o["enabled"]}}
+        if method == "steward.orders.rally":
+            r = params.get("rect")
+            if isinstance(r, (list, tuple)) and len(r) >= 4:
+                self.rally = [int(v) for v in r[:4]]
+            return {"ok": True, "result": {"rect": list(self.rally)}}
+        if method == "steward.orders.run":
+            oid = str(params.get("id") or "combat")
+            self._order_tick(oid, force=True)
+            return {"ok": True, "result": {"id": oid, "ran": True}}
+        if method == "steward.orders.release":
+            oid = str(params.get("id") or "combat")
+            self._order_release(oid)
+            return {"ok": True, "result": {"id": oid,
+                                           "released": True}}
+        if method == "ui.goto":
+            self.goto_log.append((params.get("pawn"),
+                                  params.get("cell")))
+            return {"ok": True, "result": {"pawn": params.get("pawn")}}
+        if method == "ui.cancel_job":
+            self.cancelled.append(str(params.get("pawn")))
+            return {"ok": True, "result": {"pawn": params.get("pawn")}}
+        if method == "ui.set_policies":
+            self.policies[str(params.get("pawn") or "colony")] = \
+                dict(params)
+            return {"ok": True, "result": dict(params)}
+        if method == "ui.press":
+            self.presses.append((params.get("pawn"),
+                                 params.get("gizmo")))
+            return {"ok": True, "result": dict(params)}
+        if method == "ui.order":
+            self.order_cmds.append((params.get("pawn"),
+                                    params.get("order")))
+            return {"ok": True, "result": dict(params)}
+        if method == "ui.animal":
+            self.animal_cmds.append(dict(params))
+            return {"ok": True, "result": dict(params)}
         if method == "ui.attack":
             self._pending.append("attack")
             return {"ok": True, "result": {"engaged": params.get("target")}}
@@ -670,6 +824,7 @@ class SimGame:
             "cookstations": self.cookstations, "bills": self.bills,
             "meals": self.meals, "anchors": self.anchors,
             "stock_jobs": self.stock_jobs,
+            "orders": {}, "rally": self.rally,
             "hostiles": [], "drafted": set()})
 
     def sim_autosave(self, name: str) -> None:

@@ -2824,6 +2824,14 @@ start:
     shelter:
       attempts: 12
       lease_ticks: 18000
+    haul:
+      spec:
+        attempts: 10
+        lease_ticks: 12000
+    food:
+      spec:
+        attempts: 8
+        lease_ticks: 10000
 universal:
   idle_patterns:
   - idle

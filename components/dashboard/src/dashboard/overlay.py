@@ -21,12 +21,14 @@ import argparse
 import json
 import os
 import queue
+import socket
 import subprocess
 import sys
 import tkinter as tk
 from datetime import datetime, timezone
 from pathlib import Path
 from tkinter import messagebox, simpledialog, ttk
+from urllib.parse import urlparse
 
 try:
     from . import brains, packedit, paramspec
@@ -54,9 +56,16 @@ RESET_REQUEST = "brain_reset.request"
 BRAIN_STATUS = "brain_status.json"
 LEARN_TYPES = {"selfcheck.diagnosed", "audit.verdict",
                "improvement.promoted", "improvement.rejected",
-               "episode.metrics", "cycle.completed"}
-LEARN_ROWS = 8
-LEARN_TAIL = 128 * 1024  # bounded tail read of events.jsonl
+               "episode.metrics", "cycle.completed",
+               "mutation.triggered", "mutation.proposed",
+               "mutation.candidate", "mutation.noop",
+               "mutation.rejected", "mutation.degraded",
+               "mutation.promoted", "mutation.reverted",
+               "fastevolve.day_start", "fastevolve.triggered",
+               "fastevolve.anchor_missing", "fastevolve.exhausted",
+               "fastevolve.promoted", "fastevolve.reloaded"}
+LEARN_ROWS = 5
+LEARN_TAIL = 1024 * 1024  # bounded tail read of events.jsonl
 
 _TONE = {"ok": "#7fd17f", "warn": "#d8a860", "bad": "#e08080",
          "dim": "#808080"}
@@ -90,6 +99,8 @@ def scan_pack_descriptors(root: Path | None) -> list[dict]:
             rel = f.relative_to(root)
         except ValueError:
             continue
+        if rel.parts[0] == "candidates":
+            continue                    # reserved for the mutation pipeline
         if f.name == "pack.yaml":
             if not rel.parent.parts:
                 continue
@@ -99,13 +110,19 @@ def scan_pack_descriptors(root: Path | None) -> list[dict]:
         else:
             pid = rel.with_suffix("").as_posix()
         d = {"id": pid, "path": f, "class": "fair",
-             "pack_id": None, "derived_from": None}
+             "pack_id": None, "derived_from": None,
+             "game_load": None}
         try:
             doc = yaml.safe_load(f.read_text(encoding="utf-8")) or {}
             if isinstance(doc, dict):
                 d["class"] = doc.get("class") or "fair"
                 d["pack_id"] = doc.get("pack_id")
                 d["derived_from"] = doc.get("derived_from")
+                tmpl = ((doc.get("capabilities") or {})
+                        .get("templates") or doc.get("templates") or [])
+                d["game_load"] = any(
+                    isinstance(t, dict)
+                    and t.get("method") == "game.load" for t in tmpl)
         except (OSError, yaml.YAMLError):
             pass
         out[pid] = d
@@ -173,7 +190,7 @@ def load_learning(state_dir: Path) -> list[dict]:
             continue
         if e.get("event_type") in LEARN_TYPES:
             out.append(e)
-    return out[-LEARN_ROWS:]
+    return out
 
 
 def learn_line(e: dict) -> tuple[str, str]:
@@ -208,6 +225,48 @@ def learn_line(e: dict) -> tuple[str, str]:
         ph = p.get("phases") or {}
         return (f"cycle {p.get('iteration')} done "
                 f"(improve: {ph.get('improve', '?')})", "")
+    if t == "mutation.triggered":
+        return f"mutate pass: {p.get('reason', '?')}", ""
+    if t == "mutation.proposed":
+        return (f"proposal {p.get('mutation_id')} via {p.get('model')}: "
+                f"{p.get('op_count')} ops — "
+                f"{str(p.get('analysis') or '')[:64]}", "")
+    if t == "mutation.candidate":
+        return f"candidate {p.get('candidate_id')}", ""
+    if t == "mutation.noop":
+        return f"noop: {str(p.get('rationale') or '')[:72]}", ""
+    if t == "mutation.rejected":
+        v = "; ".join(str(x) for x in (p.get("violations") or []))
+        return (f"rejected at {p.get('gate')}"
+                + (f" — {v[:72]}" if v else ""), "bad")
+    if t == "mutation.degraded":
+        return (f"degraded ({p.get('reason')}): "
+                f"{str(p.get('detail') or '')[:56]}", "bad")
+    if t == "mutation.promoted":
+        b = p.get("baseline_score")
+        return (f"MUTATION PROMOTED {p.get('candidate_id')}"
+                + (f" (baseline {b:.3f})" if isinstance(b, (int, float))
+                   else ""), "promo")
+    if t == "mutation.reverted":
+        return (f"REVERTED {p.get('candidate_id')} — score "
+                f"{p.get('episode_score')} vs baseline "
+                f"{p.get('baseline_score')}", "bad")
+    if t == "fastevolve.day_start":
+        return f"day {p.get('day')} start (anchor {p.get('anchor')})", ""
+    if t == "fastevolve.triggered":
+        ev = p.get("evidence") or {}
+        return (f"day {p.get('day')} evolve attempt {p.get('attempt')}"
+                + (f" — {str(ev)[:56]}" if ev else ""), "")
+    if t == "fastevolve.anchor_missing":
+        return f"day {p.get('day')}: anchor missing", "bad"
+    if t == "fastevolve.exhausted":
+        return (f"day {p.get('day')}: retries exhausted "
+                f"({p.get('attempts')})", "bad")
+    if t == "fastevolve.promoted":
+        return f"day {p.get('day')}: PROMOTED {p.get('candidate_id')}", "promo"
+    if t == "fastevolve.reloaded":
+        return (f"day {p.get('day')}: reloaded anchor "
+                f"(attempt {p.get('attempt')})", "")
     return t, ""
 
 
@@ -558,7 +617,8 @@ class SetupFrame(ttk.Frame):
             return
         cfg = self.collect()
         d = self._descriptor(cfg.get("pack", ""))
-        probs = paramspec.violations(cfg, pack_class=(d or {}).get("class"))
+        probs = paramspec.violations(cfg, pack_class=(d or {}).get("class"),
+                              pack_game_load=(d or {}).get("game_load"))
         running = self.app.runner.running
         for row in paramspec.PARAM_SPEC:
             ok = paramspec.enabled(row, cfg) and not running
@@ -589,7 +649,8 @@ class SetupFrame(ttk.Frame):
     def _go(self):
         cfg = self.collect()
         d = self._descriptor(cfg.get("pack", ""))
-        probs = paramspec.violations(cfg, pack_class=(d or {}).get("class"))
+        probs = paramspec.violations(cfg, pack_class=(d or {}).get("class"),
+                              pack_game_load=(d or {}).get("game_load"))
         if probs:
             return
         if self.app.runner.running:
@@ -668,12 +729,25 @@ class SetupFrame(ttk.Frame):
 
     def _start_brain(self, role):
         """Spawn the endpoint's local server in its own console, then
-        re-check once it has had time to load the model."""
+        re-check once it has had time to load the model. Never spawns a
+        second instance — a port that already accepts means a server
+        (ours or a manually started one) is live."""
         row = self._brain_rows.get(role) or {}
         ep = row.get("serve_ep") or {}
         cmd = brains.serve_cmd(ep)
         if not cmd:
             return
+        if self._port_open(ep):
+            row["verdict"].config(text="already running")
+            self.recheck()
+            return
+        pending = getattr(self, "_serve_pending", None)
+        if pending is None:
+            pending = self._serve_pending = set()
+        if role in pending:
+            row["verdict"].config(text="starting…")
+            return                              # spawn already in flight
+        pending.add(role)
         env = dict(os.environ)
         pre = [str(p) for p
                in (ep.get("serve") or {}).get("path_prepend") or []]
@@ -684,11 +758,44 @@ class SetupFrame(ttk.Frame):
             subprocess.Popen(
                 cmd, env=env, creationflags=getattr(
                     subprocess, "CREATE_NEW_CONSOLE", 0))
-        except OSError as e:
-            row["verdict"].config(text=f"start failed: {e}")
+        except Exception as e:
+            pending.discard(role)
+            row["verdict"].config(text="start failed")
+            messagebox.showerror(
+                "Start server",
+                f"Could not launch:\n{' '.join(cmd)}\n\n{e}",
+                parent=self)
             return
         row["verdict"].config(text="starting…")
-        self.after(8000, self.recheck)
+        self._await_server(role)
+
+    @staticmethod
+    def _port_open(ep: dict) -> bool:
+        """True when the endpoint's host:port already accepts TCP."""
+        try:
+            u = urlparse(ep.get("base_url", ""))
+            socket.create_connection(
+                (u.hostname or "127.0.0.1", u.port or 80),
+                timeout=1).close()
+            return True
+        except OSError:
+            return False
+
+    def _await_server(self, role, attempts=30):
+        """Watch the spawned server's port; re-check the brains the
+        moment it accepts (model load can take ~90s — up to ~2.5min)."""
+        row = self._brain_rows.get(role) or {}
+        ep = row.get("serve_ep") or {}
+        if not self._port_open(ep):
+            if attempts > 0:
+                self.after(5000, lambda: self._await_server(
+                    role, attempts - 1))
+            else:
+                (getattr(self, "_serve_pending", set())
+                 or set()).discard(role)
+            return
+        (getattr(self, "_serve_pending", set()) or set()).discard(role)
+        self.recheck()
 
     # -- pack actions -------------------------------------------------------
 
@@ -1405,10 +1512,16 @@ class Overlay(tk.Tk):
 
         ttk.Label(m, text="Learning", font=("Consolas", 9, "bold"),
                   anchor="w").pack(fill="x", padx=6, pady=(4, 0))
-        self.learn = tk.Text(m, font=("Consolas", 9),
+        lf = ttk.Frame(m)
+        lf.pack(fill="x", padx=6, pady=2)
+        self.learn = tk.Text(lf, font=("Consolas", 9),
                              height=LEARN_ROWS, state="disabled",
                              wrap="none", bg="#101010", fg="#c8c8c8")
-        self.learn.pack(fill="x", padx=6, pady=2)
+        self.learn.pack(side="left", fill="x", expand=True)
+        lsb = ttk.Scrollbar(lf, orient="vertical",
+                            command=self.learn.yview)
+        self.learn.configure(yscrollcommand=lsb.set)
+        lsb.pack(side="right", fill="y")
         self.learn.tag_config("promo", foreground="#7fd17f")
         self.learn.tag_config("bad", foreground="#e08080")
 

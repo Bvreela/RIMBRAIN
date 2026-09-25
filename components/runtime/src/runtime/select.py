@@ -87,29 +87,58 @@ def compile_actions(pack: dict, engine, ctx, obs: dict, *,
             if not isinstance(opt, dict) or not opt.get("template"):
                 continue
             oid = opt.get("id") or opt["template"]
-            if opt.get("when") and not policy.check(opt["when"], ctx):
-                continue
-            if "needs" in opt and not policy.resolve(opt["needs"], ctx):
-                continue
-            params = {k: v for k, v in
-                      policy.resolve(opt.get("params") or {},
-                                     ctx).items() if v is not None}
-            cands.append({
-                "id": f"pawn.{pid}.{oid}", "scope": "pawn",
-                "pawn": pid,
-                "label": opt.get("label") or oid,
-                "priority": _priority(opt.get("priority"), ctx, 0.0),
-                "_order": order, "source": f"pawn:{pid}",
-                "dispatch": {"template": opt["template"],
-                             "params": params}})
-            order += 1
+            # option-level for_each expands one candidate per bound
+            # target (pawn x target decision matrix); `bind` names the
+            # var (default "target"), and the bound row's name/id is
+            # suffixed onto the candidate id and label
+            bind = opt.get("bind") or "target"
+            targets = policy.select(opt["for_each"], ctx) \
+                if opt.get("for_each") is not None else [None]
+            for tgt in targets:
+                if tgt is not None:
+                    ctx.vars[bind] = tgt
+                tid = tgt.get("id") if isinstance(tgt, dict) else tgt
+                if opt.get("when") \
+                        and not policy.check(opt["when"], ctx):
+                    continue
+                if "needs" in opt \
+                        and not policy.resolve(opt["needs"], ctx):
+                    continue
+                params = {k: v for k, v in
+                          policy.resolve(opt.get("params") or {},
+                                         ctx).items() if v is not None}
+                tname = policy._fn_label_of(ctx, tgt) \
+                    if tgt is not None else None
+                cands.append({
+                    "id": (f"pawn.{pid}.{oid}.{tid}" if tid is not None
+                           else f"pawn.{pid}.{oid}"),
+                    "scope": "pawn", "pawn": pid,
+                    "label": (f"{opt.get('label') or oid} {tname}"
+                              if tname else opt.get("label") or oid),
+                    "priority": _priority(opt.get("priority"), ctx, 0.0),
+                    "_order": order, "source": f"pawn:{pid}",
+                    "_row": cand_pawn,
+                    "dispatch": {"template": opt["template"],
+                                 "params": params}})
+                order += 1
+            ctx.vars.pop(bind, None)
     ctx.vars.pop("it", None)
 
     cands.sort(key=lambda c: (-c["priority"], c["_order"]))
-    bound = int(sel.get("max_items") or
+    bound = min(int(sel.get("max_items") or
                 (pack.get("action_list") or {}).get("max_items")
-                or HARD_MAX)
-    return cands[:min(bound, HARD_MAX)]  # hard bound, not pack-editable
+                or HARD_MAX), HARD_MAX)  # hard bound, not pack-editable
+    # per-pool cap: the bound limits each question's candidate list —
+    # a pawn x target x option matrix overflows a global cap fast
+    pools: dict = {}
+    out = []
+    for c in cands:
+        k = c.get("pawn") if c.get("scope") == "pawn" else "colony"
+        pool = pools.setdefault(k, [])
+        if len(pool) < bound:
+            pool.append(c)
+            out.append(c)
+    return out
 
 
 def _fallback_of(cands: list[dict], scope_pawn: str | None):
@@ -124,7 +153,8 @@ def _fallback_of(cands: list[dict], scope_pawn: str | None):
 
 
 def build_questions(cands: list[dict], obs: dict,
-                    sel_cfg: dict, plan: dict | None) -> dict:
+                    sel_cfg: dict, plan: dict | None,
+                    ctx=None) -> dict:
     """One batched systemone payload: ``q.colony`` + ``q.pawn.<id>``
     (contracts/select-batch.md). Criteria keys are candidate ids only —
     the model can name nothing outside the offered set."""
@@ -149,12 +179,27 @@ def build_questions(cands: list[dict], obs: dict,
         for c in cands:
             if c["scope"] == "pawn":
                 by_pawn.setdefault(c["pawn"], []).append(c)
+        # pack-declared per-pawn context (pawn_scope.context resolvers
+        # evaluated with `it` bound to the pawn row) — positions, weapon
+        # range class, per-target distances — so a fast selector can
+        # reason over the map, not just option names
+        cmap = ((sel_cfg.get("pawn_scope") or {}).get("context") or {}) \
+            if ctx is not None else {}
         for pid, pcs in by_pawn.items():
+            pctx = {"pawn": {"id": pid}}
+            if cmap:
+                row = next((c.get("_row") for c in pcs
+                            if c.get("_row") is not None), {"id": pid})
+                ctx.vars["it"] = row
+                pctx.update({k: policy.resolve(v, ctx)
+                             for k, v in cmap.items()})
+                ctx.vars.pop("it", None)
             questions[f"q.pawn.{pid}"] = {
                 "type": "choice",
-                "instructions": "pick this pawn's job",
+                "instructions": sel_cfg.get("pawn_instructions",
+                                            "pick this pawn's job"),
                 "criteria": {c["id"]: c["label"] for c in pcs},
-                "context": {"pawn": {"id": pid}}}
+                "context": pctx}
     return questions
 
 
@@ -275,7 +320,7 @@ def decide(dispatcher, pack: dict, engine, ctx, obs: dict, *,
     answers: dict = {}
 
     if cands:
-        questions = build_questions(cands, obs, sel, plan)
+        questions = build_questions(cands, obs, sel, plan, ctx=ctx)
         # (model, prompt, context) tuple: question *shape* is stable —
         # per-poll candidate ids would never accumulate evidence
         ctx_key = hashlib.sha1(

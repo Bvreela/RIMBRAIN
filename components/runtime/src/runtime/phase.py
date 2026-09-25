@@ -33,6 +33,7 @@ from pathlib import Path
 
 from . import policy, templates, views
 from .observe import observe as _observe
+from .observe import observe_combat as _observe_combat
 from .runstate import RunState
 
 TERMINAL = ("succeeded", "failed", "expired")
@@ -370,6 +371,19 @@ class PhaseEngine:
                     tid, "dispatched", "skipped_effect_present", tick)
                 self.ledger.verify(tid, obs, tick)
 
+    def prescriptive_active(self) -> bool:
+        """A prescriptive phase still drives — the start contract isn't
+        met yet, so phase-0 structural work runs before any
+        model-assisted stage engages."""
+        for ph in self.phases:
+            pid = ph.get("id")
+            if not pid or self._done(pid):
+                continue
+            if self.only and pid != self.only:
+                continue
+            return bool(ph.get("prescriptive"))
+        return False
+
     def goal_sources(self) -> list[tuple[str, list]]:
         """(ns, goals) pairs feeding the select stage's colony scope:
         the active non-prescriptive phase's goals, or standing goals
@@ -606,6 +620,8 @@ class PhaseEngine:
         uni_rules = templates.rules_of(self.pack) \
             if engage.get("universal_rules", True) else []
         engage_rules = engage.get("rules") or []
+        # pack cfg block that owns delegate_order (combat: or dev_combat:)
+        ocfg = policy._combat_cfg(policy.Ctx(cfg=self.pack))
         uni_state = self.rs.rule_state
         seq = getattr(dispatcher, "_events", 0)
         out = {"ok": True, "rounds": [], "spawned": 0, "cleared": 0,
@@ -623,7 +639,8 @@ class PhaseEngine:
         try:
             obs = _observe(game)
             ctx = policy.Ctx(cfg=self.pack, obs=obs, game=game,
-                             state=uni_state, tick=obs.get("tick") or 0,
+                             state=uni_state, persist=self.rs.vars,
+                             tick=obs.get("tick") or 0,
                              poll=0, decisions=decisions)
             policy.run_steps(cfg.get("setup"), dispatcher, ctx,
                              source="combat:setup")
@@ -632,7 +649,8 @@ class PhaseEngine:
                 obs = _observe(game)
                 base = _colonist_ids(obs)
                 ctx = policy.Ctx(cfg=self.pack, obs=obs, game=game,
-                                 state=uni_state, vars={"round": rnd},
+                                 state=uni_state, persist=self.rs.vars,
+                                 vars={"round": rnd},
                                  tick=obs.get("tick") or 0, poll=0,
                                  decisions=decisions)
                 policy.run_steps(cfg.get("spawn"), dispatcher, ctx,
@@ -642,10 +660,13 @@ class PhaseEngine:
                 spawned_round = cleared_round = 0
                 verdict = "failed"
                 for i in range(iterations):
-                    obs = _observe(game)
+                    # lean combat obs: the engage loop spends polls acting,
+                    # not watching (storage/items/blueprints skipped)
+                    obs = _observe_combat(game, ocfg)
                     tick = obs.get("tick") or 0
                     ctx = policy.Ctx(cfg=self.pack, obs=obs, game=game,
                                      state=uni_state,
+                                     persist=self.rs.vars,
                                      vars={"round": rnd},
                                      tick=tick, poll=i,
                                      decisions=decisions)
@@ -657,7 +678,8 @@ class PhaseEngine:
                         res = st.get("result") if st.get("ok") else {}
                         if res.get("paused"):
                             game.rpc("game.speed", {"speed": speed})
-                    hostiles = _hostiles(game)
+                    # shares the ctx snapshot — one threats RPC per poll
+                    hostiles = policy._hostile_rows(ctx)
                     if not spawned_round:
                         spawned_round = len(hostiles)
                     if spawned_round and engage.get("until") \
@@ -687,7 +709,8 @@ class PhaseEngine:
                      "casualties": casualties})
                 obs = _observe(game)
                 ctx = policy.Ctx(cfg=self.pack, obs=obs, game=game,
-                                 state=uni_state, vars={"round": rnd},
+                                 state=uni_state, persist=self.rs.vars,
+                                 vars={"round": rnd},
                                  tick=obs.get("tick") or 0, poll=0,
                                  decisions=decisions)
                 policy.run_steps(cfg.get("cleanup"), dispatcher, ctx,

@@ -32,7 +32,7 @@
 - [ ] T007 [P] Implement tier-profile resolution in `components/runtime/src/runtime/policy.py`: read live `defs.get(Space).scoreStages` → match to `mods.realistic_rooms_rewritten.settings` or vanilla → resolved `{rather_tight..extremely}` thresholds; inconclusive → vanilla + one logged `rooms.profile_fallback` event per run
 - [ ] T008 Register new fns/templates in `components/rimbrain/capability-catalog.yaml` — `space_score`, `space_tier`, `space_target`, `room_at`, `room_role_at`, `rooms_matching`, `room_stat`, `bed_demand`, `pawns_with_thought`, `pawns_wounded`, `plan_room`, `def_stats`; mark `state.rooms` space/wealth as `gap` with note
 
-- [ ] T034 Implement contract lint in `components/runtime/src/runtime/templates.py::validate_pack` — a room goal whose `effect` predicates on `enclosed_at` alone (no role/stat predicate) is a load-time violation per `contracts/room-archetypes.md` error semantics
+- [ ] T034 Implement contract lint in `components/runtime/src/runtime/templates.py::validate_pack` — scoped to goals referencing `rooms.archetypes`/`plan_room` ops: a room goal whose `effect` predicates on `enclosed_at` alone (no role/stat predicate) is a load-time violation per `contracts/room-archetypes.md` error semantics; non-room `enclosed_at` goals are unaffected
 
 **Checkpoint**: `rooms:`/`mods:` cfg validates; obs carries room rows; tier profile resolves vanilla under fixture defs
 
@@ -117,7 +117,7 @@
 ### Implementation for User Story 4
 
 - [ ] T026 [US4] Implement `pawns_with_thought(def)` in `components/runtime/src/runtime/policy.py` over `state.pawn` thoughts via the shared per-poll pawn-detail cache
-- [ ] T036 [US4] Implement `pawns_wounded()` in `components/runtime/src/runtime/policy.py` — count colonists with bleeding/unhealed/incapacitating health conditions from `state.pawn` detail (shared per-poll cache); backs the hospital `when` gate
+- [ ] T036 [US4] Implement `pawns_wounded()` in `components/runtime/src/runtime/policy.py` — count colonists with bleeding/unhealed/incapacitating health conditions from `state.pawn` detail (exact health field names pinned at impl against live RPC shape; shared per-poll cache); backs the hospital `when` gate
 - [ ] T027 [US4] Add `dining_hall`/`hospital`/`kitchen`/`workshop` archetypes to `packs/start-mode-v0/pack.yaml` per research §6 (tables+chairs space-free, sterile floor + vitals-linked hospital, separated butcher in kitchen, tool-cabinet `links: 2` + `at: each_bench` seating in workshop — canonical fields per data-model.md, not the research §9 sketch names)
 - [ ] T028 [US4] Add standing goals/`options` for support rooms in `packs/start-mode-v0/pack.yaml` — `when` on `pawns_with_thought(AteWithoutTable)` / `pawns_wounded()` ≥ cfg threshold / kitchen need; `effect` on role+stat predicates
 

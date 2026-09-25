@@ -23,6 +23,7 @@ The engine knows no RimWorld def names, phase ids, or strategy orderings.
 
 from __future__ import annotations
 
+import json
 import re
 
 _FN_RE = re.compile(r"^@fn:(\w+)\((.*)\)$", re.S)
@@ -108,6 +109,13 @@ def resolve(spec, ctx):
             v = _dig(ctx.persist, spec[5:])
         return v
     m = _FN_RE.match(spec)
+    tail = None
+    if not m:
+        # `@fn:name(...).path` — dig a field out of the fn's dict result
+        t = re.match(r"^(@fn:\w+\(.*\))(\..+)$", spec, re.S)
+        if t:
+            m = _FN_RE.match(t.group(1))
+            tail = t.group(2)[1:]
     if m:
         name, argstr = m.group(1), m.group(2)
         fn = FN.get(name)
@@ -116,9 +124,10 @@ def resolve(spec, ctx):
         args = [resolve(a, ctx) if a.strip().startswith("@")
                 else _literal(a) for a in _split_args(argstr)]
         try:
-            return fn(ctx, *args)
+            out = fn(ctx, *args)
         except Exception:
             return None
+        return _dig(out, tail) if tail is not None else out
     return spec
 
 
@@ -192,6 +201,50 @@ def check(pred, ctx) -> bool:
     return False
 
 
+def _brief(v):
+    """Compact a resolved value for evidence rows (lists -> size+head)."""
+    if isinstance(v, (list, tuple)):
+        head = [x.get("id") if isinstance(x, dict) else x
+                for x in v[:4]]
+        return f"list[{len(v)}]{head if v else ''}"
+    if isinstance(v, dict):
+        return f"dict[{len(v)}]"
+    return v
+
+
+def check_detail(pred, ctx):
+    """(ok, clauses) — every leaf {field, op, value} predicate yields a
+    clause row {field, op, resolved, result, reason}; combinators
+    recurse. `reason` names why a clause failed (unresolved surface,
+    comparison miss)."""
+    clauses = []
+
+    def walk(p):
+        if not isinstance(p, dict):
+            return bool(p)
+        if "all" in p:
+            return all(walk(x) for x in p["all"] or [])
+        if "any" in p:
+            return any(walk(x) for x in p["any"] or [])
+        if "not" in p:
+            return not walk(p["not"])
+        field = resolve(p.get("field"), ctx)
+        ok = check(p, ctx)
+        reason = None
+        if not ok:
+            if field is None and p.get("op") not in \
+                    ("absent", "empty", "falsy"):
+                reason = "unresolved"
+            else:
+                reason = "mismatch"
+        clauses.append({"field": p.get("field"), "op": p.get("op"),
+                        "resolved": _brief(field), "result": bool(ok),
+                        "reason": reason})
+        return ok
+
+    return walk(pred), clauses
+
+
 # -- context ------------------------------------------------------------------
 
 class Ctx:
@@ -219,8 +272,15 @@ class Ctx:
     def rpc(self, method, params=None):
         if self.game is None:
             return {}
-        r = self.game.rpc(method, params or {})
-        return r.get("result") if r.get("ok") else {}
+        # Per-poll memoized reads: every fn/candidate in a poll evaluates
+        # against one consistent snapshot (batch semantics) instead of
+        # re-hitting the bridge. A new Ctx per poll refreshes the cache.
+        key = (method, json.dumps(params or {}, sort_keys=True,
+                                  default=str))
+        if key not in self.cache:
+            r = self.game.rpc(method, params or {})
+            self.cache[key] = r.get("result") if r.get("ok") else {}
+        return self.cache[key]
 
 
 def _things(res) -> list:
@@ -830,6 +890,10 @@ def _skill(ctx, pid, name):
     det = _pawn_detail(ctx, pid)
     sk = (det.get("skills") or {}) if isinstance(det, dict) else {}
     v = sk.get(name)
+    if v is None:
+        low = str(name).lower()
+        v = next((x for k, x in sk.items()
+                  if str(k).lower() == low), None)
     try:
         return float(str(v).rstrip("!")) if v is not None else 0.0
     except (TypeError, ValueError):
@@ -1125,6 +1189,11 @@ def _fn_nearest_hostile(ctx, cell):
 
 def _hostile_rows(ctx):
     res = ctx.rpc("state.threats")
+    # A threats read is only "confirmed" when the surface actually
+    # answered — an RPC failure collapses to {} like an empty board,
+    # and stand-down gates must not count that as hostile-free.
+    ctx.state["_threats_read_ok"] = isinstance(res, dict) and (
+        "hostiles" in res or "enemies" in res)
     hostiles = res.get("hostiles") or res.get("enemies") or [] \
         if isinstance(res, dict) else []
     if isinstance(hostiles, dict):
@@ -1188,6 +1257,998 @@ def _fn_fleeing_ids(ctx, window=3, rise=5):
         if len(hist) >= int(window or 3) and hist[-1] > hist[0] + float(rise or 5):
             out.append(h["id"])
     return out
+
+
+# -- combat capability (feature 019; contracts/combat-capability.md v0) --------
+# Generic capability primitives only — radii/duties/floors/weights are
+# `combat:` pack cfg; tactics live in pack rules + pawn_scope options.
+
+_COMBAT_CFG_KEYS = ("rally_anchor", "engage_radius", "overrun_radius",
+                    "near_hostile", "release_ticks", "prolonged_ticks",
+                    "min_health", "relief", "allow_unarmed",
+                    "engage_odds_floor", "power_overrides",
+                    "option_weights", "chase_skill", "assault_duties",
+                    "watch_lords", "manhunter_mental", "delegate_order",
+                    "range_bands", "direct_command")
+
+_ASSAULT_DEFAULT = ("AssaultColony", "PrisonerAssaultColony",
+                    "Breaching", "Sapper", "Escort", "Kidnap", "Steal",
+                    "HuntEnemiesIndividual", "AssaultThing",
+                    "NestAssault")
+
+_POWER_DEFAULT = {"Drifter": 35, "TribalArcher": 45, "TribalWarrior": 50,
+                  "PirateGunner": 65, "Scyther": 150, "Centipede": 400}
+
+
+def _combat_cfg(ctx) -> dict:
+    """The pack's `combat:` cfg block — or `dev_combat:` when `combat:`
+    carries the dev-harness script (feature-010 shape). {} otherwise."""
+    if not isinstance(ctx.cfg, dict):
+        return {}
+    blk = ctx.cfg.get("combat")
+    if isinstance(blk, dict) and any(k in blk for k in _COMBAT_CFG_KEYS):
+        return blk
+    dev = ctx.cfg.get("dev_combat")
+    return dev if isinstance(dev, dict) else {}
+
+
+def _dist(a, b):
+    if not (isinstance(a, (list, tuple)) and isinstance(b, (list, tuple))
+            and len(a) >= 2 and len(b) >= 2):
+        return None
+    try:
+        return ((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2) ** 0.5
+    except (TypeError, ValueError):
+        return None
+
+
+def _pos_of(ctx, x):
+    """[x,z] for a raw cell, a row dict, or a pawn/hostile id."""
+    p = _fn_pos(ctx, x)
+    if p is not None:
+        return p
+    pid = x.get("id") if isinstance(x, dict) else x
+    if pid is None:
+        return None
+    for pool in (_colonist_rows(ctx), _hostile_rows(ctx)):
+        for r in pool:
+            if isinstance(r, dict) and r.get("id") == pid:
+                q = _fn_pos(ctx, r)
+                if q is not None:
+                    return q
+    return None
+
+
+def _home_areas(ctx):
+    """Home-area rects [(x0,z0,x1,z1)] from state.areas — tolerant of
+    cells/rect(s)/min-max row shapes; [] when the surface is missing."""
+    if "home_areas" in ctx.cache:
+        return ctx.cache["home_areas"]
+    res = ctx.rpc("state.areas")
+    rows = res.get("areas") if isinstance(res, dict) else res
+    if not isinstance(rows, list) and isinstance(res, dict):
+        rows = res.get("things")
+    rects = []
+    for a in (rows or []):
+        if not isinstance(a, dict):
+            continue
+        name = str(a.get("name") or a.get("label") or a.get("id") or "")
+        if "home" not in name.lower():
+            continue
+        cells = a.get("cells")
+        if isinstance(cells, list) and cells:
+            xs = [c[0] for c in cells
+                  if isinstance(c, (list, tuple)) and len(c) >= 2]
+            zs = [c[1] for c in cells
+                  if isinstance(c, (list, tuple)) and len(c) >= 2]
+            if xs and zs:
+                rects.append((min(xs), min(zs), max(xs), max(zs)))
+        for r in (a.get("rects")
+                  or ([a["rect"]] if a.get("rect") else [])):
+            if isinstance(r, (list, tuple)) and len(r) >= 4:
+                rects.append((r[0], r[1],
+                              r[0] + r[2] - 1, r[1] + r[3] - 1))
+        mn, mx = a.get("min"), a.get("max")
+        if isinstance(mn, (list, tuple)) and len(mn) >= 2 \
+                and isinstance(mx, (list, tuple)) and len(mx) >= 2:
+            rects.append((mn[0], mn[1], mx[0], mx[1]))
+    ctx.cache["home_areas"] = rects
+    return rects
+
+
+def _in_home(ctx, pos):
+    """pos inside a Home rect — None when no Home surface exists
+    (callers treat unknown as not-home, radius checks still apply)."""
+    rects = _home_areas(ctx)
+    if not rects:
+        return None
+    p = pos if isinstance(pos, (list, tuple)) else _fn_pos(ctx, pos)
+    if not (isinstance(p, (list, tuple)) and len(p) >= 2):
+        return None
+    return any(x0 <= p[0] <= x1 and z0 <= p[1] <= z1
+               for x0, z0, x1, z1 in rects)
+
+
+def _rally_rect(ctx):
+    """Rally rect [x,z,w,h]: steward.status rally, else cfg rally_anchor,
+    else 13x13 around home center (Order_Combat fallback)."""
+    st = ctx.rpc("steward.status")
+    r = st.get("rally") if isinstance(st, dict) else None
+    if isinstance(r, (list, tuple)) and len(r) >= 4:
+        return list(r[:4])
+    anchor = _combat_cfg(ctx).get("rally_anchor")
+    if anchor:
+        a = _fn_anchor(ctx, anchor)
+        if isinstance(a, dict):
+            if isinstance(a.get("rect"), (list, tuple)) \
+                    and len(a["rect"]) >= 4:
+                return list(a["rect"][:4])
+            if isinstance(a.get("min"), (list, tuple)):
+                return [a["min"][0], a["min"][1], 1, 1]
+    hc = _fn_home(ctx)
+    return [int(hc[0]) - 6, int(hc[1]) - 6, 13, 13]
+
+
+def _rally_center(ctx):
+    r = _rally_rect(ctx)
+    return [r[0] + r[2] // 2, r[1] + r[3] // 2]
+
+
+def _is_friendly(ctx, h):
+    """Never-engage rows: player/home factions, colony pawns, colony
+    animals — berserk/rebellion/breakout rows stay friendly-owned."""
+    fac = str(h.get("faction") or "").lower()
+    return fac in ("player", "colony", "colonist", "home") \
+        or h.get("colonist") is True
+
+
+def _is_structure(ctx, h):
+    k = str(h.get("kind") or h.get("def") or "").lower()
+    return bool(h.get("structure")) or "turret" in k \
+        or "building" in k or "mortar" in k
+
+
+def _colonist_outside_home(ctx):
+    """Any living colonist standing outside Home — False also when the
+    Home surface is missing (manhunter rule stays conservative)."""
+    for c in _colonist_rows(ctx):
+        if not isinstance(c, dict) or c.get("downed") or c.get("dead"):
+            continue
+        if _in_home(ctx, _fn_pos(ctx, c)) is False:
+            return True
+    return False
+
+
+def _engage_kind(ctx, h):
+    """'engage' | 'watch' for one living hostile row — Order_Combat's
+    ThreatRules.Engage as pack cfg (research §6)."""
+    cfg = _combat_cfg(ctx)
+    if h.get("fogged"):
+        return "watch"
+    pos = _fn_pos(ctx, h)
+    if _in_home(ctx, pos) is True:
+        return "engage"
+    lord = str(h.get("lord") or "")
+    if lord and lord in (cfg.get("watch_lords") or ["LordJob_Siege"]):
+        return "watch"                       # siege/staging lords
+    mental = str(h.get("mental") or "")
+    if mental and mental == str(cfg.get("manhunter_mental")
+                                or "Manhunter"):
+        return "engage" if _colonist_outside_home(ctx) else "watch"
+    rc = _rally_center(ctx)
+    er = float(cfg.get("engage_radius") or 40)
+    d = _dist(pos, rc)
+    if d is None:
+        dh = h.get("dist_home")
+        d = float(dh) if isinstance(dh, (int, float)) else None
+    if _is_structure(ctx, h):
+        return "engage" if (d is not None and d <= er) else "watch"
+    if lord and lord in (cfg.get("assault_duties")
+                         or list(_ASSAULT_DEFAULT)):
+        return "engage"
+    if d is not None and d <= er:
+        return "engage"
+    return "watch"
+
+
+def _fn_engaged_hostiles(ctx):
+    """Living hostile rows the colony should fight now."""
+    return [h for h in _fn_living_hostiles(ctx)
+            if not _is_friendly(ctx, h)
+            and _engage_kind(ctx, h) == "engage"]
+
+
+def _fn_watching_hostiles(ctx):
+    """Living hostile rows to watch but not engage (siege/staging/far/
+    sheltered-manhunter)."""
+    return [h for h in _fn_living_hostiles(ctx)
+            if not _is_friendly(ctx, h) and not h.get("fogged")
+            and _engage_kind(ctx, h) == "watch"]
+
+
+def _pawn_health(ctx, pid, row=None):
+    h = (row or {}).get("health") if isinstance(row, dict) else None
+    if h is None and ctx.game is not None:
+        det = _pawn_detail(ctx, pid)
+        h = det.get("health") or det.get("health_summary")
+    v = _num(h)
+    return None if v is None else (v * 100.0 if v <= 1.5 else v)
+
+
+def _pawn_need(ctx, pid, need):
+    det = _pawn_detail(ctx, pid) if ctx.game is not None else {}
+    nd = det.get("needs") or {}
+    v = _num(nd.get(need) if isinstance(nd, dict) else None)
+    if v is None:
+        return None
+    return v * 100.0 if v <= 1.5 else v
+
+
+def _order_explain(ctx, oid):
+    """steward.orders.explain row for `oid` — {} on any gap (memoized)."""
+    key = ("order_explain", oid)
+    if key not in ctx.cache:
+        res = ctx.rpc("steward.orders.explain", {"id": oid})
+        ctx.cache[key] = res if isinstance(res, dict) else {}
+    return ctx.cache[key]
+
+
+def _pawn_touched(ctx, pid):
+    """Manual-touch interlock (FR-1907): pawn under another writer's
+    active touch. No steward component -> False (no other writer
+    exists); steward present but touch surface unreadable -> True
+    (excluded — conservative)."""
+    if "touch_surface" not in ctx.cache:
+        st = ctx.rpc("steward.status")
+        if not isinstance(st, dict) or not st:
+            ctx.cache["touch_surface"] = "absent"
+        else:
+            oid = str(_combat_cfg(ctx).get("delegate_order")
+                      or "combat")
+            r = ctx.game.rpc("steward.orders.explain",
+                             {"id": oid}) if ctx.game is not None else {}
+            # ok+{} = readable empty (nobody touched); not-ok = the
+            # surface can't answer -> conservative exclusion
+            ctx.cache["touch_surface"] = (
+                r.get("result") if r.get("ok") else None)
+    surf = ctx.cache["touch_surface"]
+    if surf == "absent":
+        return False
+    if surf is None or not isinstance(surf, dict):
+        return True
+    # a disabled delegate order claims nobody — only an ENABLED order's
+    # hands_off list blocks pawns (direct_command packs release it)
+    if surf.get("enabled") is False:
+        return False
+    for r in (surf.get("hands_off") or []):
+        if isinstance(r, dict) and str(r.get("thing")) == str(pid):
+            return True
+    return False
+
+
+def _draftable(ctx, c):
+    """One colonist row -> bool (data-model FighterEligibility)."""
+    if not isinstance(c, dict) or not c.get("id"):
+        return False
+    pid = c["id"]
+    if c.get("dead") or c.get("downed") or c.get("prisoner") \
+            or c.get("slave") or _is_downed(ctx, c):
+        return False
+    det = _pawn_detail(ctx, pid) if ctx.game is not None else {}
+    if det.get("dead") or det.get("downed") or det.get("prisoner") \
+            or det.get("slave"):
+        return False
+    stage = str(c.get("life_stage") or det.get("life_stage")
+                or det.get("age_stage") or "").lower()
+    if c.get("juvenile") or det.get("juvenile") or "child" in stage \
+            or "baby" in stage:
+        return False
+    vio = c.get("violence_capable", det.get("violence_capable"))
+    dis = det.get("disabled_work") or det.get("incapable") \
+        or det.get("work_disabled") or []
+    if vio is False or any("viol" in str(d).lower() for d in
+                           (dis if isinstance(dis, list) else [dis])):
+        return False
+    if c.get("has_drafter", det.get("has_drafter", True)) is False:
+        return False
+    cfg = _combat_cfg(ctx)
+    h = _pawn_health(ctx, pid, c)
+    if h is not None and h < float(cfg.get("min_health") or 30):
+        return False
+    if not cfg.get("allow_unarmed"):
+        w = c.get("weapon")
+        if w is None and ctx.game is not None:
+            w = det.get("weapon")
+        if not w:
+            return False
+    if _pawn_touched(ctx, pid):
+        return False
+    return True
+
+
+def _fn_draftable(ctx, pawns=None):
+    """`draftable(id|list)` — bool for one id, filtered ids for a list,
+    all eligible colonist ids when no arg."""
+    rows = _colonist_rows(ctx)
+    if pawns is None:
+        return [c["id"] for c in rows if _draftable(ctx, c)]
+    if isinstance(pawns, (list, tuple)):
+        ids = {str(p) for p in pawns}
+        return [c["id"] for c in rows
+                if str(c.get("id")) in ids and _draftable(ctx, c)]
+    row = next((c for c in rows if c.get("id") == pawns), {"id": pawns})
+    return bool(_draftable(ctx, row))
+
+
+def _fn_fighters(ctx):
+    return _fn_draftable(ctx)
+
+
+def _fn_ranged_fighters(ctx):
+    """Draftable ids carrying ranged weapons — the firing squad."""
+    return [c["id"] for c in _colonist_rows(ctx)
+            if _draftable(ctx, c)
+            and (_weapon_of(ctx, c) or {}).get("class") == "ranged"]
+
+
+def _fn_melee_fighters(ctx):
+    """Draftable ids without a ranged weapon (melee or unarmed)."""
+    return [c["id"] for c in _colonist_rows(ctx)
+            if _draftable(ctx, c)
+            and (_weapon_of(ctx, c) or {}).get("class") != "ranged"]
+
+
+def _squad_class(ctx):
+    """The colony's engagement doctrine: 'ranged' when ranged-armed
+    colonists match or outnumber melee-able ones, else 'melee'. Armament
+    of living colonists only — dispatchability (touched/downed) never
+    flips the doctrine mid-fight. Doctrine gates MELEE engagement only
+    (melee screening a firing line = friendly fire); ranged fighters
+    always support from distance — see fighter_engages."""
+    living = [c for c in _colonist_rows(ctx)
+              if isinstance(c, dict) and c.get("id")
+              and not c.get("dead") and not c.get("downed")
+              and not _is_downed(ctx, c)]
+    if not living:
+        return None
+    ranged = sum(1 for c in living
+                 if (_weapon_of(ctx, c) or {}).get("class") == "ranged")
+    return "ranged" if ranged * 2 >= len(living) else "melee"
+
+
+def _fn_squad_class(ctx):
+    return _squad_class(ctx)
+
+
+def _fn_melee_swarm(ctx):
+    """True under melee doctrine — chase/melee rules fire only then."""
+    return _squad_class(ctx) == "melee"
+
+
+def _fn_fighter_engages(ctx, p):
+    """Engagement gate: a ranged fighter always engages — shooters
+    support from range whenever a fight is on; benching them while
+    melee dies is losing. A melee fighter engages only under melee
+    doctrine (squad_class == melee): in a ranged squad they would
+    screen the firing line and eat friendly fire."""
+    pid = p.get("id") if isinstance(p, dict) else p
+    mine = "ranged" if (_weapon_of(ctx, pid) or {}).get("class") \
+        == "ranged" else "melee"
+    if mine == "ranged":
+        return True
+    return _squad_class(ctx) == "melee"
+
+
+def _fn_focus_target(ctx):
+    """The squad's shared target: living hostile nearest home_center
+    (dist_home fallback when positions are unavailable)."""
+    obs = ctx.obs or {}
+    cell = obs.get("home_center") or (obs.get("map") or {}).get("home")
+    return _fn_nearest_hostile(ctx, cell)
+
+
+def _fn_order_state(ctx, order=None):
+    """Steward standing-order state {enabled, engaged, overrun, last,
+    hands_off}. obs['orders'] (observe projection) wins; else rpc.
+    Fields None when the surface can't say — gates on them eval false."""
+    oid = str(order if order is not None else
+              (_combat_cfg(ctx).get("delegate_order") or "combat"))
+    key = ("order_state", oid)
+    if key in ctx.cache:
+        return ctx.cache[key]
+    row, ex = None, {}
+    oobs = (ctx.obs.get("orders") or {}) if isinstance(ctx.obs, dict) \
+        else {}
+    if isinstance(oobs.get(oid), dict):
+        row = oobs[oid]
+        ex = row.get("explain") if isinstance(row.get("explain"), dict) \
+            else {}
+    else:
+        st = ctx.rpc("steward.status")
+        if isinstance(st, dict):
+            row = next((o for o in (st.get("orders") or [])
+                        if isinstance(o, dict)
+                        and str(o.get("id")) == oid), None)
+        ex = _order_explain(ctx, oid)
+    text = " ".join(str(v) for v in (
+        (row or {}).get("summary"), (row or {}).get("acting_on"),
+        ex.get("summary"), ex.get("last")) if v).lower()
+    state = {"enabled": None, "engaged": None, "overrun": None,
+             "last": None, "hands_off": []}
+    if row is not None or ex:
+        en = (row or {}).get("enabled", ex.get("enabled"))
+        state["enabled"] = bool(en) if en is not None else None
+        state["engaged"] = ("engag" in text or "draft" in text
+                            or bool((row or {}).get("acting_on")))
+        state["overrun"] = "overrun" in text
+        state["last"] = (row or {}).get("last") or ex.get("last")
+        state["hands_off"] = list(ex.get("hands_off") or [])
+    ctx.cache[key] = state
+    return state
+
+
+def _fn_combat_mode(ctx):
+    """watch | engage | hold | overrun — colony posture per poll
+    (data-model CombatMode). engage = engaged hostiles, fighters not
+    yet all drafted; hold = deployed; overrun = breach."""
+    engaged = _fn_engaged_hostiles(ctx)
+    if not engaged:
+        return "watch"
+    rc = _rally_center(ctx)
+    over_r = float(_combat_cfg(ctx).get("overrun_radius") or 5)
+    for h in engaged:
+        if _in_home(ctx, _fn_pos(ctx, h)) is True:
+            return "overrun"
+        d = _dist(_fn_pos(ctx, h), rc)
+        if d is None:
+            dh = h.get("dist_home")
+            d = float(dh) if isinstance(dh, (int, float)) else None
+        if d is not None and d <= over_r:
+            return "overrun"
+    fighters = set(_fn_draftable(ctx))
+    drafted = set(_fn_drafted_ids(ctx))
+    return "hold" if fighters and fighters <= drafted else "engage"
+
+
+def _fn_ticks_since_hostile(ctx):
+    """Game ticks since a living hostile was last observed — 10**9 when
+    none has ever been seen (release window already satisfied)."""
+    if _fn_living_hostiles(ctx):
+        ctx.state["last_hostile_tick"] = ctx.tick
+    last = ctx.state.get("last_hostile_tick")
+    return ctx.tick - last if last is not None else 10 ** 9
+
+
+def _fn_hostile_free_polls(ctx):
+    """Consecutive polls with a CONFIRMED-empty living-hostiles read —
+    flicker hysteresis for stand-down/release gates. A living hostile
+    resets the streak AND records the sighting tick (short-circuited
+    predicates can skip ticks_since_hostile — last_hostile_tick must
+    stay honest wherever this fn evaluates first); a failed/absent
+    threats read just doesn't count (holds, not resets — one bad RPC
+    shouldn't undo a clean stretch, but it must never count toward
+    standing pawns down)."""
+    if _fn_living_hostiles(ctx):
+        ctx.state["hostile_free_polls"] = 0
+        ctx.state["last_hostile_tick"] = ctx.tick
+    elif ctx.state.get("_threats_read_ok") \
+            and ctx.state.get("_hfp_poll") != ctx.poll:
+        # once per poll — `when` gates re-evaluate per candidate and a
+        # poll is the unit that means something, not predicate hits
+        ctx.state["_hfp_poll"] = ctx.poll
+        ctx.state["hostile_free_polls"] = \
+            int(ctx.state.get("hostile_free_polls") or 0) + 1
+    return int(ctx.state.get("hostile_free_polls") or 0)
+
+
+def _fn_hostiles_in_home(ctx):
+    return [h for h in _fn_living_hostiles(ctx)
+            if not _is_friendly(ctx, h)
+            and _in_home(ctx, _fn_pos(ctx, h)) is True]
+
+
+def _fn_hostiles_within(ctx, cell, r=10):
+    p = _pos_of(ctx, cell)
+    return [h for h in _fn_living_hostiles(ctx)
+            if (_dist(_fn_pos(ctx, h), p) or 10 ** 9) <= float(r or 10)]
+
+
+def _fn_nearest_fleeing(ctx, pawn):
+    fled = set(_fn_fleeing_ids(ctx))
+    p = _pos_of(ctx, pawn)
+    best, best_d = None, None
+    for h in _hostile_rows(ctx):
+        if h.get("id") not in fled:
+            continue
+        d = _dist(_fn_pos(ctx, h), p)
+        if d is not None and (best_d is None or d < best_d):
+            best, best_d = h["id"], d
+    return best
+
+
+def _fn_safe_cell(ctx, pawn):
+    """Retreat destination: the Home cell maximizing distance to the
+    nearest living hostile — None when every candidate is inside
+    `near_hostile` of a hostile (FR-1910 suppression)."""
+    cfg = _combat_cfg(ctx)
+    near = float(cfg.get("near_hostile") or 30)
+    hc = _fn_home(ctx)
+    cands = [[hc[0] + dx, hc[1] + dz]
+             for dx in (-6, 0, 6) for dz in (-6, 0, 6)]
+    living = _fn_living_hostiles(ctx)
+    best, best_d = None, -1.0
+    for cell in cands:
+        d = min((_dist(_fn_pos(ctx, h), cell) or 10 ** 9)
+                for h in living) if living else 10 ** 9
+        if d > best_d:
+            best, best_d = cell, d
+    return best if best_d > near or not living else None
+
+
+def _fn_skill_of(ctx, pid, skill):
+    return _skill(ctx, pid, skill)
+
+
+def _fn_health_of(ctx, pid):
+    row = next((c for c in _colonist_rows(ctx)
+                if isinstance(c, dict) and c.get("id") == pid), None)
+    return _pawn_health(ctx, pid, row)
+
+
+def _fn_need_of(ctx, pid, need):
+    return _pawn_need(ctx, pid, need)
+
+
+def _fn_weapon_stats(ctx, thing):
+    """Weapon stats {class, range, dps, warmup, cooldown, burst} via
+    defs.get — None on any miss (gates evaluate false, conservative).
+    Pawn rows carry display labels ("pump shotgun (normal 87%)"), not
+    defNames — fall back to defs.search on the stripped label."""
+    d = thing.get("def") or thing.get("weapon") \
+        if isinstance(thing, dict) else thing
+    if not d:
+        return None
+    d = str(d)
+    key = ("weapon_stats", d)
+    if key in ctx.cache:
+        return ctx.cache[key]
+    # cross-poll memo (runstate vars): a transient defs.* failure must
+    # not flip a known weapon's class mid-engagement — squad purity
+    # gates read this every poll
+    pc = ctx.persist.get("weapon_stats") if isinstance(
+        ctx.persist, dict) else None
+    if isinstance(pc, dict) and d in pc:
+        ctx.cache[key] = pc[d]
+        return pc[d]
+    res = ctx.rpc("defs.get", {"def": d})
+    if not res:
+        q = re.sub(r"\s*\(.*$", "", d).strip()
+        hits = ctx.rpc("defs.search", {"query": q})
+        hit = next((h for h in (hits or [])
+                    if isinstance(h, dict)
+                    and h.get("type") == "ThingDef"
+                    and h.get("def")), None)
+        if hit:
+            res = ctx.rpc("defs.get", {"def": hit["def"]})
+    stats = {}
+    if isinstance(res, dict):
+        st = res.get("stats") if isinstance(res.get("stats"), dict) \
+            else res
+        verbs = (st.get("verbs") or res.get("verbs") or [])
+        v0 = verbs[0] if isinstance(verbs, list) and verbs \
+            and isinstance(verbs[0], dict) else {}
+        melee = st.get("is_melee", v0.get("is_melee"))
+        if melee is None and st.get("ranged") is not None:
+            melee = not bool(st.get("ranged"))
+        if melee is None:
+            melee = "melee" in d.lower() or "meleeweapon" in d.lower()
+        stats = {
+            "class": "melee" if melee else "ranged",
+            "range": _num(st.get("range", v0.get("range"))),
+            "dps": _num(st.get("dps") or st.get("dps_ranged")
+                        or st.get("melee_dps") or st.get("damage")),
+            "warmup": _num(v0.get("warmup", st.get("warmup"))),
+            "cooldown": _num(v0.get("cooldown", st.get("cooldown"))),
+            "burst": _num(v0.get("burst", st.get("burst")))}
+        if stats["range"] is None and not melee:
+            stats = None
+    ctx.cache[key] = stats or None
+    if isinstance(ctx.persist, dict):
+        ctx.persist.setdefault("weapon_stats", {})[d] = ctx.cache[key]
+    return ctx.cache[key]
+
+
+def _pawn_weapon(ctx, pid, row=None):
+    w = (row or {}).get("weapon") if isinstance(row, dict) else None
+    if w is None and ctx.game is not None:
+        w = _pawn_detail(ctx, pid).get("weapon")
+    # cross-poll memory: a transient obs/detail miss must not read as
+    # "unarmed" mid-engagement — that flips squad-class gates
+    lw = (ctx.persist.setdefault("last_weapon", {})
+          if isinstance(ctx.persist, dict) else None)
+    if w:
+        if lw is not None:
+            lw[pid] = w
+    elif lw is not None:
+        w = lw.get(pid)
+    return w
+
+
+def _weapon_of(ctx, p):
+    """Pawn id/row -> weapon stats (None = unarmed or unknown)."""
+    row = p if isinstance(p, dict) else \
+        next((c for c in _colonist_rows(ctx) if c.get("id") == p), {})
+    pid = row.get("id", p) if isinstance(row, dict) else p
+    if not _is_friendly(ctx, row) and isinstance(row, dict) \
+            and row in _hostile_rows(ctx):
+        w = row.get("weapon")
+    else:
+        w = _pawn_weapon(ctx, pid, row)
+    return _fn_weapon_stats(ctx, w)
+
+
+def _fn_speed_of(ctx, pid):
+    det = _pawn_detail(ctx, pid) if ctx.game is not None else {}
+    caps = det.get("capacities") or {}
+    v = _num(caps.get("Moving") if isinstance(caps, dict) else None)
+    if v is None:
+        v = _num(det.get("speed"))
+    if v is None:
+        return None
+    return v * 4.6 if v <= 3.0 else v        # Moving capacity -> cells/s
+
+
+def _fn_outranges(ctx, p, h):
+    pw, hw = _weapon_of(ctx, p), _weapon_of(ctx, h)
+    if not pw or not hw or pw.get("range") is None \
+            or hw.get("range") is None:
+        return False
+    return pw["range"] > hw["range"]
+
+
+def _fn_outranged_by(ctx, p):
+    return any(_fn_outranges(ctx, h, p)
+               for h in _fn_engaged_hostiles(ctx))
+
+
+def _fn_outrun_by(ctx, p):
+    ps = _fn_speed_of(ctx, p if not isinstance(p, dict)
+                      else p.get("id"))
+    if ps is None:
+        return False
+    return any(((_fn_speed_of(ctx, h.get("id")) or 0) > ps)
+               for h in _fn_engaged_hostiles(ctx) if h.get("id"))
+
+
+def _fn_in_range(ctx, p, h):
+    pw = _weapon_of(ctx, p)
+    if not pw or pw.get("range") is None:
+        return False
+    d = _dist(_pos_of(ctx, p), _pos_of(ctx, h))
+    return d is not None and d <= pw["range"]
+
+
+def _fn_dist_to(ctx, a, b):
+    """Cell distance between two pawns/rows/cells (None when either
+    position is unknown — gates evaluate false, conservative)."""
+    d = _dist(_pos_of(ctx, a), _pos_of(ctx, b))
+    return round(d, 1) if d is not None else None
+
+
+def _fn_pos_of(ctx, x):
+    return _pos_of(ctx, x)
+
+
+def _fn_label_of(ctx, x):
+    """Display name for a pawn/hostile row or id."""
+    if isinstance(x, dict):
+        return x.get("name") or x.get("label") or x.get("id")
+    if isinstance(x, str):
+        for r in (_colonist_rows(ctx) + _hostile_rows(ctx)):
+            if isinstance(r, dict) and r.get("id") == x:
+                return r.get("name") or x
+    return x
+
+
+def _fn_range_class(ctx, p):
+    """Weapon range band from combat.range_bands {short, medium} (max
+    cells per band; above medium = long). No ranged weapon -> melee."""
+    ws = _weapon_of(ctx, p)
+    if not ws or ws.get("class") == "melee" or not ws.get("range"):
+        return "melee"
+    bands = _combat_cfg(ctx).get("range_bands") or {}
+    r = float(ws["range"])
+    if r <= float(bands.get("short", 12)):
+        return "short"
+    if r <= float(bands.get("medium", 30)):
+        return "medium"
+    return "long"
+
+
+def _fn_combat_card(ctx, p):
+    """Per-pawn selector context card: id/name/pos, weapon + range
+    class, health, drafted/touched — the structured row a fast
+    decision endpoint reads before picking (feature 019 select)."""
+    row = p if isinstance(p, dict) else \
+        next((c for c in _colonist_rows(ctx) if c.get("id") == p), {})
+    pid = row.get("id", p) if isinstance(row, dict) else p
+    ws = _weapon_of(ctx, pid) or {}
+    det = _pawn_detail(ctx, pid) if ctx.game is not None else {}
+    return {"id": pid, "name": _fn_label_of(ctx, row),
+            "pos": _pos_of(ctx, pid),
+            "weapon": _pawn_weapon(ctx, pid, row),
+            "weapon_class": ws.get("class") or "melee",
+            "range_class": _fn_range_class(ctx, pid),
+            "range": ws.get("range"),
+            "health": _fn_health_of(ctx, pid),
+            "drafted": bool(row.get("drafted") or det.get("drafted")),
+            "touched": _pawn_touched(ctx, pid),
+            "engages": _fn_fighter_engages(ctx, pid)}
+
+
+def _fn_hostile_cards(ctx, p=None):
+    """Living hostiles sorted nearest-first relative to pawn `p`
+    (or home when p is None): {id, name, kind, pos, dist, health,
+    range_class} — the target side of the combat decision matrix."""
+    ppos = _pos_of(ctx, p) if p is not None else _fn_pos(ctx,
+        ctx.obs.get("home_center") or _dig(ctx.obs, "map.home"))
+    out = []
+    for h in _fn_living_hostiles(ctx):
+        d = _dist(ppos, _pos_of(ctx, h))
+        ws = _weapon_of(ctx, h) or {}
+        out.append({"id": h.get("id"), "name": _fn_label_of(ctx, h),
+                    "kind": h.get("kind"), "pos": _pos_of(ctx, h),
+                    "dist": round(d, 1) if d is not None
+                    else h.get("dist_home"),
+                    "health": h.get("health"),
+                    "range_class": _fn_range_class(ctx, h)})
+    out.sort(key=lambda r: r["dist"]
+             if isinstance(r["dist"], (int, float)) else 1e9)
+    return out
+
+
+def _fn_squad_card(ctx):
+    """Squad-level decision context: doctrine class, combat mode,
+    headcounts, shared focus target."""
+    return {"class": _fn_squad_class(ctx), "mode": _fn_combat_mode(ctx),
+            "fighters": len(_fn_fighters(ctx)),
+            "draftable": len(_fn_draftable(ctx)),
+            "living_hostiles": len(_fn_living_hostiles(ctx)),
+            "focus_target": _fn_focus_target(ctx)}
+
+
+def _fn_enemy_mix(ctx):
+    """{melee, ranged, structure, total} over living hostiles (weapon
+    def -> class; unarmed/melee-capable rows count as melee)."""
+    out = {"melee": 0, "ranged": 0, "structure": 0, "total": 0}
+    for h in _fn_living_hostiles(ctx):
+        if _is_friendly(ctx, h):
+            continue
+        out["total"] += 1
+        if _is_structure(ctx, h):
+            out["structure"] += 1
+            continue
+        ws = _weapon_of(ctx, h)
+        if ws is None or ws.get("class") == "melee":
+            out["melee"] += 1
+        else:
+            out["ranged"] += 1
+    return out
+
+
+def _fn_enemy_max_range(ctx):
+    best = 0.0
+    for h in _fn_living_hostiles(ctx):
+        r = (_weapon_of(ctx, h) or {}).get("range")
+        if isinstance(r, (int, float)) and r > best:
+            best = r
+    return best
+
+
+def _fn_threat_power(ctx):
+    """Sum of combat-power points over living hostiles (wiki defaults;
+    pack `combat.power_overrides` per def/kind)."""
+    over = _combat_cfg(ctx).get("power_overrides") or {}
+    total = 0.0
+    for h in _fn_living_hostiles(ctx):
+        if _is_friendly(ctx, h):
+            continue
+        k = str(h.get("kind") or h.get("def") or "")
+        total += float(over.get(k) or _POWER_DEFAULT.get(k) or 50)
+    return total
+
+
+def _fn_manhunters(ctx):
+    mh = str(_combat_cfg(ctx).get("manhunter_mental") or "Manhunter")
+    return [h for h in _fn_living_hostiles(ctx)
+            if str(h.get("mental") or "") == mh]
+
+
+def _fn_free_beds(ctx, kind="any"):
+    """Unoccupied beds in rooms of `kind` (any|medical|prison)."""
+    rooms = ctx.obs.get("rooms") if isinstance(ctx.obs, dict) else None
+    rows = rooms.get("rooms") if isinstance(rooms, dict) else rooms
+    want = {"medical": ("hospital", "medical"),
+            "prison": ("prison",)}.get(str(kind), None)
+    total = 0
+    for r in (rows if isinstance(rows, list) else []):
+        if not isinstance(r, dict):
+            continue
+        role = str(r.get("role") or "").lower()
+        if want and not any(w in role for w in want):
+            continue
+        beds = _num(r.get("beds"))
+        occ = _num(r.get("occupied")) or _num(r.get("owners")) or 0
+        if beds is not None:
+            total += max(0, int(beds - occ))
+    return total
+
+
+def _fn_casualty_ids(ctx):
+    """Downed colonist ids."""
+    return [c["id"] for c in _colonist_rows(ctx)
+            if isinstance(c, dict) and c.get("id")
+            and (c.get("downed") or _is_downed(ctx, c))]
+
+
+def _fn_pawns_needing_tend(ctx):
+    """Colonist ids downed or flagged needs_tending."""
+    out = []
+    for c in _colonist_rows(ctx):
+        pid = c.get("id") if isinstance(c, dict) else None
+        if not pid:
+            continue
+        det = _pawn_detail(ctx, pid) if ctx.game is not None else {}
+        if c.get("downed") or det.get("downed") \
+                or det.get("needs_tending") or _is_downed(ctx, c):
+            out.append(pid)
+    return out
+
+
+def _fn_kite_cell(ctx, pawn):
+    """Step away from the nearest engaged hostile along the pawn-hostile
+    vector, biased home — None when the pawn lacks range+speed edge
+    (FR-1910: kite suppressed when outranged or outrun)."""
+    p = _pos_of(ctx, pawn)
+    nh = _fn_nearest_hostile(ctx, p)
+    if p is None or nh is None:
+        return None
+    h = next((x for x in _fn_living_hostiles(ctx)
+              if x.get("id") == nh), None)
+    hp = _fn_pos(ctx, h) if h else None
+    if hp is None:
+        return None
+    ws = _weapon_of(ctx, pawn)
+    rng = (ws or {}).get("range") or 0
+    dx, dz = p[0] - hp[0], p[1] - hp[1]
+    d = (dx * dx + dz * dz) ** 0.5 or 1.0
+    step = max(1.0, (rng - d)) if rng > d else 4.0
+    return [round(p[0] + dx / d * step), round(p[1] + dz / d * step)]
+
+
+def _fn_block_cell(ctx, pawn):
+    """Cell between the nearest melee hostile and home center —
+    choke approximation for melee-block."""
+    p = _pos_of(ctx, pawn)
+    hc = _fn_home(ctx)
+    nh = _fn_nearest_hostile(ctx, p or hc)
+    h = next((x for x in _fn_living_hostiles(ctx)
+              if x.get("id") == nh), None) if nh else None
+    hp = _fn_pos(ctx, h) if h else None
+    if hp is None:
+        return None
+    return [round((hp[0] + hc[0]) / 2), round((hp[1] + hc[1]) / 2)]
+
+
+def _combat_evidence(ctx, rid, source):
+    """Append a combat-evidence decision row + lifecycle markers.
+
+    combat_engaged/combat_released come from the steward ledger via
+    ``order_state().last``; ``combat.overrun``/``combat.prolonged`` are
+    pack-side decision-row markers, emitted once per engagement."""
+    mode = _fn_combat_mode(ctx)
+    engaged = _fn_engaged_hostiles(ctx)
+    order = _fn_order_state(ctx)
+    cfg = _combat_cfg(ctx)
+    markers = ctx.state.setdefault("combat_markers", {})
+    if engaged:
+        if markers.get("idle"):
+            # new engagement — reset the span markers
+            markers["start"] = ctx.tick
+            for k in ("overrun", "prolonged", "released"):
+                markers.pop(k, None)
+        markers.pop("idle", None)
+        markers.setdefault("start", ctx.tick)
+        markers["peak_engaged"] = max(
+            len(engaged), int(markers.get("peak_engaged") or 0))
+    else:
+        markers["idle"] = True
+        if not engaged:
+            markers["peak_engaged"] = max(
+                0, int(markers.get("peak_engaged") or 0))
+    marks = []
+    if mode == "overrun" and "overrun" not in markers:
+        markers["overrun"] = ctx.tick
+        marks.append({"marker": "combat.overrun"})
+    pt = cfg.get("prolonged_ticks")
+    if engaged and pt and "start" in markers and "prolonged" \
+            not in markers and ctx.tick - markers["start"] >= int(pt):
+        markers["prolonged"] = ctx.tick
+        marks.append({"marker": "combat.prolonged"})
+    # T030: on the order's combat_released ledger event, record the
+    # engagement summary once — duration, peak hostiles, losses
+    if order.get("last") == "combat_released" \
+            and not markers.get("released"):
+        markers["released"] = True
+        marks.append({
+            "marker": "combat.released",
+            "duration_ticks": (ctx.tick - markers["start"]
+                               if "start" in markers else None),
+            "peak_engaged": markers.get("peak_engaged") or 0,
+            "casualties": _fn_casualty_ids(ctx)})
+        markers.pop("start", None)
+        markers.pop("peak_engaged", None)
+    ctx.decisions.append({
+        "tick": ctx.tick, "poll": ctx.poll,
+        "source": f"{source}:{rid}", "rule": rid,
+        "kind": "combat-evidence", "mode": mode,
+        "engaged": [h.get("id") for h in engaged],
+        "watching": [h.get("id") for h in _fn_watching_hostiles(ctx)],
+        "fighters": _fn_draftable(ctx),
+        "casualties": _fn_casualty_ids(ctx),
+        "needs_tend": _fn_pawns_needing_tend(ctx),
+        "order": {k: order.get(k) for k in
+                  ("enabled", "engaged", "overrun", "last")},
+        "markers": marks})
+
+
+_COVER_HINTS = ("wall", "sandbag", "barricade", "tree", "chunk",
+                "rock", "bunker", "embrasure")
+
+
+def _cover_score(ctx, cell):
+    """0-4: adjacent cells holding cover-ish things (map.cell things'
+    def names matched loosely; missing surface -> 0)."""
+    score = 0
+    for dx, dz in ((0, 1), (0, -1), (1, 0), (-1, 0)):
+        res = ctx.rpc("map.cell", {"cell": [cell[0] + dx,
+                                            cell[1] + dz]})
+        if not isinstance(res, dict):
+            continue
+        names = " ".join(str(t.get("def") or t.get("label") or "")
+                         for t in (res.get("things") or [])
+                         if isinstance(t, dict)).lower()
+        if any(h in names for h in _COVER_HINTS):
+            score += 1
+    return score
+
+
+def _fn_rally_cell(ctx, pawn):
+    """Distinct cover-preferring cell inside the rally rect per fighter
+    (OrderLogic: cover-first score, greedy spread cap 4, center bias
+    0.05). Assignments persist in rule_state; taken cells are skipped."""
+    row = pawn if isinstance(pawn, dict) else {}
+    pid = row.get("id", pawn)
+    rect = _rally_rect(ctx)
+    rc = _rally_center(ctx)
+    st = ctx.state.setdefault("rally_assign", {})
+    mine = st.get(str(pid))
+    claimed = {tuple(v) for k, v in st.items() if k != str(pid)}
+    if mine is not None and tuple(mine) not in claimed:
+        return list(mine)
+    best, best_s = None, -1e9
+    for x in range(rect[0], rect[0] + rect[2]):
+        for z in range(rect[1], rect[1] + rect[3]):
+            if (x, z) in claimed:
+                continue
+            s = _cover_score(ctx, [x, z]) \
+                - 0.05 * (_dist([x, z], rc) or 0)
+            if s > best_s:
+                best, best_s = [x, z], s
+    if best is None:
+        return None
+    st[str(pid)] = best
+    return best
 
 
 def _fn_roofed(ctx, cell):
@@ -1462,6 +2523,36 @@ FN = {
     "research": _fn_research, "research_current": _fn_research_current,
     "research_available": _fn_research_available,
     "quests": _fn_quests, "letters": _fn_letters,
+    "engaged_hostiles": _fn_engaged_hostiles,
+    "watching_hostiles": _fn_watching_hostiles,
+    "draftable": _fn_draftable, "fighters": _fn_fighters,
+    "ranged_fighters": _fn_ranged_fighters,
+    "melee_fighters": _fn_melee_fighters,
+    "fighter_engages": _fn_fighter_engages,
+    "melee_swarm": _fn_melee_swarm, "squad_class": _fn_squad_class,
+    "focus_target": _fn_focus_target,
+    "order_state": _fn_order_state, "combat_mode": _fn_combat_mode,
+    "ticks_since_hostile": _fn_ticks_since_hostile,
+    "hostile_free_polls": _fn_hostile_free_polls,
+    "hostiles_in_home": _fn_hostiles_in_home,
+    "hostiles_within": _fn_hostiles_within,
+    "nearest_fleeing": _fn_nearest_fleeing,
+    "safe_cell": _fn_safe_cell, "skill_of": _fn_skill_of,
+    "health_of": _fn_health_of, "need_of": _fn_need_of,
+    "weapon_stats": _fn_weapon_stats, "speed_of": _fn_speed_of,
+    "outranges": _fn_outranges, "outranged_by": _fn_outranged_by,
+    "outrun_by": _fn_outrun_by, "in_range": _fn_in_range,
+    "enemy_mix": _fn_enemy_mix, "enemy_max_range": _fn_enemy_max_range,
+    "threat_power": _fn_threat_power, "manhunters": _fn_manhunters,
+    "touched": _pawn_touched,
+    "dist_to": _fn_dist_to, "pos_of": _fn_pos_of,
+    "label_of": _fn_label_of, "range_class": _fn_range_class,
+    "combat_card": _fn_combat_card, "hostile_cards": _fn_hostile_cards,
+    "squad_card": _fn_squad_card,
+    "free_beds": _fn_free_beds, "casualty_ids": _fn_casualty_ids,
+    "pawns_needing_tend": _fn_pawns_needing_tend,
+    "kite_cell": _fn_kite_cell, "block_cell": _fn_block_cell,
+    "rally_cell": _fn_rally_cell, "rally_rect": _rally_rect,
 }
 
 
@@ -1527,6 +2618,34 @@ def _sel_forbidden(ctx):
     return _things(ctx.obs.get("forbidden") or {})
 
 
+def _sel_fighters(ctx):
+    ids = set(_fn_draftable(ctx))
+    return [c for c in _colonist_rows(ctx) if c.get("id") in ids]
+
+
+def _sel_ranged(ctx):
+    ids = set(_fn_ranged_fighters(ctx))
+    return [c for c in _colonist_rows(ctx) if c.get("id") in ids]
+
+
+def _sel_melee(ctx):
+    ids = set(_fn_melee_fighters(ctx))
+    return [c for c in _colonist_rows(ctx) if c.get("id") in ids]
+
+
+def _sel_engaged(ctx):
+    return _fn_engaged_hostiles(ctx)
+
+
+def _sel_watching(ctx):
+    return _fn_watching_hostiles(ctx)
+
+
+def _sel_casualties(ctx):
+    ids = set(_fn_casualty_ids(ctx))
+    return [c for c in _colonist_rows(ctx) if c.get("id") in ids]
+
+
 _SELECTORS = {
     "colonists": _sel_colonists,
     "unarmed_colonists": _sel_unarmed,
@@ -1536,6 +2655,15 @@ _SELECTORS = {
     "fleeing_hostiles": _sel_fleeing,
     "items": _sel_items,
     "forbidden_items": _sel_forbidden,
+    "fighters": _sel_fighters,
+    "draftable": _sel_fighters,
+    "ranged_fighters": _sel_ranged,
+    "melee_fighters": _sel_melee,
+    "engaged_hostiles": _sel_engaged,
+    "watching_hostiles": _sel_watching,
+    "hostiles_in_home": lambda c: _fn_hostiles_in_home(c),
+    "manhunters": lambda c: _fn_manhunters(c),
+    "casualties": _sel_casualties,
 }
 
 
@@ -1637,7 +2765,34 @@ def run_rules(rules, dispatcher, ctx, source="rules") -> list[dict]:
         for idx, cand in enumerate(cands):
             ctx.vars["it"] = cand
             ctx.vars["index"] = idx
-            if rule.get("when") and not check(rule["when"], ctx):
+            if rule.get("when"):
+                ok, clauses = check_detail(rule["when"], ctx)
+                gk = ("gate", rid, idx)
+                prev = ctx.state.get(gk)
+                ctx.state[gk] = ok
+                # evidence-marked rules leave a structured gate row on
+                # pass<->fail transitions naming each clause's result +
+                # reason (T010/FR-1908); steady-state polls stay silent
+                if ctx.decisions is not None and prev is not None \
+                        and prev != ok and (
+                            rule.get("evidence")
+                            or rule.get("kind") == "combat-evidence"):
+                    ctx.decisions.append({
+                        "tick": ctx.tick, "poll": ctx.poll,
+                        "source": f"{source}:{rid}", "gate": True,
+                        "rule": rid, "result": ok,
+                        "subject": (cand.get("id")
+                                    if isinstance(cand, dict)
+                                    else cand),
+                        "clauses": clauses})
+                if not ok:
+                    continue
+            if rule.get("kind") == "combat-evidence":
+                # evidence-only rule (feature 019): append the combat
+                # posture snapshot — engaged/watch sets, fighters,
+                # delegate-order state, lifecycle markers — no dispatch
+                _combat_evidence(ctx, rid, source)
+                fired.append({"rule": rid, "kind": "combat-evidence"})
                 continue
             key = resolve(cd.get("key"), ctx) if cd.get("key") else (
                 cand.get("id") if isinstance(cand, dict) else cand)

@@ -24,7 +24,8 @@ def _things(res) -> list:
 
 
 def observe(game, cfg: dict | None = None, *,
-            vitals: dict | None = None) -> dict:
+            vitals: dict | None = None,
+            combat: dict | None = None) -> dict:
     """Canonical obs dict: enriched state + storage/rooms/stocks/base +
     loose+forbidden items + blueprints (+frames) + footprint-aware open
     rects + measured fields whose def lists come from pack cfg. Missing
@@ -156,8 +157,54 @@ def observe(game, cfg: dict | None = None, *,
                                      else b) for b in bills)
     obs["cookbill_configured"] = billed
     obs["cookstation_ready"] = bool(obs["cookstation_ids"]) and billed
+    # feature 019: project the delegate standing-order's state into obs
+    # so pack rules/options gate on the order's own lifecycle. Only when
+    # the pack declares combat.delegate_order — read-only surface.
+    ocfg = combat if isinstance(combat, dict) \
+        else ((cfg or {}).get("combat") or {})
+    oid = ocfg.get("delegate_order") if isinstance(ocfg, dict) else None
+    if oid:
+        st = game.rpc("steward.status")
+        st = st.get("result") if st.get("ok") else {}
+        row = next((o for o in ((st or {}).get("orders") or [])
+                    if isinstance(o, dict)
+                    and str(o.get("id")) == str(oid)), None)
+        ex = game.rpc("steward.orders.explain", {"id": oid})
+        ex = ex.get("result") if ex.get("ok") else {}
+        obs["orders"] = {str(oid): {**(row or {}),
+                                   "explain": ex if isinstance(ex, dict)
+                                   else {}}}
     if vitals:
         obs["vitals"] = vitals
+    return obs
+
+
+def observe_combat(game, combat: dict | None = None) -> dict:
+    """Lean per-poll obs for combat engage loops: status + enriched
+    roster/fires (base), live areas, home anchor, and the delegate-order
+    projection. Skips storage/rooms/stocks/items/blueprints/site/beds/
+    cooking sections the engage rules never read — polls stay cheap so
+    ticks go to dispatching actions, not watching (feature 019)."""
+    obs = _base_observe(game)
+    for name, rpc in (("areas", "state.areas"),
+                      ("base", "state.base")):
+        r = game.rpc(rpc)
+        obs[name] = r.get("result") if r.get("ok") else {}
+    base = obs.get("base")
+    if isinstance(base, dict) and base.get("home_center"):
+        obs["home_center"] = base["home_center"]
+    oid = (combat or {}).get("delegate_order")
+    if oid:
+        st = game.rpc("steward.status")
+        st = st.get("result") if st.get("ok") else {}
+        row = next((o for o in ((st or {}).get("orders") or [])
+                    if isinstance(o, dict)
+                    and str(o.get("id")) == str(oid)), None)
+        ex = game.rpc("steward.orders.explain", {"id": oid})
+        ex = ex.get("result") if ex.get("ok") else {}
+        obs["orders"] = {str(oid): {**(row or {}),
+                                   "explain": ex if isinstance(ex, dict)
+                                   else {}}}
     return obs
 
 

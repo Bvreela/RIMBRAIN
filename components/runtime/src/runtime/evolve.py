@@ -7,7 +7,7 @@ path covering every mutable pack surface (``phases``, ``action_list``,
 
     triggers (cadence / failure / near-failure, pack ``mutate:`` cfg)
     -> failure digest -> rimbrain.improve proposal (rules-only degrade)
-    -> deterministic gate -> packs/candidates/cand-mut-*.yaml
+    -> deterministic gate -> packs/candidates/<pack>-inactive.yaml
     -> pending lineage row in state/mutations.jsonl
 
 The pass never touches the loaded pack document, the active pack file,
@@ -170,6 +170,34 @@ def _mark_lineage(state_dir: Path, candidate_id: str, state: str) -> None:
     for r in rows:
         if r.get("candidate_id") == candidate_id:
             r["state"] = state
+    write_atomic(p, ("\n".join(json.dumps(r, sort_keys=True)
+                              for r in rows) + "\n").encode())
+
+
+# -- candidate slots -----------------------------------------------------------
+# Only two files exist per pack under packs/candidates/: `<pack>-inactive`
+# holds the newest proposal (overwritten every pass — a pending row older
+# than the latest is superseded) and `<pack>-active` holds the outgoing
+# generation refreshed at each promote (the revert source). Per-pass
+# history lives in state/mutations.jsonl — never in filenames.
+
+def _slot(pack_stem: str, kind: str) -> Path:
+    """``candidates/<stem>-<kind>.yaml`` — kind ∈ active|inactive."""
+    return (templates.packs_dir() / "candidates" /
+            f"{pack_stem.replace('/', '-')}-{kind}.yaml")
+
+
+def _supersede_pending(state_dir: Path, pack_id: str) -> None:
+    """Older pending rows for the same pack can never install — the slot
+    file already holds a newer doc — so they stop counting as pending."""
+    p = _lineage_path(state_dir)
+    rows = lineage_rows(state_dir)
+    stale = [r for r in rows if r.get("target_pack") == pack_id
+             and r.get("state") == "pending"]
+    if not stale:
+        return
+    for r in stale:
+        r["state"] = "superseded"
     write_atomic(p, ("\n".join(json.dumps(r, sort_keys=True)
                               for r in rows) + "\n").encode())
 
@@ -514,24 +542,27 @@ def gate(proposal: dict, pack_loaded: dict, pack: dict, cfg: dict,
 def materialize(doc: dict, pack_id: str, ps: PassState,
                 state_dir: Path, emit, seq: list[int],
                 clock=None, mutation_id=None) -> Path:
-    """Write the gated doc as a flat candidate + pending lineage row."""
-    cand_dir = templates.packs_dir() / "candidates"
-    cand_dir.mkdir(parents=True, exist_ok=True)
+    """Write the gated doc to the pack's inactive slot + pending lineage
+    row. The slot is overwritten every pass; candidate_id stays unique so
+    mutations.jsonl keeps per-pass history."""
+    out = _slot(pack_id, "inactive")
+    out.parent.mkdir(parents=True, exist_ok=True)
     digest = templates._hash_of(doc)
     slug = re.sub(r"[^a-z0-9-]+", "-",
                   (mutation_id or "mut").lower())[:40].strip("-")
-    out = cand_dir / f"cand-mut-{slug}-{digest[:8]}.yaml"
+    cand_id = f"cand-mut-{slug}-{digest[:8]}"
     out.write_text(yaml.safe_dump(doc, sort_keys=False), encoding="utf-8")
+    _supersede_pending(state_dir, pack_id)
     _append_lineage(state_dir, {
-        "candidate_id": out.stem, "target_pack": pack_id,
+        "candidate_id": cand_id, "target_pack": pack_id,
         "candidate_path": str(out), "candidate_hash": digest,
         "state": "pending"})
     seq[0] += 1
     emit(mutation_event("mutation.candidate", {
-        "candidate_id": out.stem, "path": str(out), "hash": digest,
+        "candidate_id": cand_id, "path": str(out), "hash": digest,
         "target_pack": pack_id, "mutation_id": mutation_id},
         seq[0], clock))
-    ps.pending = out.stem
+    ps.pending = cand_id
     return out
 
 
@@ -561,7 +592,7 @@ def _compile_plan_ops(mutations: list) -> list[dict]:
 
 def materialize_candidate(pack_file: str, base_doc: dict,
                           mutations: list) -> dict:
-    """Write ``candidates/<file>-<sha8>.yaml``; re-validate before
+    """Write the pack's inactive slot file; re-validate before
     returning. The same gate vocabulary as the reflect pass — one
     candidate format across every mutation path (T037)."""
     doc = copy.deepcopy(base_doc)
@@ -576,9 +607,8 @@ def materialize_candidate(pack_file: str, base_doc: dict,
                           "retryable": False,
                           "details": {"issues": problems}}}
     digest = templates._hash_of(doc)
-    out_dir = templates.packs_dir() / "candidates"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out = out_dir / f"{pack_file}-{digest[:8]}.yaml"
+    out = _slot(pack_file, "inactive")
+    out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(yaml.safe_dump(doc, sort_keys=False), encoding="utf-8")
     return {"ok": True, "path": str(out), "hash": digest, "doc": doc}
 
@@ -598,8 +628,8 @@ def _apply_ops(doc: dict, ops: list[dict] | None) -> bool:
 
 
 def propose(findings: list[dict], active_pack: dict,
-            candidates_dir: Path) -> Path | None:
-    """Remediation -> candidate pack file.
+            candidates_dir: Path) -> tuple[Path | None, str | None]:
+    """Remediation -> (candidate pack file, defect_class).
 
     Dict remediation (`{ops: [...]}`) applies declarative mutations —
     set_cfg/append/drop_template/drop_rule — to a candidate copy.
@@ -615,12 +645,10 @@ def propose(findings: list[dict], active_pack: dict,
                 continue  # ops changed nothing -> vacuous candidate
             cand["revision"] = str(cand.get("revision", "v0")) + \
                 f"+mut.{f['defect_class']}"
-            candidates_dir = Path(candidates_dir)
-            candidates_dir.mkdir(parents=True, exist_ok=True)
-            out = candidates_dir / f"cand-{f['defect_class']}.yaml"
+            out = _improve_slot(active_pack, candidates_dir)
             out.write_text(yaml.safe_dump(cand, sort_keys=False),
                            encoding="utf-8")
-            return out
+            return out, f["defect_class"]
         if rem in ("fix_template_params", "retune_lease_or_effect"):
             bad = set(f["affected"])
             cand = copy.deepcopy(active_pack)
@@ -634,15 +662,20 @@ def propose(findings: list[dict], active_pack: dict,
                 cand["capabilities"]["templates"] = remaining
             cand["revision"] = str(cand.get("revision", "v0")) + \
                 f"+quarantine.{f['defect_class']}"
-            candidates_dir = Path(candidates_dir)
-            candidates_dir.mkdir(parents=True, exist_ok=True)
-            out = candidates_dir / (
-                f"cand-{f['defect_class']}-"
-                f"{'-'.join(sorted(bad))[:24]}.yaml")
+            out = _improve_slot(active_pack, candidates_dir)
             out.write_text(yaml.safe_dump(cand, sort_keys=False),
                            encoding="utf-8")
-            return out
-    return None
+            return out, f["defect_class"]
+    return None, None
+
+
+def _improve_slot(active_pack: dict, candidates_dir) -> Path:
+    """Improve-harness proposals share the pack's inactive slot."""
+    stem = str(active_pack.get("pack_id") or "pack")
+    stem = stem.split("pack.", 1)[-1].replace("/", "-")
+    out = Path(candidates_dir) / f"{stem}-inactive.yaml"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    return out
 
 
 def _hash_pack(path: Path) -> str:
@@ -679,9 +712,9 @@ def run_improve(store, cfg: dict, *, active_pack: dict,
         if not findings:
             outcomes.append({"cycle": cycle_id, "verdict": "noop"})
             continue
-        cand_path = propose(findings, active_pack,
-                            Path(packs_dir) / "candidates")
-        cand_id = cand_path.stem if cand_path else f"cand-{cycle_id}"
+        cand_path, cls = propose(findings, active_pack,
+                                 Path(packs_dir) / "candidates")
+        cand_id = f"cand-{cls}" if cls else f"cand-{cycle_id}"
         if cand_path is None:
             seq += 1
             emit(improve._env("improvement.rejected", {
@@ -720,7 +753,6 @@ def run_improve(store, cfg: dict, *, active_pack: dict,
         quarantined = {a for f in findings for a in f["affected"]}
         cand = improve.score(improve.predict_metrics(evs, quarantined),
                              weights)
-        cls = cand_path.stem[len("cand-"):].split("-")[0]
         ops_rem = next((isinstance(f.get("remediation"), dict)
                         for f in findings if f["defect_class"] == cls),
                        False)
@@ -831,7 +863,8 @@ def maybe_trigger(ps: PassState, *, dispatcher, ledger, pack_loaded: dict,
                       emit, seq, clock,
                       mutation_id=proposal["mutation_id"])
     ps.last_verdict = "candidate"
-    return {"verdict": "candidate", "path": str(out)}
+    return {"verdict": "candidate", "path": str(out),
+            "candidate_id": ps.pending}
 
 
 # -- boundary: promote / revert (FR-1408/1409) --------------------------------
@@ -965,9 +998,7 @@ def promote_candidate(cand_path: Path, pending: dict, pack_id: str,
         return {"ok": False, "violations": violations}
     target = templates.pack_path(pack_id)
     parent_hash = templates.current_hash(pack_id) or ""
-    parent_backup = (templates.packs_dir() / "candidates" /
-                     f"parent-{pack_id.replace('/', '-')}-"
-                     f"{parent_hash[:8]}.yaml")
+    parent_backup = _slot(pack_id, "active")
     if target.is_file():
         parent_backup.parent.mkdir(parents=True, exist_ok=True)
         parent_backup.write_bytes(target.read_bytes())

@@ -55,9 +55,10 @@ PARAM_SPEC = [
              "(never for scored runs)"},
     {"flag": "live_mutate", "label": "Live mutate", "kind": "check",
      "default": True, "group": "Flags",
-     "enable_when": {"field": "mode", "in": ["run", "fastevolve"]},
-     "hint": "in-run reflection passes promote candidate packs at the "
-             "next boundary; only run+live or fastevolve"},
+     "enable_when": {"field": "mode", "eq": "run"},
+     "hint": "run+live only — in-run reflection passes promote "
+             "candidate packs at the next boundary (fastevolve "
+             "implies it)"},
     {"flag": "feed", "label": "Feed", "kind": "check",
      "default": True, "group": "Flags",
      "hint": "narrate every emitted event into state/feed.md"},
@@ -145,14 +146,20 @@ def argv(cfg: dict) -> list[str]:
                       ("no_store", "--no-store"),
                       ("no_hold", "--no-hold"), ("scored", "--scored"),
                       ("fresh", "--fresh")):
+        # fastevolve implies the mutate machinery — the flag is a no-op
+        # there, so it isn't offered or emitted
+        if key == "live_mutate" and cfg.get("mode") == "fastevolve":
+            continue
         if cfg.get(key):
             out.append(flag)
     return out
 
 
-def violations(cfg: dict, pack_class: str | None = None) -> list[str]:
+def violations(cfg: dict, pack_class: str | None = None,
+               pack_game_load: bool | None = None) -> list[str]:
     """Fail-closed mirror of loop.main's launch checks (FR-004) plus
-    pack-class gating (FR-012). Empty list => GO enabled."""
+    pack-class gating (FR-012) and fast-evolve pack fitness
+    (loop.fastevolve_no_load). Empty list => GO enabled."""
     out: list[str] = []
     mode, game = cfg.get("mode"), cfg.get("game")
     if (game == "live" or mode == "cycle") \
@@ -171,6 +178,9 @@ def violations(cfg: dict, pack_class: str | None = None) -> list[str]:
     if mode == "fastevolve" and not cfg.get("fair"):
         out.append("fastevolve requires fair protections (save/load is "
                    "scoped-granted; dev.* stays refused)")
+    if mode == "fastevolve" and pack_game_load is False:
+        out.append("selected pack declares no game.load template — "
+                   "fast-evolve retries can't reload the day anchor")
     if cfg.get("live_mutate") and not (
             (mode == "run" and game == "live") or mode == "fastevolve"):
         out.append("live-mutate only applies to run+live or fastevolve")

@@ -76,7 +76,7 @@ def _err(code: str, message: str, details: dict | None = None) -> dict:
 
 def _materialize_candidate(pack_file: str, base_doc: dict,
                            mutations: list) -> dict:
-    """Write ``candidates/<file>-<sha8>.yaml`` via the shared evolve
+    """Write the pack's inactive slot via the shared evolve
     pipeline — one candidate format, one gate (feature 017, T037)."""
     from . import evolve
     return evolve.materialize_candidate(pack_file, base_doc, mutations)

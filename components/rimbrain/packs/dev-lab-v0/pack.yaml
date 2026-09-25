@@ -823,9 +823,10 @@ universal:
                     target: "@fn:find_kind(resource_rock, 60)"}}
         - {template: assign-job,
            params: {pawn: "@var:it.id", job: LayDown}}
-    - id: chase-fleeing         # FR-903: melee pawn runs down routers
-      for_each: fleeing_hostiles
-      cooldown: {polls: 40}
+    - id: chase-fleeing         # FR-903: melee pawn runs down routers —
+      for_each: fleeing_hostiles  # only under melee-swarm doctrine (no
+      when: {field: "@fn:melee_swarm()", op: truthy}
+      cooldown: {polls: 40}     # living shooter to screen)
       try:
         - {template: attack-target, needs: "@fn:best(@cfg:universal.chase_skill)",
            params: {pawn: "@fn:best(@cfg:universal.chase_skill)",
@@ -1263,6 +1264,10 @@ combat:
   prereq: start_completed       # 'none' disables the gate (tests)
   rounds: 2
   hostile_count: 2
+  poll_iterations: 800          # lean polls are cheap; let tick_budget bound
+                              # time; sim resolves in ~10
+  speed: 3                      # live smoke: unpaused ticks so budgets/
+                              # engage resolve in real time
   pawn_kind: WildMan            # unarmed melee: charges, fights to the
                               # death; ranged kinds flee and linger
   spawn_offset: [6, 6]          # cells from home_center
@@ -1279,22 +1284,26 @@ combat:
     spawn_grace_ticks: 3000     # no hostiles by then -> no-spawn round
     speed_reassert: true        # raid letters auto-pause the game
     universal_rules: true       # chase/strip rules apply during combat
-    attack_cooldown_polls: 20
+    attack_cooldown_polls: 4
     rules:
       - id: draft-all
-        for_each: colonists
-        cooldown: {polls: 60}
+        for_each: draftable
+        cooldown: {polls: 30}
         try:
           - {template: draft-pawn,
              params: {pawn: "@var:it.id", drafted: true}}
-      - id: engage-living       # FR-903: living hostiles only — downed
-        for_each: living_hostiles   # are never valid targets
+      - id: engage-squad        # focus-fire: the whole squad converges on
+        for_each: draftable     # one hostile. Squad stays weapon-pure —
+        evidence: true          # melee only when no ranged squad exists
+        when:                   # (mixed teams = friendly fire)
+          all:
+          - {field: "@fn:focus_target()", op: present}
+          - {field: "@fn:fighter_engages(@var:it.id)", op: truthy}
         cooldown: {polls: "@cfg:combat.engage.attack_cooldown_polls"}
         try:
           - {template: attack-target,
-             needs: "@fn:nth(@fn:colonist_ids(), @fn:mod(@var:index, @obs:colonists.count))",
-             params: {pawn: "@fn:nth(@fn:colonist_ids(), @fn:mod(@var:index, @obs:colonists.count))",
-                      target: "@var:it.id"}}
+             params: {pawn: "@var:it.id",
+                      target: "@fn:focus_target()"}}
   cleanup:  # best-effort: a failed strip/heal/undraft must never block
             # checkpoint restore (load-game stays last, always runs)
     - {template: strip-pawn, optional: true,
@@ -1305,6 +1314,13 @@ combat:
     - {for_each: colonists, template: draft-pawn, optional: true,
        params: {pawn: "@var:it.id", drafted: false}}
     - {template: load-game, params: {name: "@cfg:combat.checkpoint"}}
+
+# Feature-019 combat cfg for the harness's rule evaluation — kept under
+# `dev_combat:` because top-level `combat:` is the scripted phase above
+# (shape-gated in templates._combat_script). Dev-class only; fair packs
+# use `combat:` cfg + a fair delegate order.
+dev_combat:
+  allow_unarmed: true           # WildMan pawns melee-fight barehanded
 
 # Save-reset improvement cycle (feature 010).
 cycle:

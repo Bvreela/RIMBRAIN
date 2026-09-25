@@ -135,7 +135,27 @@ def test_enable_when_greys():
     assert not paramspec.enabled(rows["live_mutate"], cfg)
     cfg["mode"] = "fastevolve"
     assert not paramspec.enabled(rows["scored"], cfg)
-    assert paramspec.enabled(rows["live_mutate"], cfg)
+    assert not paramspec.enabled(rows["live_mutate"], cfg)
+
+
+def test_fastevolve_implies_live_mutate():
+    """--live-mutate is a no-op under --mode fastevolve (the loop turns
+    the mutate machinery on unconditionally) — it isn't offered and
+    isn't emitted."""
+    cfg = paramspec.defaults()
+    cfg["mode"] = "fastevolve"
+    assert "--live-mutate" not in paramspec.argv(cfg)
+    cfg["mode"] = "run"
+    assert "--live-mutate" in paramspec.argv(cfg)
+
+
+def test_fastevolve_pack_needs_game_load():
+    cfg = paramspec.defaults()
+    cfg["mode"] = "fastevolve"
+    assert any("game.load" in p for p in
+               paramspec.violations(cfg, pack_game_load=False))
+    assert paramspec.violations(cfg, pack_game_load=True) == []
+    assert paramspec.violations(cfg, pack_game_load=None) == []
 
 
 def test_presets():

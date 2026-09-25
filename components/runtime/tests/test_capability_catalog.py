@@ -34,10 +34,11 @@ def _registry_ids() -> dict[str, set[str]]:
     # templates span the pack family: the fair pack (play surface) plus
     # the dev-class harness (spawn/heal tooling it legitimately owns)
     tpl_ids: set[str] = set()
-    for pid in ("start-mode-v0", "dev-lab-v0"):
-        tpl_ids |= {t["id"] for t in
-                    templates.load_pack(pid)["pack"].get("templates")
-                    or []}
+    for pid in ("start-mode-v0", "dev-lab-v0", "combat-defense-v0"):
+        pk = templates.load_pack(pid)["pack"]
+        tpls = pk.get("templates") or \
+            (pk.get("capabilities") or {}).get("templates") or []
+        tpl_ids |= {t["id"] for t in tpls}
     return {
         "template": tpl_ids,
         "fn": set(policy.FN.keys()),
