@@ -1,0 +1,15 @@
+{
+  "name": "northstar-rimworld-ui-mockup",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Dependency-free browser prototype of the proposed RimWorld agent dashboard.",
+  "scripts": {
+    "lint": "eslint .",
+    "check": "node --check app.mjs && node --check state.mjs",
+    "test": "node --test state.test.mjs"
+  },
+  "devDependencies": {
+    "eslint": "9.39.1"
+  }
+}

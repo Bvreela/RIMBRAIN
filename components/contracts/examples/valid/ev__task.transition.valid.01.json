@@ -1,9 +1,0 @@
-{
-  "task_id": "task.rescue-001",
-  "kind": "rescue",
-  "from_state": "verifying",
-  "to_state": "succeeded",
-  "reason": "effect_observed",
-  "attempts": 1,
-  "resources": ["pawn:Human911", "colonist:Human911"]
-}

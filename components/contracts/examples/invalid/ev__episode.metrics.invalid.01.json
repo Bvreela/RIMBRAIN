@@ -1,7 +1,0 @@
-{
-  "episode_id": "ep-0007",
-  "refusal_rate": 1.4,
-  "verify_failure_rate": 0.0,
-  "task_completion_rate": 1.0,
-  "event_span": { "count": 64, "first_seq": 1, "last_seq": 64 }
-}

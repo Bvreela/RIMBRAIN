@@ -1,8 +1,0 @@
-{
-  "check_id": "policy.invariant.single_writer",
-  "domain": "policy",
-  "verdict": "pass",
-  "subject": "packs/candidates/cand-0002.yaml",
-  "reasons": [],
-  "details": { "templates_checked": 9, "methods_verified": 9 }
-}

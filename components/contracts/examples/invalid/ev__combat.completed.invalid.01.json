@@ -1,8 +1,0 @@
-{
-  "mode": "combat",
-  "rounds": 2,
-  "hostiles_spawned": 4,
-  "hostiles_cleared": 4,
-  "verdict": "cleared",
-  "_note": "missing required 'colonist_casualties'"
-}

@@ -1,7 +1,0 @@
-{
-  "candidate_id": "cand-0004",
-  "gate": "audit",
-  "reasons": ["template 'haul-fast' calls method not in sealed inventory"],
-  "metrics": null,
-  "source_cycle": "cycle-000005"
-}

@@ -1,9 +1,0 @@
-{
-  "episode_id": "ep-0007",
-  "refusal_rate": 0.05,
-  "verify_failure_rate": 0.0,
-  "task_completion_rate": 1.0,
-  "ticks_to_baseline": 2400,
-  "event_span": { "count": 64, "first_seq": 1, "last_seq": 64 },
-  "counts": { "action.issued": 20, "action.refused": 1 }
-}

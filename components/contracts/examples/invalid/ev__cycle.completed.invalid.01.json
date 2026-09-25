@@ -1,6 +1,0 @@
-{
-  "iteration": 0,
-  "checkpoint": "rimbrain-cycle",
-  "phases": {"start": "completed", "combat": "cleared"},
-  "_note": "phases missing required 'improve' verdict"
-}

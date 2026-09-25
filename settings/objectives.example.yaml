@@ -1,0 +1,72 @@
+# Human-authored colony outcomes. Predicates are proposed registry IDs.
+schema_version: 1
+id: objectives.colony
+revision: 1
+status: draft
+
+global_constraints:
+  protected_pawns: [children, incapable_of_violence]
+  forbidden_actions:
+    - abandon_incapacitated_colonist
+    - use_unregistered_rpc
+    - consume_reserved_medicine
+  pause_and_escalate_when:
+    - state_freshness_unknown
+    - action_legality_unknown
+    - conflicting_human_control
+
+objectives:
+  - id: objective.food_security
+    stage: food
+    priority: 100
+    type: maintain
+    desired_outcome: accessible_food_buffer_satisfies_policy
+    horizon: continuous
+    resource_budget_ref: budget.survival
+    success_predicate: food_maintenance_satisfied
+
+  - id: objective.suitable_shelter
+    stage: shelter
+    priority: 90
+    type: achieve_and_maintain
+    desired_outcome: every_colonist_has_safe_sleeping_space
+    horizon: before_next_sleep_period
+    resource_budget_ref: budget.survival
+    success_predicate: shelter_maintenance_satisfied
+
+  - id: objective.stable_mood
+    stage: mood
+    priority: 80
+    type: maintain
+    desired_outcome: prevent_avoidable_mood_crises
+    horizon: continuous
+    resource_budget_ref: budget.maintenance
+    success_predicate: mood_maintenance_satisfied
+
+  - id: objective.useful_research
+    stage: research
+    priority: 60
+    type: advance
+    desired_outcome: unlock_and_use_human_prioritized_capabilities
+    horizon: long
+    resource_budget_ref: budget.maintenance_surplus
+    success_predicate: selected_research_capability_observed_in_use
+
+  - id: objective.defensive_readiness
+    stage: combat
+    priority: 50
+    type: maintain
+    desired_outcome: survive_observed_threats_with_bounded_control
+    horizon: continuous
+    resource_budget_ref: budget.emergency
+    success_predicate: threat_resolved_and_colony_control_restored
+
+resource_budgets:
+  - id: budget.survival
+    may_interrupt: [research, discretionary_building]
+  - id: budget.maintenance
+    may_interrupt: [research]
+  - id: budget.maintenance_surplus
+    requires: [food_maintenance_satisfied, shelter_maintenance_satisfied, mood_maintenance_satisfied]
+  - id: budget.emergency
+    may_interrupt: [all_non_emergency_work]

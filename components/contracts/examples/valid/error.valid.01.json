@@ -1,8 +1,0 @@
-{
-  "ok": false,
-  "error": {
-    "code": "schema.version.too_new",
-    "message": "Object declares schema_version 4; consumer maximum is 3.",
-    "retryable": false
-  }
-}

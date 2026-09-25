@@ -1,0 +1,807 @@
+[
+  {
+    "name": "anchor.delete",
+    "group": "anchor",
+    "doc": "{name}",
+    "source_file": "upstream/rimagent/mod/Source/Engine/Locate.cs",
+    "line": 234
+  },
+  {
+    "name": "anchor.list",
+    "group": "anchor",
+    "doc": "named anchors with rects, sizes and distance/direction from home",
+    "source_file": "upstream/rimagent/mod/Source/Engine/Locate.cs",
+    "line": 220
+  },
+  {
+    "name": "anchor.set",
+    "group": "anchor",
+    "doc": "{name, cell?: location, rect?: location-rect, thing?: id} name a place; every tool then accepts the name ('bedroom2', 'bedroom2:NW', 'bedroom2:extend:E:4', 'bedroom2 +N2'). Saved with the game.",
+    "source_file": "upstream/rimagent/mod/Source/Engine/Locate.cs",
+    "line": 204
+  },
+  {
+    "name": "bridge.methods",
+    "group": "bridge",
+    "doc": "list all rpc methods with docs",
+    "source_file": "upstream/rimagent/mod/Source/Game/GameControl.cs",
+    "line": 167
+  },
+  {
+    "name": "defs.buildable",
+    "group": "defs",
+    "doc": "{category?: Structure|Production|Furniture|Power|Security|Misc|Floors|...} everything the player can build right now with costs (research done)",
+    "source_file": "upstream/rimagent/mod/Source/State/DefsRpc.cs",
+    "line": 107
+  },
+  {
+    "name": "defs.get",
+    "group": "defs",
+    "doc": "{def: defName, type?: ThingDef|RecipeDef|ResearchProjectDef|... (auto-detected if omitted), depth?: 1} rich def info: costs, stats, recipes, research, what it unlocks",
+    "source_file": "upstream/rimagent/mod/Source/State/DefsRpc.cs",
+    "line": 13
+  },
+  {
+    "name": "defs.search",
+    "group": "defs",
+    "doc": "{query, type?: ThingDef|RecipeDef|ResearchProjectDef|..., limit?: 30} search defs by defName/label substring",
+    "source_file": "upstream/rimagent/mod/Source/State/DefsRpc.cs",
+    "line": 90
+  },
+  {
+    "name": "defs.work_types",
+    "group": "defs",
+    "doc": "all work types in priority order with what they cover",
+    "source_file": "upstream/rimagent/mod/Source/State/DefsRpc.cs",
+    "line": 122
+  },
+  {
+    "name": "dev.damage",
+    "group": "dev",
+    "doc": "{pawn|thing, amount, def?: Cut|Blunt|Gunshot|Burn} apply damage (assisted)",
+    "source_file": "upstream/rimagent/mod/Source/Dev/DevRpc.cs",
+    "line": 119
+  },
+  {
+    "name": "dev.destroy",
+    "group": "dev",
+    "doc": "{thing} destroy a thing (assisted)",
+    "source_file": "upstream/rimagent/mod/Source/Dev/DevRpc.cs",
+    "line": 116
+  },
+  {
+    "name": "dev.finish_research",
+    "group": "dev",
+    "doc": "{def} complete a research project instantly (assisted)",
+    "source_file": "upstream/rimagent/mod/Source/Dev/DevRpc.cs",
+    "line": 104
+  },
+  {
+    "name": "dev.god_mode",
+    "group": "dev",
+    "doc": "{enabled: bool} instant build/free everything (assisted)",
+    "source_file": "upstream/rimagent/mod/Source/Dev/DevRpc.cs",
+    "line": 82
+  },
+  {
+    "name": "dev.heal",
+    "group": "dev",
+    "doc": "{pawn} remove all injuries/diseases (assisted)",
+    "source_file": "upstream/rimagent/mod/Source/Dev/DevRpc.cs",
+    "line": 85
+  },
+  {
+    "name": "dev.incident",
+    "group": "dev",
+    "doc": "{def: IncidentDef (e.g. RaidEnemy, ColdSnap, Flashstorm, TraderCaravanArrival), points?: float, faction?: name} fire an incident now (assisted)",
+    "source_file": "upstream/rimagent/mod/Source/Dev/DevRpc.cs",
+    "line": 67
+  },
+  {
+    "name": "dev.kill_hostiles",
+    "group": "dev",
+    "doc": "kill every hostile pawn on the map (assisted)",
+    "source_file": "upstream/rimagent/mod/Source/Dev/DevRpc.cs",
+    "line": 129
+  },
+  {
+    "name": "dev.reveal_map",
+    "group": "dev",
+    "doc": "remove fog of war (assisted)",
+    "source_file": "upstream/rimagent/mod/Source/Dev/DevRpc.cs",
+    "line": 138
+  },
+  {
+    "name": "dev.set_need",
+    "group": "dev",
+    "doc": "{pawn, need: NeedDef (Food, Rest, Joy, Mood...), level: 0..1} (assisted)",
+    "source_file": "upstream/rimagent/mod/Source/Dev/DevRpc.cs",
+    "line": 94
+  },
+  {
+    "name": "dev.spawn",
+    "group": "dev",
+    "doc": "{def: ThingDef, cell: [x,z], count?: 1, stuff?: ThingDef, quality?: Awful..Legendary} spawn items/buildings (assisted)",
+    "source_file": "upstream/rimagent/mod/Source/Dev/DevRpc.cs",
+    "line": 23
+  },
+  {
+    "name": "dev.spawn_pawn",
+    "group": "dev",
+    "doc": "{kind: PawnKindDef, cell: [x,z], faction?: Player|<name>|none, count?: 1} spawn pawns (assisted)",
+    "source_file": "upstream/rimagent/mod/Source/Dev/DevRpc.cs",
+    "line": 48
+  },
+  {
+    "name": "dev.unlock_all_research",
+    "group": "dev",
+    "doc": "finish every research project (assisted)",
+    "source_file": "upstream/rimagent/mod/Source/State/PowerRpc.cs",
+    "line": 149
+  },
+  {
+    "name": "dev.weather",
+    "group": "dev",
+    "doc": "{def: WeatherDef} force weather (assisted)",
+    "source_file": "upstream/rimagent/mod/Source/Dev/DevRpc.cs",
+    "line": 113
+  },
+  {
+    "name": "engine.call",
+    "group": "engine",
+    "doc": "{path, args?: [...], depth?: 2} invoke a method; args are coerced to parameter types (cells as [x,z], things by id, defs by defName, enums by name)",
+    "source_file": "upstream/rimagent/mod/Source/Engine/Reflector.cs",
+    "line": 342
+  },
+  {
+    "name": "engine.get",
+    "group": "engine",
+    "doc": "{path, depth?: 2} read any engine value. Roots: Find, Current, Map, World, Game, Player, Thing:<id>, Pawn:<name|id>, Def:<DefType>:<defName>, Type:<Full.Name>, Zone:<label>, Area:<label>, Faction:<name>. Segments: .member, .method(), [index|key|defName]",
+    "source_file": "upstream/rimagent/mod/Source/Engine/Reflector.cs",
+    "line": 317
+  },
+  {
+    "name": "engine.members",
+    "group": "engine",
+    "doc": "{path|type} list fields, properties and method signatures of an object or type (for discovery)",
+    "source_file": "upstream/rimagent/mod/Source/Engine/Reflector.cs",
+    "line": 400
+  },
+  {
+    "name": "engine.new",
+    "group": "engine",
+    "doc": "{type, args?: [...]} construct an object (e.g. IncidentParms), or pass {type, fields:{...}} to construct and fill",
+    "source_file": "upstream/rimagent/mod/Source/Engine/Reflector.cs",
+    "line": 370
+  },
+  {
+    "name": "engine.set",
+    "group": "engine",
+    "doc": "{path, value} assign a field/property (value coerced to the member type)",
+    "source_file": "upstream/rimagent/mod/Source/Engine/Reflector.cs",
+    "line": 326
+  },
+  {
+    "name": "engine.types",
+    "group": "engine",
+    "doc": "{query, limit?: 50} search type names in the game assembly (e.g. 'Designator_')",
+    "source_file": "upstream/rimagent/mod/Source/Engine/Reflector.cs",
+    "line": 413
+  },
+  {
+    "name": "game.dev_mode",
+    "group": "game",
+    "doc": "{enabled: bool, god?: bool}",
+    "source_file": "upstream/rimagent/mod/Source/Game/GameControl.cs",
+    "line": 143
+  },
+  {
+    "name": "game.list_saves",
+    "group": "game",
+    "doc": "-> [{name, modified}]",
+    "source_file": "upstream/rimagent/mod/Source/Game/GameControl.cs",
+    "line": 87
+  },
+  {
+    "name": "game.load",
+    "group": "game",
+    "doc": "{name} load a saved game (async; poll game.status until state=playing)",
+    "source_file": "upstream/rimagent/mod/Source/Game/GameControl.cs",
+    "line": 96
+  },
+  {
+    "name": "game.log_tail",
+    "group": "game",
+    "doc": "{lines?: 100, filter?: substring} tail Player.log",
+    "source_file": "upstream/rimagent/mod/Source/Game/GameControl.cs",
+    "line": 151
+  },
+  {
+    "name": "game.new_game",
+    "group": "game",
+    "doc": "{scenario?: defName, storyteller?: defName, difficulty?: defName, seed?: string, map_size?: 200..300, permadeath?: bool} start a fresh game (async; poll game.status)",
+    "source_file": "upstream/rimagent/mod/Source/Game/GameControl.cs",
+    "line": 107
+  },
+  {
+    "name": "game.pause",
+    "group": "game",
+    "doc": "{paused: bool}",
+    "source_file": "upstream/rimagent/mod/Source/Game/GameControl.cs",
+    "line": 67
+  },
+  {
+    "name": "game.quit_to_menu",
+    "group": "game",
+    "doc": "leave the current game",
+    "source_file": "upstream/rimagent/mod/Source/Game/GameControl.cs",
+    "line": 135
+  },
+  {
+    "name": "game.save",
+    "group": "game",
+    "doc": "{name} save the current game",
+    "source_file": "upstream/rimagent/mod/Source/Game/GameControl.cs",
+    "line": 78
+  },
+  {
+    "name": "game.speed",
+    "group": "game",
+    "doc": "{speed: 0..4} set time speed (0 pause, 1 normal, 2 fast, 3 superfast, 4 ultrafast/dev)",
+    "source_file": "upstream/rimagent/mod/Source/Game/GameControl.cs",
+    "line": 57
+  },
+  {
+    "name": "game.status",
+    "group": "game",
+    "doc": "-> {state: menu|playing|loading, tick, day, hour, season, speed, paused, map_size, colonists, seq}",
+    "source_file": "upstream/rimagent/mod/Source/Game/GameControl.cs",
+    "line": 32
+  },
+  {
+    "name": "map.cell",
+    "group": "map",
+    "doc": "{cell: [x,z]} everything at a cell: terrain, fertility, roof, zone, room, things, fogged, walkable",
+    "source_file": "upstream/rimagent/mod/Source/Map/MapRpc.cs",
+    "line": 264
+  },
+  {
+    "name": "map.detail",
+    "group": "map",
+    "doc": "{x?, z?, around?: thingId|pawn|location-grammar e.g. Room:12/anchor name (centre on it), w?: 24, h?: 24 (max 60, enough for a whole base), roof?: false} the BUILDING CAMERA: zoomed ASCII where every column is numbered, each building type gets its own letter (UPPER = built, lower = blueprint/frame), '*' marks interaction spots that must stay clear, '+' doors, '_' stockpile, ',' growing zone, 'i' items, '@' colonists, '!' hostiles, '^' rock, '~' water, '.' open ground. Returns legend + list of things in view with id/rot/size. Use before and after placing anything.",
+    "source_file": "upstream/rimagent/mod/Source/Map/MapRpc.cs",
+    "line": 40
+  },
+  {
+    "name": "map.find",
+    "group": "map",
+    "doc": "{def?: defName, category?: ThingCategoryDef, group?: ThingRequestGroup, kind?: resource_rock|tree|harvestable|corpse|chunk|animal|item|building|blueprint, near?: [x,z], radius?: n, reachable_from?: pawn, forbidden?: bool, faction?: player|hostile|none|any, limit?: 50} find things; sorted by distance from 'near' (default home)",
+    "source_file": "upstream/rimagent/mod/Source/Map/MapRpc.cs",
+    "line": 203
+  },
+  {
+    "name": "map.open_rects",
+    "group": "map",
+    "doc": "{w, h, near?: [x,z], radius?: 40, limit?: 8, allow_trees?: true} find open rectangles of buildable, unroofed-or-roofed standable ground with no buildings/blueprints; returns min corners sorted by distance",
+    "source_file": "upstream/rimagent/mod/Source/Map/MapRpc.cs",
+    "line": 308
+  },
+  {
+    "name": "map.overview",
+    "group": "map",
+    "doc": "{blocks?: 50} coarse whole-map picture, one char per block (majority feature)",
+    "source_file": "upstream/rimagent/mod/Source/Map/MapRpc.cs",
+    "line": 149
+  },
+  {
+    "name": "map.path",
+    "group": "map",
+    "doc": "{from: [x,z]|pawn, to: [x,z]|thingId, pawn?} path cost/length between two points (optionally for a specific pawn)",
+    "source_file": "upstream/rimagent/mod/Source/Map/MapRpc.cs",
+    "line": 293
+  },
+  {
+    "name": "map.power",
+    "group": "map",
+    "doc": "{x?, z?, around?, w?: 30, h?: 30} the ELECTRICAL camera: = conduit, G generator, B battery, C powered consumer, X UNPOWERED consumer, digits = net id under a transmitter, + door, # wall, . other. Use before and after wiring.",
+    "source_file": "upstream/rimagent/mod/Source/State/PowerRpc.cs",
+    "line": 62
+  },
+  {
+    "name": "map.reachable",
+    "group": "map",
+    "doc": "{pawn, target: [x,z]|thingId, danger?: Some|Deadly|None} can the pawn reach the target?",
+    "source_file": "upstream/rimagent/mod/Source/Map/MapRpc.cs",
+    "line": 283
+  },
+  {
+    "name": "map.screenshot_bytes",
+    "group": "map",
+    "doc": "{x?, z?, w?: cells wide (default 60), width_px?: 1024, height_px?: 768} render the map around [x,z] to PNG (base64). Also GET /screenshot?x=&z=&w=. Does not move the player's camera.",
+    "source_file": "upstream/rimagent/mod/Source/Map/Screenshot.cs",
+    "line": 41
+  },
+  {
+    "name": "map.survey",
+    "group": "map",
+    "doc": "{rect?: location-rect | x?, z?, w?, h?, center?: bool | around?: thingId|pawn|anchor|Room:N (whole map when omitted), scale?: cells per glyph (auto: fits ~64 cols), budget?: 6000 chars (grid coarsens and lists shorten to fit), format?: auto|rle|rows, only?: [grid|buildings|blueprints|zones|roof|pawns|items|designations|home], trees?: true, power?: false (list conduits), xray?: false (see through fog: ore, ruin interiors; marks the game assisted)} ",
+    "source_file": "upstream/rimagent/mod/Source/Map/Survey.cs",
+    "line": 39
+  },
+  {
+    "name": "map.terrain_stats",
+    "group": "map",
+    "doc": "counts of fertile soil, water, rock, ore (by type) etc. within radius of home",
+    "source_file": "upstream/rimagent/mod/Source/Map/MapRpc.cs",
+    "line": 339
+  },
+  {
+    "name": "map.view",
+    "group": "map",
+    "doc": "{x?, z?, w?: 60, h?: 40, layer?: all|terrain|buildings|zones|pawns|items|roof|fog|home, center?: bool} ASCII view of a region (x,z = min corner unless center=true; default centred on home). Max 150x150.",
+    "source_file": "upstream/rimagent/mod/Source/Map/MapRpc.cs",
+    "line": 17
+  },
+  {
+    "name": "state.alerts",
+    "group": "state",
+    "doc": "active alert bar entries with explanations",
+    "source_file": "upstream/rimagent/mod/Source/State/StateRpc.cs",
+    "line": 177
+  },
+  {
+    "name": "state.areas",
+    "group": "state",
+    "doc": "allowed areas (Home, animal pens, custom)",
+    "source_file": "upstream/rimagent/mod/Source/State/StateRpc.cs",
+    "line": 255
+  },
+  {
+    "name": "state.base",
+    "group": "state",
+    "doc": "{verbose?: false} the base as objects: rooms (role, size, free floor, doors and where they lead, contents with ids/interaction cells, problems: unroofed/no door/dark/cold), structures outside rooms, anchors, trapped colonists. Use this instead of grids to reason about the base.",
+    "source_file": "upstream/rimagent/mod/Source/State/BaseGraph.cs",
+    "line": 95
+  },
+  {
+    "name": "state.bills",
+    "group": "state",
+    "doc": "{thing: id} bills on a work table",
+    "source_file": "upstream/rimagent/mod/Source/State/StateRpc.cs",
+    "line": 221
+  },
+  {
+    "name": "state.designations",
+    "group": "state",
+    "doc": "{def?: Mine|CutPlant|Hunt|Haul|Deconstruct|...} designations on the map grouped by def with counts and sample cells",
+    "source_file": "upstream/rimagent/mod/Source/State/StateRpc.cs",
+    "line": 234
+  },
+  {
+    "name": "state.dialogs",
+    "group": "state",
+    "doc": "open modal windows with their text and choices (these pause the game until answered; answer with ui.dialog)",
+    "source_file": "upstream/rimagent/mod/Source/Ui/DialogRpc.cs",
+    "line": 179
+  },
+  {
+    "name": "state.factions",
+    "group": "state",
+    "doc": "all factions with relations",
+    "source_file": "upstream/rimagent/mod/Source/State/StateRpc.cs",
+    "line": 180
+  },
+  {
+    "name": "state.letters",
+    "group": "state",
+    "doc": "{include_archived?: false} letters waiting on screen (with choices where applicable)",
+    "source_file": "upstream/rimagent/mod/Source/State/StateRpc.cs",
+    "line": 153
+  },
+  {
+    "name": "state.pawn",
+    "group": "state",
+    "doc": "{pawn: id|name} full pawn detail: skills, traits, health, needs, mood thoughts, gear, work priorities, schedule, policies, relations",
+    "source_file": "upstream/rimagent/mod/Source/State/StateRpc.cs",
+    "line": 49
+  },
+  {
+    "name": "state.pawns",
+    "group": "state",
+    "doc": "{filter?: colonists|prisoners|animals|hostiles|all} list pawns (brief)",
+    "source_file": "upstream/rimagent/mod/Source/State/StateRpc.cs",
+    "line": 31
+  },
+  {
+    "name": "state.policies",
+    "group": "state",
+    "doc": "apparel/food/drug/reading policies available",
+    "source_file": "upstream/rimagent/mod/Source/State/StateRpc.cs",
+    "line": 262
+  },
+  {
+    "name": "state.power",
+    "group": "state",
+    "doc": "power nets with generation/consumption/storage and members, plus every UNPOWERED consumer with the nearest conduit or transmitter cell. Read this when anything electrical is not working.",
+    "source_file": "upstream/rimagent/mod/Source/State/PowerRpc.cs",
+    "line": 17
+  },
+  {
+    "name": "state.quests",
+    "group": "state",
+    "doc": "active and available quests",
+    "source_file": "upstream/rimagent/mod/Source/State/StateRpc.cs",
+    "line": 190
+  },
+  {
+    "name": "state.research",
+    "group": "state",
+    "doc": "current project, available projects (with prerequisites met), finished count",
+    "source_file": "upstream/rimagent/mod/Source/State/StateRpc.cs",
+    "line": 136
+  },
+  {
+    "name": "state.rooms",
+    "group": "state",
+    "doc": "rooms with role, cells, stats (impressiveness, beauty, cleanliness, temperature)",
+    "source_file": "upstream/rimagent/mod/Source/State/StateRpc.cs",
+    "line": 200
+  },
+  {
+    "name": "state.stocks",
+    "group": "state",
+    "doc": "{category?: Foods|Manufactured|ResourcesRaw|Medicine|Weapons|Apparel|... , min?: 1} counted resources on the map (stored + loose, unforbidden), grouped by defName",
+    "source_file": "upstream/rimagent/mod/Source/State/StateRpc.cs",
+    "line": 119
+  },
+  {
+    "name": "state.storage",
+    "group": "state",
+    "doc": "all stockpiles/shelves with priority and allowed categories summary",
+    "source_file": "upstream/rimagent/mod/Source/State/StateRpc.cs",
+    "line": 243
+  },
+  {
+    "name": "state.summary",
+    "group": "state",
+    "doc": "colony overview: date, colonists (brief), wealth, food, mood, threats, alerts, research, zones, power, key stocks, plus one named block per loaded add-on (e.g. steward {scorer, stock, posture, stock_brief, problems, orders_active: [order id], rally: bool} if the optional Steward mod is loaded)",
+    "source_file": "upstream/rimagent/mod/Source/State/StateRpc.cs",
+    "line": 18
+  },
+  {
+    "name": "state.threats",
+    "group": "state",
+    "doc": "hostile pawns/things on the map with positions, weapons, and distance to home; plus storyteller threat points",
+    "source_file": "upstream/rimagent/mod/Source/State/StateRpc.cs",
+    "line": 275
+  },
+  {
+    "name": "state.work_matrix",
+    "group": "state",
+    "doc": "every colonist x every work type: current priority, relevant skill level and passion, disabled flags. The raw material for a priority matrix.",
+    "source_file": "upstream/rimagent/mod/Source/State/PowerRpc.cs",
+    "line": 158
+  },
+  {
+    "name": "steward.enable",
+    "group": "steward",
+    "doc": "{scorer?: bool, stock?: bool} switch the work-priority scorer and/or the stock jobs at runtime (persisted per game) -> {scorer, stock}",
+    "source_file": "upstream/rimagent/mod-steward/Source/Steward/StewardRpc.cs",
+    "line": 349
+  },
+  {
+    "name": "steward.explain",
+    "group": "steward",
+    "doc": "{pawn: id|name, work?: WorkTypeDef} why the scorer gives this pawn each work priority: [{work, priority: 0-4, score: 0..1, reasons: [{label, delta}]}] sorted best first (all work types, or the one asked)",
+    "source_file": "upstream/rimagent/mod-steward/Source/Steward/StewardRpc.cs",
+    "line": 373
+  },
+  {
+    "name": "steward.orders",
+    "group": "steward",
+    "doc": "standing orders (deterministic reflexes in the mod): [{id: combat|rescue|fire|unforbid|corpses|beds|policies|blueprints, label, enabled, interval_ticks, last_run_hours_ago, summary, acting_on: int}]",
+    "source_file": "upstream/rimagent/mod-steward/Source/Steward/Orders/OrdersRpc.cs",
+    "line": 68
+  },
+  {
+    "name": "steward.orders.explain",
+    "group": "steward",
+    "doc": "{id} what a standing order does and what it leaves alone -> {id, label, enabled, doc, rules: [string], summary, hands_off: [{thing, reason, until_hours: float|'forever', key?}] (manual-touch cooldowns this order honours plus its own manual marks: bed:/med:/food:/temp:/bill: keys; steward.orders.release clears them)}",
+    "source_file": "upstream/rimagent/mod-steward/Source/Steward/Orders/OrdersRpc.cs",
+    "line": 182
+  },
+  {
+    "name": "steward.orders.rally",
+    "group": "steward",
+    "doc": "{rect?: [x,z,w,h], clear?: true} rally rect for the combat order: set it (must contain standable cells; inside walls, with cover, near the hospital), clear it, or read it with {} -> {rect: [x,z,w,h], center: [x,z], cells: standable count} | null",
+    "source_file": "upstream/rimagent/mod-steward/Source/Steward/Orders/OrdersRpc.cs",
+    "line": 145
+  },
+  {
+    "name": "steward.orders.release",
+    "group": "steward",
+    "doc": "{thing?|pawn?: id or name, id?: order id} hand a thing/pawn back to the standing orders now: clears its manual-touch cooldowns and the manual marks (bed/medical/food/temperature/bill) of the given order (all orders when omitted); a pawn the combat order left drafted is undrafted when no fight is on -> {thing, touches_cleared, marks_cleared, undrafted}",
+    "source_file": "upstream/rimagent/mod-steward/Source/Steward/Orders/OrdersRpc.cs",
+    "line": 125
+  },
+  {
+    "name": "steward.orders.run",
+    "group": "steward",
+    "doc": "{id} run a standing order now (ignores its interval and enabled flag) -> {ran: bool (it acted on something), summary, acting_on, ids: [thing ids]}",
+    "source_file": "upstream/rimagent/mod-steward/Source/Steward/Orders/OrdersRpc.cs",
+    "line": 220
+  },
+  {
+    "name": "steward.orders.set",
+    "group": "steward",
+    "doc": "{id: order id|all, enabled: bool} switch a standing order on/off (persisted per game) -> row, or [rows] for all; switching combat off while it is engaged releases first (row.released: {undrafted, restored, left})",
+    "source_file": "upstream/rimagent/mod-steward/Source/Steward/Orders/OrdersRpc.cs",
+    "line": 75
+  },
+  {
+    "name": "steward.pawn",
+    "group": "steward",
+    "doc": "{pawn: id|name, managed: bool} managed=false takes the pawn manual (the scorer stops writing its priorities), managed=true hands it back -> {pawn, id, managed}",
+    "source_file": "upstream/rimagent/mod-steward/Source/Steward/StewardRpc.cs",
+    "line": 357
+  },
+  {
+    "name": "steward.posture",
+    "group": "steward",
+    "doc": "{preset?: defend|build|harvest|recover|normal, label?: string (a label equal to a preset name seeds that preset; use another word for a custom posture), hours?: float (default 12), work?: {WorkTypeDef: -1..1 delta ADDED to every managed pawn's 0..1 score: +0.5 = about two priority steps up, -1 = off for everyone; values outside -1..1 are clamped}, weights?: {ConsiderX: multiplier >= 0 on that scorer weight}, targets?: {stock kind: multiplier >= 0 on the job's target count: 1.5 = +50%, 0 = target 0 so the job releases its own designations and idles}, clear?: bool ends the posture} time-boxed colony-wide bias; explicit dicts override preset entries; a new call replaces the old posture -> posture or null",
+    "source_file": "upstream/rimagent/mod-steward/Source/Steward/StewardRpc.cs",
+    "line": 410
+  },
+  {
+    "name": "steward.research",
+    "group": "steward",
+    "doc": "{queue?: [ResearchProjectDef...], append?: false, clear?: bool} ordered research queue: when the current project finishes (or none is set) the next queued project that can start now becomes current; {} reads -> {queue: [defName], current, current_progress, started?, skipped?}",
+    "source_file": "upstream/rimagent/mod-steward/Source/Steward/StewardRpc.cs",
+    "line": 997
+  },
+  {
+    "name": "steward.settings",
+    "group": "steward",
+    "doc": "{scorer?: {field: value...}, stock?: {field: value...}} read (no args) or write scorer/stock settings by field name (bools/ints/floats clamped; scorer.globalWorkAdjustments: {WorkTypeDef: -1..1}; Enabled = mod default, use steward.enable for runtime) -> {scorer: {...}, stock: {...}}",
+    "source_file": "upstream/rimagent/mod-steward/Source/Steward/StewardRpc.cs",
+    "line": 911
+  },
+  {
+    "name": "steward.status",
+    "group": "steward",
+    "doc": "steward overview: {enabled: {scorer, stock}, posture: null|{label, expires_in_hours, work, weights, targets}, pawns: [{id, name, managed, priorities: {WorkTypeDef: 1-4}, top: [{work, priority, why}]}], stock: [{id, kind, label, target, current, enabled, suspended, managed, last_run_hours_ago, designations (created by the job), adopted? (external designations counted toward the target, never removed by the job), failures, summary, notes}], problems: [string], orders: [{id, enabled, summary, acting_on}] (standing orders, see steward.orders), rally: [x,z,w,h]|null}",
+    "source_file": "upstream/rimagent/mod-steward/Source/Steward/StewardRpc.cs",
+    "line": 68
+  },
+  {
+    "name": "steward.stock.add",
+    "group": "steward",
+    "doc": "{kind: forestry|forestry_clear|foraging|hunting|hunting_leather|mining|production|livestock, target: int (livestock: = max), allow?: [defName|label], area?: label (forestry_clear: area to clear; livestock: restrict tamed animals to it), recipe?: RecipeDef (production), table?: thing id (production), species: PawnKindDef (livestock), min?: int, max?: int, tame?: true, slaughter?: true, train?: [Obedience|Release|Rescue|Haul], buckets?: {adult_male|adult_female|juvenile_male|juvenile_female: {min, max}} (livestock)} add a stock job -> full job row",
+    "source_file": "upstream/rimagent/mod-steward/Source/Steward/StewardRpc.cs",
+    "line": 584
+  },
+  {
+    "name": "steward.stock.list",
+    "group": "steward",
+    "doc": "stock jobs in full: status rows plus allowed: [defName], available: [defName], counted: [ThingDef], auto_scaled, interval_hours, check_reachable, settings (per kind: area, invert_area, allow_saplings | force_fully_mature | resource, unforbid_corpses, hunt_predators | haul_chunks, deconstruct_buildings, mine_thick_roofs | recipe, table, bill | livestock: species, min, max, tame, slaughter, area, train, buckets, counts, wild_on_map, pending_tame, pending_slaughter)",
+    "source_file": "upstream/rimagent/mod-steward/Source/Steward/StewardRpc.cs",
+    "line": 520
+  },
+  {
+    "name": "steward.stock.remove",
+    "group": "steward",
+    "doc": "{id|kind} delete a stock job and the designations/bill it created -> {removed: true, id, kind}",
+    "source_file": "upstream/rimagent/mod-steward/Source/Steward/StewardRpc.cs",
+    "line": 652
+  },
+  {
+    "name": "steward.stock.run",
+    "group": "steward",
+    "doc": "{id|kind} run a stock job now (ignores its interval and suspension) -> {ran: bool (work was designated/changed), summary, current, target, designations}",
+    "source_file": "upstream/rimagent/mod-steward/Source/Steward/StewardRpc.cs",
+    "line": 661
+  },
+  {
+    "name": "steward.stock.set",
+    "group": "steward",
+    "doc": "{id|kind, target?: int, suspended?: bool, managed?: bool, allow?: [defName|label], disallow?: [...], allow_all?: bool, disallow_all?: bool, area?: label|null, max_radius?: int (global; 0 = no distance cap, the whole map is fair game — the default), hunt_predators?: bool (global), check_reachable?: bool, label?, interval_hours?: float, table?: thing id (production), min?/max?/tame?/slaughter?/train?: [TrainableDef]/buckets?: {adult_male: {min,max}..}|null (livestock; allow/disallow edit train)} edit a stock job -> full job row",
+    "source_file": "upstream/rimagent/mod-steward/Source/Steward/StewardRpc.cs",
+    "line": 523
+  },
+  {
+    "name": "ui.add_bill",
+    "group": "ui",
+    "doc": "{thing: work table id (aliases: station/table/bench), recipe: RecipeDef, mode?: RepeatCount|TargetCount|Forever, count?: 1, radius?: 999, suspended?: false, first?: false}",
+    "source_file": "upstream/rimagent/mod/Source/Ui/UiRpc.cs",
+    "line": 345
+  },
+  {
+    "name": "ui.animal",
+    "group": "ui",
+    "doc": "{pawn, train?: {TrainableDef: bool}, master?: colonist|none, follow_field?: bool, follow_draft?: bool} animal training and master",
+    "source_file": "upstream/rimagent/mod/Source/Ui/DesignateRpc.cs",
+    "line": 318
+  },
+  {
+    "name": "ui.area",
+    "group": "ui",
+    "doc": "{action: home_add|home_remove|create|delete|add|remove, label?, cells?/rect?} edit the home area or allowed areas",
+    "source_file": "upstream/rimagent/mod/Source/Ui/DesignateRpc.cs",
+    "line": 246
+  },
+  {
+    "name": "ui.attack",
+    "group": "ui",
+    "doc": "{pawn, target: thingId, melee?: bool} drafted attack order",
+    "source_file": "upstream/rimagent/mod/Source/Ui/UiRpc.cs",
+    "line": 200
+  },
+  {
+    "name": "ui.bill",
+    "group": "ui",
+    "doc": "{thing, id|index, action: delete|suspend|resume|top|set, count?, mode?, radius?} modify a bill",
+    "source_file": "upstream/rimagent/mod/Source/Ui/UiRpc.cs",
+    "line": 375
+  },
+  {
+    "name": "ui.build",
+    "group": "ui",
+    "doc": "{def: buildable defName (ThingDef or TerrainDef), at?: [x,z], rot?: N|E|S|W, stuff: ThingDef (REQUIRED for stuff-made things: Wall/Door/Bed/etc; omit once to see the options with on-map quantities and no material is guessed for you), line?: [[x1,z1],[x2,z2]], rect?: [x,z,w,h], fill?: bool (rect: fill vs outline), dry_run?: bool} place blueprints. Returns placed and failed cells with reasons.",
+    "source_file": "upstream/rimagent/mod/Source/Ui/DesignateRpc.cs",
+    "line": 104
+  },
+  {
+    "name": "ui.build_many",
+    "group": "ui",
+    "doc": "{ops: [ {same params as ui.build}, ... ], stop_on_error?: false} place a whole layout in one call (walls as rect outlines, floors as filled rects, doors/furniture as single cells). Returns one result per op. Use map.detail before and after.",
+    "source_file": "upstream/rimagent/mod/Source/Ui/DesignateRpc.cs",
+    "line": 87
+  },
+  {
+    "name": "ui.cancel_job",
+    "group": "ui",
+    "doc": "{pawn} interrupt the pawn's current job (and undraft if drafted=false given)",
+    "source_file": "upstream/rimagent/mod/Source/Ui/UiRpc.cs",
+    "line": 245
+  },
+  {
+    "name": "ui.designate",
+    "group": "ui",
+    "doc": "{designator: mine|cut|harvest|harvestwood|hunt|haul|deconstruct|cancel|uninstall|tame|slaughter|strip|open|smooth|removefloor|claim|forbid|unforbid|plan|unplan|<Designator_ClassName>, cells?: [[x,z]...], rect?: [x,z,w,h], things?: [ids]} apply an orders/architect designator",
+    "source_file": "upstream/rimagent/mod/Source/Ui/DesignateRpc.cs",
+    "line": 37
+  },
+  {
+    "name": "ui.dialog",
+    "group": "ui",
+    "doc": "{i?: window index from state.dialogs (default: topmost), choice?: label|index, name?/second_name?: naming dialogs, assign?: {role: pawn} rituals, trade?: {def|i: +buy/-sell} trade window, method?/action?/set? generic windows, close?: true} answer any open window",
+    "source_file": "upstream/rimagent/mod/Source/Ui/DialogRpc.cs",
+    "line": 189
+  },
+  {
+    "name": "ui.draft",
+    "group": "ui",
+    "doc": "{pawn, drafted: bool}",
+    "source_file": "upstream/rimagent/mod/Source/Ui/UiRpc.cs",
+    "line": 172
+  },
+  {
+    "name": "ui.gizmos",
+    "group": "ui",
+    "doc": "{thing} buttons shown for a selected thing/pawn: [{i, label, desc, type, disabled, reason, active?}]",
+    "source_file": "upstream/rimagent/mod/Source/Ui/UiRpc.cs",
+    "line": 23
+  },
+  {
+    "name": "ui.goto",
+    "group": "ui",
+    "doc": "{pawn, cell: [x,z], draft?: true} move a pawn to a cell (drafts first unless draft=false, in which case it's an undrafted goto)",
+    "source_file": "upstream/rimagent/mod/Source/Ui/UiRpc.cs",
+    "line": 184
+  },
+  {
+    "name": "ui.job",
+    "group": "ui",
+    "doc": "{pawn, job: JobDef, target?: [x,z]|thingId, target_b?, target_c?, count?, queue?: false} give a pawn a specific job directly (e.g. Ingest, Equip, Wear, TakeInventory, HaulToCell, Rescue, TendPatient, LayDown, Research). Prefer ui.order when possible.",
+    "source_file": "upstream/rimagent/mod/Source/Ui/UiRpc.cs",
+    "line": 218
+  },
+  {
+    "name": "ui.letter",
+    "group": "ui",
+    "doc": "{id, action: choose|dismiss, choice?: label|index} respond to a letter (quests, events with choices)",
+    "source_file": "upstream/rimagent/mod/Source/Ui/DesignateRpc.cs",
+    "line": 270
+  },
+  {
+    "name": "ui.order",
+    "group": "ui",
+    "doc": "{pawn, at: [x,z]|thingId, label|i} execute one of the right-click orders (label substring match)",
+    "source_file": "upstream/rimagent/mod/Source/Ui/UiRpc.cs",
+    "line": 145
+  },
+  {
+    "name": "ui.orders_at",
+    "group": "ui",
+    "doc": "{pawn, at: [x,z]|thingId} the right-click orders this pawn would get at that cell/thing: [{label, disabled, priority}]",
+    "source_file": "upstream/rimagent/mod/Source/Ui/UiRpc.cs",
+    "line": 127
+  },
+  {
+    "name": "ui.press",
+    "group": "ui",
+    "doc": "{thing, label|i, target?: [x,z]|thingId} press a gizmo by label (substring, case-insensitive) or index; targeted gizmos need target",
+    "source_file": "upstream/rimagent/mod/Source/Ui/UiRpc.cs",
+    "line": 56
+  },
+  {
+    "name": "ui.prisoner",
+    "group": "ui",
+    "doc": "{pawn, mode?: NoInteraction|MaintainOnly|ReduceResistance|AttemptRecruit|Release|Execution|Enslave|Convert|..., medical?} set prisoner interaction",
+    "source_file": "upstream/rimagent/mod/Source/Ui/DesignateRpc.cs",
+    "line": 302
+  },
+  {
+    "name": "ui.select",
+    "group": "ui",
+    "doc": "{thing|cell} select a thing in the game UI and jump the player's camera there (for the human watching)",
+    "source_file": "upstream/rimagent/mod/Source/Ui/DesignateRpc.cs",
+    "line": 344
+  },
+  {
+    "name": "ui.set_policies",
+    "group": "ui",
+    "doc": "{pawn, apparel?, food?, drug?, reading?, area?: label|Unrestricted, medical?: NoCare|NoMeds|HerbalOrWorse|NormalOrWorse|Best, hostility?: Flee|Attack|Ignore, self_tend?: bool}",
+    "source_file": "upstream/rimagent/mod/Source/Ui/UiRpc.cs",
+    "line": 307
+  },
+  {
+    "name": "ui.set_research",
+    "group": "ui",
+    "doc": "{def} set the current research project",
+    "source_file": "upstream/rimagent/mod/Source/Ui/UiRpc.cs",
+    "line": 332
+  },
+  {
+    "name": "ui.set_schedule",
+    "group": "ui",
+    "doc": "{pawn, hours: 24-char string using A=Anything S=Sleep W=Work J=Joy M=Meditate (hour 0 first)}",
+    "source_file": "upstream/rimagent/mod/Source/Ui/UiRpc.cs",
+    "line": 291
+  },
+  {
+    "name": "ui.set_work",
+    "group": "ui",
+    "doc": "{pawn, priorities: {WorkTypeDef: 0-4}} 0 = disabled, 1 = highest; enables manual priorities mode. Takes the pawn out of steward management first (steward.pawn managed=true hands it back)",
+    "source_file": "upstream/rimagent/mod/Source/Ui/UiRpc.cs",
+    "line": 257
+  },
+  {
+    "name": "ui.set_work_many",
+    "group": "ui",
+    "doc": "{matrix: {pawn: {WorkType: 0-4, ...}, ...}} set many colonists' priorities in one call",
+    "source_file": "upstream/rimagent/mod/Source/State/PowerRpc.cs",
+    "line": 180
+  },
+  {
+    "name": "ui.storage",
+    "group": "ui",
+    "doc": "{zone?: label, thing?: shelf id, priority?: Low|Normal|Preferred|Important|Critical, allow_all?: bool, disallow_all?: bool, allow?: [ThingDef|ThingCategoryDef...], disallow?: [...]} edit storage settings",
+    "source_file": "upstream/rimagent/mod/Source/Ui/UiRpc.cs",
+    "line": 407
+  },
+  {
+    "name": "ui.wire",
+    "group": "ui",
+    "doc": "{from: thing|cell, to: thing|cell, dry_run?: false} lay power conduit blueprints along a walkable path between two points (conduits go under walls/doors). Returns the path and any cells that could not take a conduit.",
+    "source_file": "upstream/rimagent/mod/Source/State/PowerRpc.cs",
+    "line": 113
+  },
+  {
+    "name": "ui.zone",
+    "group": "ui",
+    "doc": "{action: create_stockpile|create_growing|delete|add_cells|remove_cells|set_plant|rename|set_priority, label?, cells?/rect?, plant?: ThingDef (e.g. Plant_Rice), priority?, preset?: DefaultStockpile|DumpingStockpile} create/edit zones",
+    "source_file": "upstream/rimagent/mod/Source/Ui/DesignateRpc.cs",
+    "line": 192
+  }
+]

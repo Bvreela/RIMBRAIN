@@ -1,0 +1,145 @@
+bundle_id: upstream-85cb050
+provenance: static-extraction
+description: "Steward (zorrobyte rimbridgesteward) deterministic automation surface: scorer/stock/standing-orders RPCs plus the config keys documented in upstream AGENTS.md. Captured offline from source; no live game required."
+sources:
+  rpc_attributes: upstream/rimagent/mod-steward/Source
+  docs: upstream/rimagent/AGENTS.md
+scorer:
+  summary: "Free Will port: writes work priorities for every managed colonist each tick; posture is a time-boxed colony-wide bias."
+  rpcs:
+    -
+      name: steward.enable
+      doc: "{scorer?: bool, stock?: bool} switch the work-priority scorer and/or the stock jobs at runtime (persisted per game) -> {scorer, stock}"
+      source: "upstream/rimagent/mod-steward/Source/Steward/StewardRpc.cs:349"
+    -
+      name: steward.explain
+      doc: "{pawn: id|name, work?: WorkTypeDef} why the scorer gives this pawn each work priority: [{work, priority: 0-4, score: 0..1, reasons: [{label, delta}]}] sorted best first (all work types, or the one asked)"
+      source: "upstream/rimagent/mod-steward/Source/Steward/StewardRpc.cs:373"
+    -
+      name: steward.pawn
+      doc: "{pawn: id|name, managed: bool} managed=false takes the pawn manual (the scorer stops writing its priorities), managed=true hands it back -> {pawn, id, managed}"
+      source: "upstream/rimagent/mod-steward/Source/Steward/StewardRpc.cs:357"
+    -
+      name: steward.posture
+      doc: "{preset?: defend|build|harvest|recover|normal, label?: string (a label equal to a preset name seeds that preset; use another word for a custom posture), hours?: float (default 12), work?: {WorkTypeDef: -1..1 delta ADDED to every managed pawn's 0..1 score: +0.5 = about two priority steps up, -1 = off for everyone; values outside -1..1 are clamped}, weights?: {ConsiderX: multiplier >= 0 on that scorer weight}, targets?: {stock kind: multiplier >= 0 on the job's target count: 1.5 = +50%, 0 = target 0 so the job releases its own designations and idles}, clear?: bool ends the posture} time-boxed colony-wide bias; explicit dicts override preset entries; a new call replaces the old posture -> posture or null"
+      source: "upstream/rimagent/mod-steward/Source/Steward/StewardRpc.cs:410"
+    -
+      name: steward.research
+      doc: "{queue?: [ResearchProjectDef...], append?: false, clear?: bool} ordered research queue: when the current project finishes (or none is set) the next queued project that can start now becomes current; {} reads -> {queue: [defName], current, current_progress, started?, skipped?}"
+      source: "upstream/rimagent/mod-steward/Source/Steward/StewardRpc.cs:997"
+    -
+      name: steward.settings
+      doc: "{scorer?: {field: value...}, stock?: {field: value...}} read (no args) or write scorer/stock settings by field name (bools/ints/floats clamped; scorer.globalWorkAdjustments: {WorkTypeDef: -1..1}; Enabled = mod default, use steward.enable for runtime) -> {scorer: {...}, stock: {...}}"
+      source: "upstream/rimagent/mod-steward/Source/Steward/StewardRpc.cs:911"
+    -
+      name: steward.status
+      doc: "steward overview: {enabled: {scorer, stock}, posture: null|{label, expires_in_hours, work, weights, targets}, pawns: [{id, name, managed, priorities: {WorkTypeDef: 1-4}, top: [{work, priority, why}]}], stock: [{id, kind, label, target, current, enabled, suspended, managed, last_run_hours_ago, designations (created by the job), adopted? (external designations counted toward the target, never removed by the job), failures, summary, notes}], problems: [string], orders: [{id, enabled, summary, acting_on}] (standing orders, see steward.orders), rally: [x,z,w,h]|null}"
+      source: "upstream/rimagent/mod-steward/Source/Steward/StewardRpc.cs:68"
+stock:
+  summary: "Colony Manager Redux rewrite: keeps stock jobs (forestry, foraging, hunting, mining, production, livestock) at targets by designating work."
+  rpcs:
+    -
+      name: steward.stock.add
+      doc: "{kind: forestry|forestry_clear|foraging|hunting|hunting_leather|mining|production|livestock, target: int (livestock: = max), allow?: [defName|label], area?: label (forestry_clear: area to clear; livestock: restrict tamed animals to it), recipe?: RecipeDef (production), table?: thing id (production), species: PawnKindDef (livestock), min?: int, max?: int, tame?: true, slaughter?: true, train?: [Obedience|Release|Rescue|Haul], buckets?: {adult_male|adult_female|juvenile_male|juvenile_female: {min, max}} (livestock)} add a stock job -> full job row"
+      source: "upstream/rimagent/mod-steward/Source/Steward/StewardRpc.cs:584"
+    -
+      name: steward.stock.list
+      doc: "stock jobs in full: status rows plus allowed: [defName], available: [defName], counted: [ThingDef], auto_scaled, interval_hours, check_reachable, settings (per kind: area, invert_area, allow_saplings | force_fully_mature | resource, unforbid_corpses, hunt_predators | haul_chunks, deconstruct_buildings, mine_thick_roofs | recipe, table, bill | livestock: species, min, max, tame, slaughter, area, train, buckets, counts, wild_on_map, pending_tame, pending_slaughter)"
+      source: "upstream/rimagent/mod-steward/Source/Steward/StewardRpc.cs:520"
+    -
+      name: steward.stock.remove
+      doc: "{id|kind} delete a stock job and the designations/bill it created -> {removed: true, id, kind}"
+      source: "upstream/rimagent/mod-steward/Source/Steward/StewardRpc.cs:652"
+    -
+      name: steward.stock.run
+      doc: "{id|kind} run a stock job now (ignores its interval and suspension) -> {ran: bool (work was designated/changed), summary, current, target, designations}"
+      source: "upstream/rimagent/mod-steward/Source/Steward/StewardRpc.cs:661"
+    -
+      name: steward.stock.set
+      doc: "{id|kind, target?: int, suspended?: bool, managed?: bool, allow?: [defName|label], disallow?: [...], allow_all?: bool, disallow_all?: bool, area?: label|null, max_radius?: int (global; 0 = no distance cap, the whole map is fair game — the default), hunt_predators?: bool (global), check_reachable?: bool, label?, interval_hours?: float, table?: thing id (production), min?/max?/tame?/slaughter?/train?: [TrainableDef]/buckets?: {adult_male: {min,max}..}|null (livestock; allow/disallow edit train)} edit a stock job -> full job row"
+      source: "upstream/rimagent/mod-steward/Source/Steward/StewardRpc.cs:523"
+orders:
+  summary: "Standing orders: deterministic reflexes ticked from a MapComponent, staggered by id, honour manual-touch cooldowns."
+  rpcs:
+    -
+      name: steward.orders
+      doc: "standing orders (deterministic reflexes in the mod): [{id: combat|rescue|fire|unforbid|corpses|beds|policies|blueprints, label, enabled, interval_ticks, last_run_hours_ago, summary, acting_on: int}]"
+      source: "upstream/rimagent/mod-steward/Source/Steward/Orders/OrdersRpc.cs:68"
+    -
+      name: steward.orders.explain
+      doc: "{id} what a standing order does and what it leaves alone -> {id, label, enabled, doc, rules: [string], summary, hands_off: [{thing, reason, until_hours: float|'forever', key?}] (manual-touch cooldowns this order honours plus its own manual marks: bed:/med:/food:/temp:/bill: keys; steward.orders.release clears them)}"
+      source: "upstream/rimagent/mod-steward/Source/Steward/Orders/OrdersRpc.cs:182"
+    -
+      name: steward.orders.rally
+      doc: "{rect?: [x,z,w,h], clear?: true} rally rect for the combat order: set it (must contain standable cells; inside walls, with cover, near the hospital), clear it, or read it with {} -> {rect: [x,z,w,h], center: [x,z], cells: standable count} | null"
+      source: "upstream/rimagent/mod-steward/Source/Steward/Orders/OrdersRpc.cs:145"
+    -
+      name: steward.orders.release
+      doc: "{thing?|pawn?: id or name, id?: order id} hand a thing/pawn back to the standing orders now: clears its manual-touch cooldowns and the manual marks (bed/medical/food/temperature/bill) of the given order (all orders when omitted); a pawn the combat order left drafted is undrafted when no fight is on -> {thing, touches_cleared, marks_cleared, undrafted}"
+      source: "upstream/rimagent/mod-steward/Source/Steward/Orders/OrdersRpc.cs:125"
+    -
+      name: steward.orders.run
+      doc: "{id} run a standing order now (ignores its interval and enabled flag) -> {ran: bool (it acted on something), summary, acting_on, ids: [thing ids]}"
+      source: "upstream/rimagent/mod-steward/Source/Steward/Orders/OrdersRpc.cs:220"
+    -
+      name: steward.orders.set
+      doc: "{id: order id|all, enabled: bool} switch a standing order on/off (persisted per game) -> row, or [rows] for all; switching combat off while it is engaged releases first (row.released: {undrafted, restored, left})"
+      source: "upstream/rimagent/mod-steward/Source/Steward/Orders/OrdersRpc.cs:75"
+  standing_orders:
+    -
+      id: beds
+      label: "Beds: owners, couples, prisoners, hospital"
+      doc: "Every 2500 ticks. Beds in a room with the Hospital role (some medical bed, no prisoner bed) are all set medical. Prisoners with no bed claim a free prisoner bed in the room they stand in. Free colonists (not slaves, not babies) with no bed claim one: their love partner's bed if it has a free slot, an empty double bed if the couple has no bed, else the nearest empty bed they can use (ideology respected, never a bed with a stranger in it). Beds pressed by hand (ui.press) or whose owners changed outside this order are hands-off for 2 days; existing owners are never reassigned."
+      interval_ticks: 2500
+      source_file: upstream/rimagent/mod-steward/Source/Steward/Orders/Order_Beds.cs
+    -
+      id: blueprints
+      label: "Blueprints: cancel the impossible, report the starved"
+      doc: "Every 2500 ticks. Player blueprints and frames are checked: one that no non-downed colonist can reach (PathEndMode.Touch, PassDoors so forbidden doors do not count, Danger.Deadly) on two consecutive passes, or whose terrain no longer supports the building (GenConstruct.CanBuildOnTerrain — deep water, etc.), is cancelled with Destroy(DestroyMode.Cancel). Blueprints/frames older than 3 days whose remaining cost exceeds the colony's counted resources are listed in the summary (and once per day in the ledger) with the missing materials; nothing is done to them. Fogged blueprints are ignored. No touch cooldown applies (cancelling is reversible by placing again)."
+      interval_ticks: 2500
+      source_file: upstream/rimagent/mod-steward/Source/Steward/Orders/Order_Blueprints.cs
+    -
+      id: combat
+      label: "Combat: draft and rally on hostiles"
+      doc: "Hostiles are the attackTargetsCache targets that are spawned, not fogged, not downed, not threat-disabled, minus the colony's own pawns (berserk colonists, rebelling slaves, prison-breaking prisoners and colony animals are never targeted). Each hostile is classified: inside the Home area or within {ThreatRules.EngageRadius:0} cells of the rally centre → engage; a siege → watch; a raid whose duty is assault/breach/sap/kidnap/steal → engage, one that is staging or sleeping → watch; a manhunter → engage only while a colonist is outside the Home area; turrets and other structures → engage only when near. With nothing to engage the order sits in watch mode (summary 'watching: …', nobody drafted, unforbid/corpses keep running). Engaged: every capable armed managed colonist is drafted and sent to a distinct cell inside the rally rect (steward.orders.rally; cover-adjacent cells first; a 13x13 square around the base centre when no rally is set; nowhere on a map without a base). Non-fighters are restricted to the Home area. Positions are re-issued every 250 ticks; pawns undrafted by a job are re-drafted. A fighter whose food or rest falls below 15% with no hostile within {CombatTimers.NearHostileRadius:0} cells is relieved (undrafted) and drafted again once both are above 50%; not while overrun. A hostile inside the home area or within 5 cells of the rally centre switches every fighter to attack its nearest hostile. After 600 hostile-free ticks the order undrafts what it drafted (not pawns under a live ui.draft/goto/attack/drafted order/draft gizmo touch: they are retried each pass until the touch expires and named in the summary), restores the previous allowed areas (unless the director changed the area meanwhile), runs the rescue order once and writes combat_released. Engagements longer than half a day are reported once as combat_prolonged. Disabling the order while engaged releases first."
+      interval_ticks: 60
+      source_file: upstream/rimagent/mod-steward/Source/Steward/Orders/Order_Combat.cs
+    -
+      id: corpses
+      label: "Corpses: bury, butcher, burn"
+      doc: "Every 1500 ticks. Human corpses: if an empty grave or sarcophagus accepts the corpse it is unforbidden and gets a Haul designation (one corpse per free grave); else, if a stockpile/shelf accepts corpses, it is stripped (Strip designation) and hauled there; else, if a work table with the cremation recipe exists, one standing 'cremate corpse' bill (forever, humanlike corpses, rotten allowed) is kept and the corpse is unforbidden. Fresh animal corpses: one standing 'butcher creature' bill (forever) on a butcher table/spot; if none exists a butcher spot is placed once near the kitchen or the main stockpile. Rotten/dessicated corpses: hauled to a stockpile that accepts rotten corpses (dumping stockpile) if one exists, else rotten human corpses go to cremation, else nothing. A standing bill that exists in any state (suspended too) is never duplicated; a bill this order created that the director deleted is not re-created for 2 days. Skipped: while combat is engaged, corpses inside hostile-owned rooms, corpses the director forbade by hand, fogged or unreachable cells."
+      interval_ticks: 1500
+      source_file: upstream/rimagent/mod-steward/Source/Steward/Orders/Order_Corpses.cs
+    -
+      id: fire
+      label: "Fire: boost firefighting, report clusters"
+      doc: "Every 120 ticks: fires in the home area are counted. If no colonist is on a BeatFire job the scorer is tilted toward firefighting for one hour (posture \"firefight\": Firefighter +1, BasicWorker +0.5; merged into the director's posture if one is active and reverted when the hour ends). Each fire cluster (8x8 cell bucket) is reported to the ledger once per 2500 ticks as fire {cells}. Nothing is drafted and no job is issued."
+      interval_ticks: 120
+      source_file: upstream/rimagent/mod-steward/Source/Steward/Orders/Order_Fire.cs
+    -
+      id: policies
+      label: "Policies: food switch, medical care, temperatures"
+      doc: "Every 1200 ticks. Food: unforbidden things whose def name contains 'Meal' are counted; below colonists×2 every free colonist's food policy becomes 'steward-raw' (created once: everything edible except corpses, insect meat and kibble) and the previous policy is remembered per pawn; at colonists×4 or more it is restored (pawns whose policy was changed meanwhile keep theirs). Medical care: colonists NormalOrWorse, prisoners and animals HerbalOrWorse, unless the director set the pawn's care (ui.set_policies) or it changed outside this order — then hands-off for 2 days (steward.orders.release hands it back early). Temperature: heaters/coolers are adopted only when first seen at the game default target (21°C); adopted devices target 21°C in winter and 24°C in summer (spring/fall: heaters 21, coolers 24); a cooler set below 0°C (a freezer) is never touched; a device whose target changed outside this order is hands-off permanently. Nothing about drugs, apparel, schedules or areas."
+      interval_ticks: 1200
+      source_file: upstream/rimagent/mod-steward/Source/Steward/Orders/Order_Policies.cs
+    -
+      id: rescue
+      label: "Rescue: carry the downed, tend the bleeding"
+      doc: "Downed free colonists and colony animals lying outside a bed are carried to a free bed (JobDefOf.Rescue) by the nearest non-downed, awake, undrafted colonist who can reach them. If a colonist is downed and no bed can take them, one medical sleeping spot is placed near the nearest bed (or the base centre), once. Colonists bleeding with less than 6 in-game hours to death and nobody tending them get a TendPatient job from the doctor with the best Medicine skill (patients must be lying down; the rescue comes first). A patient the director already sent someone to (ui.job Rescue/TendPatient, or a right-click Rescue/Tend order) is skipped for an hour; other touches on the patient (ui.attack, ui.draft, ui.goto) do not stop a rescue. A downed or bleeding patient that is skipped for any reason still counts as acted on so the reason reaches the situation packet."
+      interval_ticks: 300
+      source_file: upstream/rimagent/mod-steward/Source/Steward/Orders/Order_Rescue.cs
+    -
+      id: unforbid
+      label: "Unforbid: loot and drops near the base"
+      doc: "Every 600 ticks: forbidden haulable things in the Home area or within 20 cells of the base centre are unforbidden so haulers pick them up; items (not chunks, plants or corpses) that spawned within the last 3 days — drop-pod contents — are unforbidden within 40 cells. Left alone: corpses of colonists (the corpses order buries them), anything the director forbade/unforbade by hand in the last hour (ui.designate), things inside rooms that contain a hostile faction's buildings, caravan cargo being loaded, cells no colonist can reach. Nothing runs while the combat order is engaged."
+      interval_ticks: 600
+      source_file: upstream/rimagent/mod-steward/Source/Steward/Orders/Order_Unforbid.cs
+config_surface:
+  agents_md_line: "steward: {enabled, scorer, stock, orders: {enabled, off: [], superseded_watchers?: {stem: order id}}}"
+  keys:
+    - steward.enabled
+    - steward.scorer
+    - steward.stock
+    - steward.orders.enabled
+    - steward.orders.off
+    - steward.orders.superseded_watchers

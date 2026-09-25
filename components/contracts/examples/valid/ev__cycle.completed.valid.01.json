@@ -1,6 +1,0 @@
-{
-  "iteration": 2,
-  "checkpoint": "rimbrain-cycle",
-  "phases": {"start": "completed", "combat": "cleared", "improve": "noop"},
-  "ticks": 22100
-}

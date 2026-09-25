@@ -1,0 +1,22 @@
+bundle_id: upstream-85cb050
+created_utc: "2026-09-24T11:52:44Z"
+pins:
+  rimagent: 85cb050dec47691f2a80096fdc8c8a8e2051bb13
+  mod: 3c1e4c7cee151104b85bf9c8372e113f91c5f08d
+tree_hash: 7bc38c55a6563abca0b919e5b7a28ed25f3c8423d18e75542579e69d6228ad9a
+tree_files: 214
+capture_methods:
+  - rpc
+  - events
+  - steward
+  - manifest
+artifacts:
+  rpc_inventory: rpc-inventory.json
+  event_corpus: event-corpus/bus-kinds.jsonl
+  automation_surface: automation-surface.yaml
+  manifest: MANIFEST.yaml
+  gaps: gaps.yaml
+tool:
+  name: baseline_capture.py
+  version: 1.0.0
+  python: 3.13.14

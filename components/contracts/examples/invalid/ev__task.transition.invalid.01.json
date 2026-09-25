@@ -1,9 +1,0 @@
-{
-  "task_id": "task.rescue-001",
-  "kind": "rescue",
-  "from_state": "proposed",
-  "to_state": "celebrating",
-  "reason": "not a lifecycle state",
-  "attempts": 0,
-  "_note": "to_state outside the declared lifecycle enum"
-}

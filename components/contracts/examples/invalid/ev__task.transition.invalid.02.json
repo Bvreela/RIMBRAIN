@@ -1,7 +1,0 @@
-{
-  "kind": "rescue",
-  "from_state": "proposed",
-  "to_state": "locked",
-  "attempts": 0,
-  "_note": "missing required task_id"
-}

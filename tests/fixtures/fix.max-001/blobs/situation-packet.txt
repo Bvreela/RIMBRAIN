@@ -1,3 +1,0 @@
-situation packet side payload for fix.max-001
-record: evt.bus-000002 observation.packet.shown
-content: deterministic ASCII blob, referenced by payload.blob_ref

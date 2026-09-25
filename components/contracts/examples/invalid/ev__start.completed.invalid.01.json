@@ -1,6 +1,0 @@
-{
-  "mode": "start",
-  "colonists": 3,
-  "conditions": {"shelter": true, "beds": true, "food": true},
-  "_note": "conditions missing required 'recreation'"
-}

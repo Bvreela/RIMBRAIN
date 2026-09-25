@@ -1,0 +1,18 @@
+{"seq": 1, "t": 1790035200.0, "kind": "status", "data": {"episode": 1, "seed": "synthetic", "phase": "playing"}, "provenance": "synthesized-from-docstring"}
+{"seq": 2, "t": 1790035200.0, "kind": "think_start", "data": {"trigger": "schedule", "step": 1}, "provenance": "synthesized-from-docstring"}
+{"seq": 3, "t": 1790035200.0, "kind": "reasoning", "data": {"text": "synthetic"}, "provenance": "synthesized-from-docstring"}
+{"seq": 4, "t": 1790035200.0, "kind": "assistant", "data": {"text": "synthetic"}, "provenance": "synthesized-from-docstring"}
+{"seq": 5, "t": 1790035200.0, "kind": "tool_call", "data": {"name": "rw_state_summary", "args": {}, "id": "call-1"}, "provenance": "synthesized-from-docstring"}
+{"seq": 6, "t": 1790035200.0, "kind": "tool_result", "data": {"name": "rw_state_summary", "id": "call-1", "ok": true, "text": "{}", "elapsed": 0.0}, "provenance": "synthesized-from-docstring"}
+{"seq": 7, "t": 1790035200.0, "kind": "think_end", "data": {"notes": "synthetic", "wake": {}, "calls": 0, "elapsed": 0.0}, "provenance": "synthesized-from-docstring"}
+{"seq": 8, "t": 1790035200.0, "kind": "ledger", "data": {"kind": "synthetic", "text": "synthetic", "tick": 0, "day": 0}, "provenance": "synthesized-from-docstring"}
+{"seq": 9, "t": 1790035200.0, "kind": "watcher", "data": {"name": "synthetic", "action": "synthetic"}, "provenance": "synthesized-from-docstring"}
+{"seq": 10, "t": 1790035200.0, "kind": "brain_change", "data": {"kind": "skill", "name": "synthetic", "action": "write"}, "provenance": "synthesized-from-docstring"}
+{"seq": 11, "t": 1790035200.0, "kind": "watchdog", "data": {"summary": "synthetic", "fixes": [], "skipped": [], "commits": [], "errors": 0, "uncommitted": []}, "provenance": "synthesized-from-docstring"}
+{"seq": 12, "t": 1790035200.0, "kind": "episode_start", "data": {"episode": 1, "seed": "synthetic"}, "provenance": "synthesized-from-docstring"}
+{"seq": 13, "t": 1790035200.0, "kind": "episode_end", "data": {"episode": 1, "score": 0.0, "reason": "synthetic", "assisted": false, "brain_sha": "0000000000000000000000000000000000000000"}, "provenance": "synthesized-from-docstring"}
+{"seq": 14, "t": 1790035200.0, "kind": "situation", "data": {"trigger": "synthetic", "tracked": "synthetic", "changes": "synthetic", "day": 0, "hour": 0, "chars": 0}, "provenance": "synthesized-from-docstring"}
+{"seq": 15, "t": 1790035200.0, "kind": "operator", "data": {"text": "synthetic"}, "provenance": "synthesized-from-docstring"}
+{"seq": 16, "t": 1790035200.0, "kind": "reply", "data": {"text": "synthetic"}, "provenance": "synthesized-from-docstring"}
+{"seq": 17, "t": 1790035200.0, "kind": "log", "data": {"text": "synthetic"}, "provenance": "synthesized-from-docstring"}
+{"seq": 18, "t": 1790035200.0, "kind": "error", "data": {"text": "synthetic"}, "provenance": "synthesized-from-docstring"}

@@ -1,0 +1,41 @@
+# Example only. Secret values belong in the backend secret store.
+schema_version: 1
+id: endpoints.default
+revision: 1
+status: draft
+
+roles:
+  planner:
+    adapter: openai_chat_completions
+    base_url: https://planner.example/v1
+    model: planner-deployment
+    secret_ref: secret:RIMWORLD_PLANNER_API_KEY
+    timeout_seconds: 120
+    max_attempts: 2
+    required_capabilities:
+      - structured_plan_proposals
+      - structured_policy_proposals
+    on_timeout: preserve_current_plan_and_escalate
+    on_invalid_response: reject_and_record_failure
+
+  decision_selector:
+    adapter: typesafe_systemone
+    base_url: https://api.typesafe.ai/v1
+    model: jev-1.13.0
+    secret_ref: secret:RIMWORLD_SELECTOR_API_KEY
+    timeout_seconds: 20
+    max_attempts: 1
+    required_capabilities:
+      - bounded_choice
+    optional_capabilities:
+      - probabilities
+      - confidence
+    on_timeout: select_matrix_fallback
+    on_invalid_response: reject_and_select_matrix_fallback
+
+request_policy:
+  attach_raw_colony_snapshot: false
+  send_only_relevant_observations: true
+  record_adapter_rendering: true
+  redact_secret_values: true
+  late_response: discard

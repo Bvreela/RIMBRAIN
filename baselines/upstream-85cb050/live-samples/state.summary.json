@@ -1,0 +1,221 @@
+{
+  "ok": true,
+  "result": {
+    "alerts": [],
+    "animals": 0,
+    "assisted": false,
+    "biome": "TemperateForest",
+    "blueprints": 0,
+    "colonist_list": [
+      {
+        "faction": "Player",
+        "health": 100.0,
+        "id": "Human893",
+        "job": "inside drop pod (incoming).",
+        "kind": "Colonist",
+        "mood": 50.0,
+        "name": "Jet",
+        "top_skills": "Shooting 14!!, Intellectual 11!, Construction 9!",
+        "weapon": null
+      },
+      {
+        "faction": "Player",
+        "health": 100.0,
+        "id": "Human905",
+        "job": "inside drop pod (incoming).",
+        "kind": "Colonist",
+        "mood": 51.0,
+        "name": "Gomez",
+        "top_skills": "Cooking 7!!, Plants 6!!, Crafting 5",
+        "weapon": null
+      },
+      {
+        "faction": "Player",
+        "health": 100.0,
+        "id": "Human911",
+        "job": "inside drop pod (incoming).",
+        "kind": "Colonist",
+        "mood": 50.0,
+        "name": "Hicklin",
+        "top_skills": "Intellectual 10!!, Mining 6!, Medicine 5!",
+        "weapon": null
+      }
+    ],
+    "colonists": 3,
+    "danger": "None",
+    "date": "2nd of Aprimay, 5500",
+    "day": 0,
+    "designations": 0,
+    "downed": 0,
+    "food_days": 0.0,
+    "frames": 0,
+    "growing_now": true,
+    "home_center": [
+      125,
+      125
+    ],
+    "hostiles": [],
+    "hour": 6,
+    "key_stocks": {
+      "meals_all": 0,
+      "meat_all": 0,
+      "stone_blocks": 0
+    },
+    "mood_avg": 50.0,
+    "nutrition": 0.0,
+    "outside_storage": {
+      "by_category": {
+        "FoodMeals": 6,
+        "ResourcesRaw": 28
+      },
+      "corpses": 0,
+      "damaged": 0,
+      "food_stacks": 6,
+      "forbidden": 34,
+      "rotting": 0,
+      "stacks": 34,
+      "storage_cells_free": 0,
+      "unroofed_deteriorating": 12
+    },
+    "paused": true,
+    "pending_letters": 0,
+    "power": {
+      "capacity_wd": 0.0,
+      "consumption_w": 0.0,
+      "net_gain_w": 0.0,
+      "nets": 0,
+      "stored_wd": 0.0
+    },
+    "prisoners": 0,
+    "research_current": null,
+    "research_done": 7,
+    "research_progress": 0.0,
+    "room_digest": [
+      {
+        "at": [
+          28,
+          88
+        ],
+        "cells": 156,
+        "impressiveness": 79.0,
+        "owners": "",
+        "role": "Tomb",
+        "temp": 8.0
+      },
+      {
+        "at": [
+          164,
+          147
+        ],
+        "cells": 55,
+        "impressiveness": -21.0,
+        "owners": "",
+        "role": "Room",
+        "temp": 8.0
+      },
+      {
+        "at": [
+          64,
+          178
+        ],
+        "cells": 2,
+        "impressiveness": 5.0,
+        "owners": "",
+        "role": "Room",
+        "temp": 8.0
+      },
+      {
+        "at": [
+          36,
+          102
+        ],
+        "cells": 1,
+        "impressiveness": 6.0,
+        "owners": "",
+        "role": "Room",
+        "temp": 8.0
+      },
+      {
+        "at": [
+          68,
+          175
+        ],
+        "cells": 1,
+        "impressiveness": 2.0,
+        "owners": "",
+        "role": "Room",
+        "temp": 8.0
+      },
+      {
+        "at": [
+          154,
+          188
+        ],
+        "cells": 1,
+        "impressiveness": 6.0,
+        "owners": "",
+        "role": "Room",
+        "temp": 8.0
+      }
+    ],
+    "season": "PermanentSummer",
+    "speed": 0,
+    "steward": {
+      "orders_active": [
+        "combat",
+        "rescue",
+        "fire",
+        "unforbid",
+        "corpses",
+        "beds",
+        "policies",
+        "blueprints"
+      ],
+      "posture": null,
+      "problems": [],
+      "rally": false,
+      "scorer": true,
+      "stock": true,
+      "stock_brief": [
+        {
+          "current": 0,
+          "kind": "forestry",
+          "ok": false,
+          "target": 500
+        },
+        {
+          "current": 0,
+          "kind": "foraging",
+          "ok": false,
+          "target": 175
+        },
+        {
+          "current": 0,
+          "kind": "hunting",
+          "ok": false,
+          "target": 375
+        },
+        {
+          "current": 0,
+          "kind": "hunting_leather",
+          "ok": false,
+          "target": 100
+        },
+        {
+          "current": 0,
+          "kind": "mining",
+          "ok": false,
+          "target": 300
+        }
+      ]
+    },
+    "temp_outdoor": 9.0,
+    "temp_seasonal": 16.0,
+    "threat_points": 35.0,
+    "wealth": 17167.0,
+    "wealth_buildings": 4494.0,
+    "wealth_items": 9018.0,
+    "weather": "Clear",
+    "zones": []
+  }
+}

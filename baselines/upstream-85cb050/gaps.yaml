@@ -1,0 +1,27 @@
+bundle_id: upstream-85cb050
+description: "Deferred live captures and synthesized stand-ins for baseline bundle v1. Live samples land in bundle v1.1 after the first instrumented run (research.md R2); a new bundle version closes these gaps, never mutation of this one."
+gaps:
+  -
+    id: state.summary-live-sample
+    artifact: live-samples/state.summary.json
+    provenance: live-capture
+    reason: "requires a running RimWorld with RimBridge loaded; Phase 0 prerequisite is toolchains, not a game session"
+  -
+    id: bus-event-real-samples
+    artifact: live-samples/bridge-events.jsonl
+    provenance: live-capture
+    reason: "real runner bus events need a live upstream `rimagent play` session (the bridge /events feed is bridge-side, not bus kinds); bridge feed captured as bridge-events.jsonl"
+synthesized:
+  -
+    artifact: event-corpus/bus-kinds.jsonl
+    provenance: synthesized-from-docstring
+    source: upstream/rimagent/agent/rimagent/bus.py
+    note: "validates record format, not values; data shapes are minimal per the bus.py docstring contract"
+  -
+    artifact: automation-surface.yaml
+    provenance: static-extraction
+    source: "upstream/rimagent/mod-steward/Source + upstream/rimagent/AGENTS.md"
+  -
+    artifact: rpc-inventory.json
+    provenance: static-extraction
+    source: "upstream/rimagent/mod/Source + upstream/rimagent/mod-steward/Source [Rpc] attributes"
