@@ -2977,6 +2977,14 @@ def _fn_plan_room(ctx, rect, archetype_id):
     for build-layout, or null when the rect can't fit / rules can't be
     satisfied (predictable failure — never partial ops). Deterministic:
     pure function of rect + archetype + def sizes (T013)."""
+    res = _plan_room(ctx, rect, archetype_id)
+    if res is None:  # one event/run: ops-dig drops to None -> params_invalid
+        _rooms_event(ctx, "rooms.plan_failed",
+                     archetype=str(archetype_id), rect=rect)
+    return res
+
+
+def _plan_room(ctx, rect, archetype_id):
     if not isinstance(rect, (list, tuple)) or len(rect) < 4:
         return None
     try:

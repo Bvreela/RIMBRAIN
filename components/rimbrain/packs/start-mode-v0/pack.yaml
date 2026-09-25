@@ -2693,7 +2693,7 @@ rooms:
       stat_target: {impressiveness: 40}
       wall: Wall
       door: Door
-      floor: Carpet
+      floor: WoodPlankFloor
       stuff_preference:
       - WoodLog
       - Steel
@@ -2708,7 +2708,7 @@ rooms:
       stat_target: {impressiveness: 40}
       wall: Wall
       door: Door
-      floor: Carpet
+      floor: WoodPlankFloor
       furniture:
       - {def: Table2x2, count: 2, anchor: free}
       - {def: DiningChair, count: 8, adjacent_to: Table2x2}
@@ -2717,7 +2717,7 @@ rooms:
       stat_target: {cleanliness: 0}
       wall: Wall
       door: Door
-      floor: Floor
+      floor: PavedTile
       furniture:
       - {def: HospitalBed, count: 2, anchor: wall}
       - {def: VitalsMonitor, linked_to: HospitalBed}
@@ -2726,7 +2726,7 @@ rooms:
       stat_target: {cleanliness: 0}
       wall: Wall
       door: Door
-      floor: Floor
+      floor: PavedTile
       furniture:
       - {def: FueledStove, count: 1, anchor: wall}
       - {def: TableButcher, count: 1, anchor: wall, separate: true}
@@ -2735,7 +2735,7 @@ rooms:
       stat_target: {impressiveness: 30}
       wall: Wall
       door: Door
-      floor: Floor
+      floor: PavedTile
       furniture:
       - {def: SimpleWorkbench, count: 2, anchor: wall}
       - {def: ToolCabinet, links: 2, linked_to: SimpleWorkbench}

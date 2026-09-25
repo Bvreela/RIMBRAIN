@@ -1,0 +1,3964 @@
+schema_version: 1
+pack_id: pack.colonyrun1
+revision: v0
+policy_version: 1
+class: fair
+meta:
+  pack_id: pack.colonyrun1
+  revision: v0
+  class: fair
+  derived_from: pack.start-mode-v0
+capabilities:
+  templates:
+  - id: set-anchor
+    method: anchor.set
+    description: Name the selected site so later steps and evidence can reference it.
+    params_schema:
+      type: object
+      required:
+      - name
+      properties:
+        name:
+          type: string
+        cell:
+          type: array
+          items:
+            type: integer
+          minItems: 2
+          maxItems: 2
+        rect:
+          type: array
+          items:
+            type: integer
+          minItems: 4
+          maxItems: 4
+    require:
+    - name
+  - id: create-stockpile
+    method: ui.zone
+    description: Create the storage zone (stockpile) over/near starting items.
+    params_schema:
+      type: object
+      required:
+      - action
+      properties:
+        action:
+          const: create_stockpile
+        label:
+          type: string
+        rect:
+          type: array
+          items:
+            type: integer
+          minItems: 4
+          maxItems: 4
+        cells:
+          type: array
+          items:
+            type: array
+            items:
+              type: integer
+            minItems: 2
+            maxItems: 2
+        preset:
+          type: string
+        priority:
+          type: string
+        plant:
+          type: string
+    require:
+    - action
+  - id: create-growing
+    method: ui.zone
+    description: Create a growing zone for the replenishable food source.
+    params_schema:
+      type: object
+      required:
+      - action
+      properties:
+        action:
+          const: create_growing
+        label:
+          type: string
+        rect:
+          type: array
+          items:
+            type: integer
+          minItems: 4
+          maxItems: 4
+        plant:
+          type: string
+    require:
+    - action
+  - id: unforbid-items
+    method: ui.designate
+    description: Unforbid starting items by id.
+    params_schema:
+      type: object
+      required:
+      - designator
+      - things
+      properties:
+        designator:
+          const: unforbid
+        things:
+          type: array
+          items:
+            type: string
+    require:
+    - designator
+    - things
+  - id: haul-items
+    method: ui.designate
+    description: Haul-designate loose items to storage.
+    params_schema:
+      type: object
+      required:
+      - designator
+      - things
+      properties:
+        designator:
+          const: haul
+        things:
+          type: array
+          items:
+            type: string
+    require:
+    - designator
+    - things
+  - id: build-layout
+    method: ui.build_many
+    description: Place the shelter layout (walls outline, doors, furniture) in one call.
+    params_schema:
+      type: object
+      required:
+      - ops
+      properties:
+        ops:
+          type: array
+          items:
+            type: object
+        stop_on_error:
+          type: boolean
+    require:
+    - ops
+  - id: build-one
+    method: ui.build
+    description: Place a single blueprint (bed, horseshoes pin, torch).
+    params_schema:
+      type: object
+      required:
+      - def
+      - at
+      properties:
+        def:
+          type: string
+        at:
+          type: array
+          items:
+            type: integer
+          minItems: 2
+          maxItems: 2
+        rot:
+          type: string
+        stuff:
+          type: string
+        dry_run:
+          type: boolean
+    require:
+    - def
+    - at
+  - id: lay-floor
+    method: ui.build
+    description: Fill a rect with a floor terrain def (e.g. WoodFloor) — wind-path regrowth suppression and general flooring.
+    params_schema:
+      type: object
+      required:
+      - def
+      - rect
+      properties:
+        def:
+          type: string
+        rect:
+          type: array
+          items:
+            type: integer
+          minItems: 4
+          maxItems: 4
+        fill:
+          const: true
+    require:
+    - def
+    - rect
+  - id: clear-vegetation
+    method: ui.designate
+    description: Chop/harvest plants by thing id, cells, or rect — wind-path clearing and general vegetation control.
+    params_schema:
+      type: object
+      required:
+      - designator
+      properties:
+        designator:
+          enum:
+          - cut
+          - harvest
+        things:
+          type: array
+          items:
+            type: string
+        cells:
+          type: array
+          items:
+            type: array
+            items:
+              type: integer
+            minItems: 2
+            maxItems: 2
+        rect:
+          type: array
+          items:
+            type: integer
+          minItems: 4
+          maxItems: 4
+    require:
+    - designator
+  - id: add-bill
+    method: ui.add_bill
+    description: Add a recipe bill to a work station (cook meals).
+    params_schema:
+      type: object
+      required:
+      - thing
+      - recipe
+      properties:
+        thing:
+          type: string
+        recipe:
+          type: string
+        mode:
+          enum:
+          - RepeatCount
+          - TargetCount
+          - Forever
+        count:
+          type: integer
+        radius:
+          type: integer
+    require:
+    - thing
+    - recipe
+  - id: equip-pawn
+    method: ui.job
+    description: Equip a weapon on a pawn (job=Equip, target=weapon thing id).
+    params_schema:
+      type: object
+      required:
+      - pawn
+      - job
+      - target
+      properties:
+        pawn:
+          type: string
+        job:
+          const: Equip
+        target:
+          type: string
+    require:
+    - pawn
+    - job
+    - target
+  - id: wear-apparel
+    method: ui.job
+    description: Force-wear apparel on a pawn (job=Wear, target=apparel id).
+    params_schema:
+      type: object
+      required:
+      - pawn
+      - job
+      - target
+      properties:
+        pawn:
+          type: string
+        job:
+          const: Wear
+        target:
+          type: string
+    require:
+    - pawn
+    - job
+    - target
+  - id: assign-job
+    method: ui.job
+    description: Give an idle pawn a specific job (idle-correction fallback).
+    params_schema:
+      type: object
+      required:
+      - pawn
+      - job
+      properties:
+        pawn:
+          type: string
+        job:
+          type: string
+        target: {}
+        target_b: {}
+        count:
+          type: integer
+        queue:
+          type: boolean
+    require:
+    - pawn
+    - job
+  - id: strip-pawn
+    method: ui.designate
+    description: Strip a downed/dead hostile for untainted apparel and gear.
+    params_schema:
+      type: object
+      required:
+      - designator
+      - things
+      properties:
+        designator:
+          const: strip
+        things:
+          type: array
+          items:
+            type: string
+    require:
+    - designator
+    - things
+  - id: set-plant
+    method: ui.zone
+    description: Set the crop on a growing zone (e.g. Plant_Rice).
+    params_schema:
+      type: object
+      required:
+      - action
+      - label
+      - plant
+      properties:
+        action:
+          const: set_plant
+        label:
+          type: string
+        plant:
+          type: string
+    require:
+    - action
+    - label
+    - plant
+  - id: edit-storage
+    method: ui.storage
+    description: Edit a stockpile's filters/priority (reserve interior for food/medicine).
+    params_schema:
+      type: object
+      properties:
+        zone:
+          type: string
+        thing:
+          type: string
+        priority:
+          enum:
+          - Low
+          - Normal
+          - Preferred
+          - Important
+          - Critical
+        allow_all:
+          type: boolean
+        disallow_all:
+          type: boolean
+        allow:
+          type: array
+          items:
+            type: string
+        disallow:
+          type: array
+          items:
+            type: string
+    require:
+    - zone
+  - id: save-game
+    method: game.save
+    description: Save the current game under a checkpoint name (cycle/test control).
+    params_schema:
+      type: object
+      required:
+      - name
+      properties:
+        name:
+          type: string
+    require:
+    - name
+  - id: load-game
+    method: game.load
+    description: Load a saved game (async; caller polls game.status until playing).
+    params_schema:
+      type: object
+      required:
+      - name
+      properties:
+        name:
+          type: string
+    require:
+    - name
+  - id: set-research
+    method: ui.set_research
+    description: Set the current research project by def name (tech-tree progression).
+    params_schema:
+      type: object
+      required:
+      - def
+      properties:
+        def:
+          type: string
+    require:
+    - def
+  - id: queue-research
+    method: steward.research
+    description: Push the pack's ordered research queue; the next startable project becomes current when one finishes.
+    params_schema:
+      type: object
+      properties:
+        queue:
+          type: array
+          items:
+            type: string
+        append:
+          type: boolean
+        clear:
+          type: boolean
+    require: []
+  - id: set-stock-target
+    method: steward.stock.set
+    description: Tune a steward stock job (target/suspend) — throttle hunting, scale mining; the steward's designations follow.
+    params_schema:
+      type: object
+      required:
+      - kind
+      properties:
+        kind:
+          type: string
+        target:
+          type: integer
+        suspended:
+          type: boolean
+    require:
+    - kind
+  - id: run-stock-job
+    method: steward.stock.run
+    description: 'Run a steward stock job designation pass now — ignores its interval (idle filler: mining, forestry).'
+    params_schema:
+      type: object
+      required:
+      - kind
+      properties:
+        kind:
+          type: string
+    require:
+    - kind
+  - id: answer-letter
+    method: ui.letter
+    description: Respond to a letter that has choices — mission offers, events (choose/dismiss by label or index).
+    params_schema:
+      type: object
+      required:
+      - id
+      - action
+      properties:
+        id: {}
+        action:
+          enum:
+          - choose
+          - dismiss
+        choice: {}
+    require:
+    - id
+    - action
+  - id: draft-pawn
+    method: ui.draft
+    description: Draft/undraft a colonist for combat defense.
+    params_schema:
+      type: object
+      required:
+      - pawn
+      - drafted
+      properties:
+        pawn:
+          type: string
+        drafted:
+          type: boolean
+    require:
+    - pawn
+    - drafted
+  - id: attack-target
+    method: ui.attack
+    description: Order a drafted colonist to attack a hostile target.
+    params_schema:
+      type: object
+      required:
+      - pawn
+      - target
+      properties:
+        pawn:
+          type: string
+        target:
+          type: string
+        melee:
+          type: boolean
+    require:
+    - pawn
+    - target
+  - id: answer-dialog
+    method: ui.dialog
+    description: Answer an open modal window (naming, message, ritual, trade).
+    params_schema:
+      type: object
+      properties:
+        i:
+          type: integer
+        choice: {}
+        name:
+          type: string
+        second_name:
+          type: string
+        assign:
+          type: object
+        trade:
+          type: object
+        method:
+          type: string
+        action:
+          type: string
+        set:
+          type: object
+        close:
+          type: boolean
+  - id: roof-rect
+    method: ui.designate
+    description: Roof designation over a rect (Designator_AreaBuildRoof classname).
+    params_schema:
+      type: object
+      required:
+      - designator
+      - rect
+      properties:
+        designator:
+          const: Designator_AreaBuildRoof
+        rect:
+          type: array
+          items:
+            type: integer
+          minItems: 4
+          maxItems: 4
+    require:
+    - designator
+    - rect
+  - id: rescue
+    method: ui.job
+    description: Give a pawn the Rescue job on a downed colonist.
+    params_schema:
+      type: object
+      required:
+      - pawn
+      - job
+      - target
+      properties:
+        pawn:
+          type: string
+        job:
+          const: Rescue
+        target:
+          type: string
+    require:
+    - pawn
+    - job
+    - target
+  - id: firefight
+    method: ui.job
+    description: Give a pawn the Firefight job at a map cell.
+    params_schema:
+      type: object
+      required:
+      - pawn
+      - job
+      - target
+      properties:
+        pawn:
+          type: string
+        job:
+          const: Firefight
+        target:
+          type: array
+          items:
+            type: integer
+          minItems: 2
+          maxItems: 2
+    require:
+    - pawn
+    - job
+    - target
+  - id: order-set
+    method: steward.orders.set
+    description: Enable/disable a Steward standing order.
+    params_schema:
+      type: object
+      required:
+      - id
+      - enabled
+      properties:
+        id:
+          type: string
+        enabled:
+          type: boolean
+    require:
+    - id
+    - enabled
+  - id: order-run
+    method: steward.orders.run
+    description: Force an order pass immediately (breach response).
+    params_schema:
+      type: object
+      required:
+      - id
+      properties:
+        id:
+          type: string
+    require:
+    - id
+  - id: rally-set
+    method: steward.orders.rally
+    description: Set the combat order's rally rect [x,z,w,h].
+    params_schema:
+      type: object
+      required:
+      - rect
+      properties:
+        rect:
+          type: array
+          items:
+            type: integer
+    require:
+    - rect
+  - id: combat-release
+    method: steward.orders.set
+    description: Release the combat order — disable it; the mod undrafts + restores duties first when the order is engaged.
+    params_schema:
+      type: object
+      required:
+      - id
+      properties:
+        id:
+          type: string
+        enabled:
+          type: boolean
+    require:
+    - id
+  - id: move-pawn
+    method: ui.goto
+    description: Move a drafted pawn to a cell (rally/kite/retreat).
+    params_schema:
+      type: object
+      required:
+      - pawn
+      - cell
+      properties:
+        pawn:
+          type: string
+        cell:
+          type: array
+          items:
+            type: integer
+    require:
+    - pawn
+    - cell
+  - id: field-tend
+    method: ui.job
+    description: Tend a wounded pawn in the field.
+    params_schema:
+      type: object
+      required:
+      - pawn
+      - job
+      - target
+      properties:
+        pawn:
+          type: string
+        job:
+          const: TendPatient
+        target:
+          type: string
+    require:
+    - pawn
+    - job
+    - target
+  - id: capture
+    method: ui.job
+    description: Capture a downed hostile to a free prison bed.
+    params_schema:
+      type: object
+      required:
+      - pawn
+      - job
+      - target
+      properties:
+        pawn:
+          type: string
+        job:
+          const: Capture
+        target:
+          type: string
+    require:
+    - pawn
+    - job
+    - target
+  - id: ingest-drug
+    method: ui.job
+    description: Order a pawn to ingest a drug (combat stim etc.).
+    params_schema:
+      type: object
+      required:
+      - pawn
+      - job
+      - target
+      properties:
+        pawn:
+          type: string
+        job:
+          const: Ingest
+        target:
+          type: string
+    require:
+    - pawn
+    - job
+    - target
+  - id: set-area
+    method: ui.set_policies
+    description: Restrict a pawn to an area (shelter under overmatch).
+    params_schema:
+      type: object
+      required:
+      - pawn
+      - area
+      properties:
+        pawn:
+          type: string
+        area:
+          type: string
+    require:
+    - pawn
+    - area
+reflexes:
+- id: colonist-downed
+  priority: 1
+  when:
+    combinator: any
+    predicates:
+    - field: colonists.downed
+      op: gte
+      value: 1
+  action:
+    template_id: rescue
+    params:
+      pawn: '{state.first_colonist}'
+      job: Rescue
+      target: '{state.colonists.downed_id}'
+- id: fire-active
+  priority: 2
+  when:
+    combinator: any
+    predicates:
+    - field: map.fires
+      op: gte
+      value: 1
+  action:
+    template_id: firefight
+    params:
+      pawn: '{state.first_colonist}'
+      job: Firefight
+      target: '{state.map.fire_cell}'
+rules:
+- id: idle-work
+  for_each: colonists
+  when:
+    all:
+    - field: '@var:it.job'
+      op: contains_any
+      values: '@cfg:universal.idle_patterns'
+    - field: '@var:it.drafted'
+      op: falsy
+  cooldown:
+    polls: 20
+  try:
+  - template: assign-job
+    needs: '@fn:loose_id()'
+    when:
+      field: '@obs:zone_count'
+      op: gt
+      value: 0
+    params:
+      pawn: '@var:it.id'
+      job: HaulToCell
+      target: '@fn:loose_id()'
+      target_b: '@var:site.min'
+      count: '@fn:stack_of(@fn:loose_id())'
+  - template: assign-job
+    needs: '@fn:find_kind(tree, 60)'
+    when:
+      field: '@fn:blueprints_pending()'
+      op: eq
+      value: 0
+    params:
+      pawn: '@var:it.id'
+      job: CutPlant
+      target: '@fn:find_kind(tree, 60)'
+  - template: assign-job
+    needs: '@fn:find_kind(resource_rock, 60)'
+    when:
+      field: '@fn:blueprints_pending()'
+      op: eq
+      value: 0
+    params:
+      pawn: '@var:it.id'
+      job: Mine
+      target: '@fn:find_kind(resource_rock, 60)'
+  - template: assign-job
+    params:
+      pawn: '@var:it.id'
+      job: LayDown
+- id: defend-colony
+  for_each: colonists
+  when:
+    all:
+    - field: '@fn:count(@fn:living_hostiles())'
+      op: gt
+      value: 0
+    - field: '@var:it.weapon'
+      op: present
+    - field: '@var:it.downed'
+      op: falsy
+    - not:
+        field: '@var:it.job'
+        op: contains
+        value: ttack
+  cooldown:
+    polls: 30
+  try:
+  - template: attack-target
+    needs: '@fn:nearest_hostile(@var:it.pos)'
+    params:
+      pawn: '@var:it.id'
+      target: '@fn:nearest_hostile(@var:it.pos)'
+- id: stand-down
+  for_each: '@fn:drafted_ids()'
+  when:
+    field: '@fn:count(@fn:living_hostiles())'
+    op: eq
+    value: 0
+  cooldown:
+    polls: 30
+  try:
+  - template: draft-pawn
+    params:
+      pawn: '@var:it'
+      drafted: false
+- id: chase-fleeing
+  for_each: fleeing_hostiles
+  cooldown:
+    polls: 40
+  try:
+  - template: attack-target
+    needs: '@fn:best(@cfg:universal.chase_skill)'
+    params:
+      pawn: '@fn:best(@cfg:universal.chase_skill)'
+      target: '@var:it.id'
+- id: strip-downed
+  cooldown:
+    polls: 30
+  when:
+    field: '@fn:downed_ids()'
+    op: not_empty
+  try:
+  - template: strip-pawn
+    params:
+      designator: strip
+      things: '@fn:downed_ids()'
+- id: answer-naming
+  for_each: '@fn:dialogs()'
+  when:
+    field: '@var:it.kind'
+    op: eq
+    value: give_name
+  try:
+  - template: answer-dialog
+    params:
+      i: '@var:it.i'
+      choice: OK
+- id: dismiss-message
+  for_each: '@fn:dialogs()'
+  when:
+    field: '@var:it.type'
+    op: eq
+    value: Dialog_MessageBox
+  try:
+  - template: answer-dialog
+    params:
+      i: '@var:it.i'
+      choice: OK
+- id: combat-arm
+  when:
+    all:
+    - field: '@fn:living_hostiles()'
+      op: not_empty
+    - field: '@cfg:combat.direct_command'
+      op: falsy
+  cooldown:
+    polls: 5
+  try:
+  - template: order-set
+    when:
+      field: '@fn:order_state().enabled'
+      op: falsy
+    params:
+      id: combat
+      enabled: true
+- id: combat-rally-place
+  when:
+    all:
+    - field: '@fn:engaged_hostiles()'
+      op: not_empty
+    - field: '@cfg:combat.direct_command'
+      op: falsy
+  cooldown:
+    polls: 60
+  try:
+  - template: rally-set
+    params:
+      rect: '@fn:rally_rect()'
+- id: combat-force-run
+  when:
+    all:
+    - any:
+      - field: '@fn:combat_mode()'
+        op: eq
+        value: overrun
+      - field: '@fn:hostiles_in_home()'
+        op: not_empty
+    - field: '@cfg:combat.direct_command'
+      op: falsy
+  cooldown:
+    polls: 5
+  try:
+  - template: order-run
+    params:
+      id: combat
+- id: combat-release
+  when:
+    all:
+    - field: '@fn:hostile_free_polls()'
+      op: gte
+      value: '@cfg:combat.release_polls'
+    - field: '@fn:ticks_since_hostile()'
+      op: gte
+      value: '@cfg:combat.release_ticks'
+    - field: '@fn:order_state().enabled'
+      op: truthy
+    - field: '@cfg:combat.direct_command'
+      op: falsy
+  cooldown:
+    polls: 20
+  try:
+  - template: combat-release
+    params:
+      id: combat
+      enabled: false
+- id: combat-order-off
+  when:
+    all:
+    - field: '@cfg:combat.direct_command'
+      op: truthy
+    - field: '@fn:order_state().enabled'
+      op: truthy
+  cooldown:
+    polls: 30
+  try:
+  - template: combat-release
+    params:
+      id: combat
+      enabled: false
+- id: combat-draft-squad
+  for_each: draftable
+  when:
+    all:
+    - field: '@cfg:combat.direct_command'
+      op: truthy
+    - field: '@fn:living_hostiles()'
+      op: not_empty
+  cooldown:
+    polls: 30
+  try:
+  - template: draft-pawn
+    params:
+      pawn: '@var:it.id'
+      drafted: true
+- id: combat-stand-down
+  for_each: colonists
+  when:
+    all:
+    - field: '@cfg:combat.direct_command'
+      op: truthy
+    - field: '@fn:hostile_free_polls()'
+      op: gte
+      value: '@cfg:combat.release_polls'
+    - field: '@fn:ticks_since_hostile()'
+      op: gte
+      value: '@cfg:combat.release_ticks'
+  cooldown:
+    polls: 20
+  try:
+  - template: draft-pawn
+    params:
+      pawn: '@var:it.id'
+      drafted: false
+- id: combat-shelter-overmatch
+  for_each: colonists
+  when:
+    all:
+    - field: '@fn:engaged_hostiles()'
+      op: not_empty
+    - field: '@fn:threat_power()'
+      op: gt
+      value: '@fn:fdiv(@fn:mul(@fn:count(@fn:fighters()), 50), @cfg:combat.engage_odds_floor)'
+  cooldown:
+    polls: 60
+  try:
+  - template: set-area
+    params:
+      pawn: '@var:it.id'
+      area: Home
+- id: combat-rescue-downed
+  for_each: casualties
+  when:
+    field: '@fn:draftable()'
+    op: not_empty
+  cooldown:
+    polls: 10
+  try:
+  - template: rescue
+    needs: '@fn:best(''medicine'')'
+    params:
+      pawn: '@fn:best(''medicine'')'
+      job: Rescue
+      target: '@var:it.id'
+- id: combat-field-tend
+  for_each: '@fn:pawns_needing_tend()'
+  when:
+    field: '@fn:hostiles_in_home()'
+    op: empty
+  cooldown:
+    polls: 30
+  try:
+  - template: field-tend
+    needs: '@fn:best(''medicine'')'
+    params:
+      pawn: '@fn:best(''medicine'')'
+      job: TendPatient
+      target: '@var:it'
+- id: combat-capture
+  for_each: downed_hostiles
+  when:
+    all:
+    - field: '@fn:free_beds(''prison'')'
+      op: gt
+      value: 0
+    - field: '@fn:hostiles_in_home()'
+      op: empty
+  cooldown:
+    polls: 20
+  try:
+  - template: capture
+    needs: '@fn:first(@fn:draftable())'
+    params:
+      pawn: '@fn:first(@fn:draftable())'
+      job: Capture
+      target: '@var:it.id'
+- id: combat-strip-field
+  for_each: downed_hostiles
+  when:
+    field: '@fn:hostiles_in_home()'
+    op: empty
+  cooldown:
+    polls: 40
+  try:
+  - template: strip-pawn
+    params:
+      designator: strip
+      things:
+      - '@var:it.id'
+- id: combat-evidence
+  kind: combat-evidence
+  cooldown:
+    polls: 25
+  when:
+    field: '@fn:combat_mode()'
+    op: ne
+    value: watch
+phases:
+- id: init
+  prescriptive: true
+  steps:
+  - id: site
+    adopt:
+      site:
+        from_anchor: '@cfg:start.site.anchor_name'
+    set:
+      site: '@fn:rank_site(@cfg:start.site.zone_w, @cfg:start.site.zone_h, @cfg:start.site.weights.items_proximity, @cfg:start.site.weights.home_proximity,
+        @cfg:start.site.weights.fertility, @cfg:start.site.fertile_step)'
+    resources:
+    - site:anchor
+    effect:
+      field: '@fn:anchor(@cfg:start.site.anchor_name)'
+      op: present
+    steps:
+    - template: set-anchor
+      when:
+        field: '@var:site.min'
+        op: present
+      params:
+        name: '@cfg:start.site.anchor_name'
+        cell: '@var:site.min'
+        rect: '@var:site.rect'
+  - id: zone
+    requires:
+    - site
+    effect:
+      field: '@obs:zone_count'
+      op: gte
+      value: 1
+    steps:
+    - template: create-stockpile
+      params:
+        action: create_stockpile
+        label: '@cfg:start.site.anchor_name'
+        rect: '@var:site.rect'
+  - id: unforbid
+    effect:
+      field: '@fn:forbidden_ids()'
+      op: empty
+    steps:
+    - template: unforbid-items
+      when:
+        field: '@fn:forbidden_ids()'
+        op: not_empty
+      params:
+        designator: unforbid
+        things: '@fn:forbidden_ids()'
+  - id: shelter
+    requires:
+    - site
+    lease_ticks: 12000
+    attempts: 8
+    effect:
+      all:
+      - field: '@fn:room_role_at(@var:site.min)'
+        op: eq
+        value: Bedroom
+      - field: '@fn:room_stat(@var:site.min, impressiveness)'
+        op: gte
+        value: '@cfg:rooms.archetypes.bedroom.stat_target.impressiveness'
+    steps:
+    - template: build-layout
+      params:
+        stop_on_error: false
+        ops: '@fn:plan_room(@var:site.rect, bedroom).ops'
+    - template: roof-rect
+      when:
+        field: '@var:last_ok'
+        op: truthy
+      params:
+        designator: Designator_AreaBuildRoof
+        rect: '@fn:rect(@var:site.min.0, @var:site.min.1, @cfg:govern.expansion.footprint.w, @cfg:govern.expansion.footprint.h)'
+  - id: roof
+    requires:
+    - site
+    lease_ticks: 8000
+    attempts: 5
+    effect:
+      field: '@fn:roofed(@var:site.min)'
+      op: truthy
+    steps:
+    - template: roof-rect
+      params:
+        designator: Designator_AreaBuildRoof
+        rect: '@var:site.rect'
+  - id: haul
+    lease_ticks: 8000
+    attempts: 6
+    effect:
+      field: '@fn:loose_count()'
+      op: eq
+      value: 0
+    escalate:
+      after_attempts: 2
+      steps:
+      - template: create-stockpile
+        when:
+          all:
+          - field: '@var:site'
+            op: present
+          - field: '@fn:zone_named(@cfg:start.overflow.label)'
+            op: falsy
+        params:
+          action: create_stockpile
+          label: '@cfg:start.overflow.label'
+          rect: '@fn:rect(@var:site.min.0, @fn:add(@var:site.min.1, @cfg:start.shelter.room_h, 1), @cfg:start.overflow.w,
+            @cfg:start.overflow.h)'
+      - template: roof-rect
+        when:
+          field: '@var:last_ok'
+          op: truthy
+        params:
+          designator: Designator_AreaBuildRoof
+          rect: '@fn:rect(@var:site.min.0, @fn:add(@var:site.min.1, @cfg:start.shelter.room_h, 1), @cfg:start.overflow.w,
+            @cfg:start.overflow.h)'
+      - template: edit-storage
+        when:
+          field: '@var:last_ok'
+          op: truthy
+        params:
+          zone: '@cfg:start.overflow.label'
+          disallow: '@cfg:start.overflow.reserve_interior'
+    steps:
+    - template: haul-items
+      when:
+        field: '@fn:loose_ids()'
+        op: not_empty
+      params:
+        designator: haul
+        things: '@fn:loose_ids()'
+  - id: arm
+    lease_ticks: 6000
+    attempts: 6
+    need: '@fn:max(1, @fn:min(@obs:colonists.count, @fn:weapons_avail(@cfg:start.arm.weapon_kinds)))'
+    effect:
+      field: '@fn:armed_count()'
+      op: gte
+      value: '@var:need'
+    repeat:
+      while:
+        field: '@fn:arm_pending(@cfg:start.arm.weapon_kinds, @cfg:start.arm.armor_defs)'
+        op: truthy
+    steps:
+    - template: equip-pawn
+      cooldown_polls: 60
+      needs: '@fn:arm_weapon(@cfg:start.arm.weapon_kinds)'
+      params:
+        pawn: '@fn:arm_pawn(@cfg:start.arm.weapon_kinds)'
+        job: Equip
+        target: '@fn:arm_weapon(@cfg:start.arm.weapon_kinds)'
+    - template: wear-apparel
+      cooldown_polls: 60
+      needs: '@fn:first(@fn:armor_ids(@cfg:start.arm.armor_defs))'
+      params:
+        pawn: '@fn:best(@cfg:start.arm.armored_skill)'
+        job: Wear
+        target: '@fn:first(@fn:armor_ids(@cfg:start.arm.armor_defs))'
+  - id: beds
+    requires:
+    - site
+    lease_ticks: 12000
+    attempts: 8
+    need: '@obs:colonists.count'
+    effect:
+      field: '@obs:beds_total'
+      op: gte
+      value: '@var:need'
+    repeat:
+      while:
+        field: '@fn:sub(@var:need, @fn:add(@obs:beds_total, @obs:bed_blueprints))'
+        op: gt
+        value: 0
+    steps:
+    - template: build-one
+      needs: '@fn:free_cell(@cfg:start.shelter.bed_def, @var:site.rect, 1, @fn:stuff(@cfg:start.shelter.stuff_preference))'
+      params:
+        def: '@cfg:start.shelter.bed_def'
+        at: '@fn:free_cell(@cfg:start.shelter.bed_def, @var:site.rect, 1, @fn:stuff(@cfg:start.shelter.stuff_preference))'
+        stuff: '@fn:stuff(@cfg:start.shelter.stuff_preference)'
+  - id: food
+    requires:
+    - site
+    lease_ticks: 6000
+    attempts: 5
+    effect:
+      field: '@obs:food_source_present'
+      op: truthy
+    repeat:
+      while:
+        field: '@obs:food_source_present'
+        op: falsy
+    steps:
+    - template: create-growing
+      when:
+        field: '@obs:zones_growing'
+        op: eq
+        value: 0
+      params:
+        action: create_growing
+        label: start.growing
+        rect: '@fn:fertile(@fn:rect(@fn:sub(@var:site.min.0, @cfg:start.food.zone_w, 1), @var:site.min.1, @cfg:start.food.zone_w,
+          @cfg:start.food.zone_h), @cfg:start.fertility.sample_step)'
+        plant: '@cfg:start.food.plant'
+    - template: set-plant
+      when:
+        any:
+        - field: '@obs:zones_growing'
+          op: gte
+          value: 1
+        - field: '@var:last_ok'
+          op: truthy
+      params:
+        action: set_plant
+        label: start.growing
+        plant: '@cfg:start.food.plant'
+  - id: cookstation
+    requires:
+    - site
+    lease_ticks: 8000
+    attempts: 6
+    effect:
+      field: '@obs:cookstation_ready'
+      op: truthy
+    repeat:
+      while:
+        field: '@obs:cookstation_ready'
+        op: falsy
+    steps:
+    - template: build-one
+      when:
+        all:
+        - field: '@obs:cookstation_ids'
+          op: empty
+        - field: '@fn:blueprints(@cfg:start.cooking.station_defs)'
+          op: eq
+          value: 0
+      needs: '@fn:free_cell(@fn:first(@cfg:start.cooking.station_defs), @fn:rect(@fn:add(@var:site.min.0, @cfg:start.shelter.room_w,
+        1), @fn:add(@var:site.min.1, 1), 3, @fn:sub(@cfg:start.shelter.room_h, 2)), 0, @fn:stuff(@cfg:start.shelter.stuff_preference))'
+      params:
+        def: '@fn:first(@cfg:start.cooking.station_defs)'
+        at: '@fn:free_cell(@fn:first(@cfg:start.cooking.station_defs), @fn:rect(@fn:add(@var:site.min.0, @cfg:start.shelter.room_w,
+          1), @fn:add(@var:site.min.1, 1), 3, @fn:sub(@cfg:start.shelter.room_h, 2)), 0, @fn:stuff(@cfg:start.shelter.stuff_preference))'
+        stuff: '@fn:stuff(@cfg:start.shelter.stuff_preference)'
+    - template: add-bill
+      when:
+        all:
+        - field: '@obs:cookstation_ids'
+          op: not_empty
+        - field: '@obs:cookbill_configured'
+          op: falsy
+      params:
+        thing: '@fn:first(@obs:cookstation_ids)'
+        recipe: '@cfg:start.cooking.recipe'
+        mode: '@cfg:start.cooking.bill_mode'
+        count: '@fn:add(@fn:mul(@obs:colonists.count, @cfg:start.cooking.meals_per_day), @cfg:start.cooking.buffer)'
+  - id: meals
+    lease_ticks: 12000
+    attempts: 6
+    effect:
+      field: '@obs:meals_present'
+      op: truthy
+    steps: []
+  - id: recreation
+    requires:
+    - site
+    lease_ticks: 8000
+    attempts: 6
+    effect:
+      field: '@obs:recreation_present'
+      op: truthy
+    steps:
+    - template: build-one
+      when:
+        all:
+        - field: '@obs:recreation_present'
+          op: falsy
+        - field: '@fn:blueprints(@cfg:start.recreation.defs)'
+          op: eq
+          value: 0
+      needs: '@fn:free_cell(@fn:first(@cfg:start.recreation.defs), @fn:rect(@fn:add(@var:site.min.0, @cfg:start.shelter.room_w,
+        1), @var:site.min.1, 3, @cfg:start.shelter.room_h), 0, @fn:stuff(@cfg:start.shelter.stuff_preference))'
+      params:
+        def: '@fn:first(@cfg:start.recreation.defs)'
+        at: '@fn:free_cell(@fn:first(@cfg:start.recreation.defs), @fn:rect(@fn:add(@var:site.min.0, @cfg:start.shelter.room_w,
+          1), @var:site.min.1, 3, @cfg:start.shelter.room_h), 0, @fn:stuff(@cfg:start.shelter.stuff_preference))'
+        stuff: '@fn:stuff(@cfg:start.shelter.stuff_preference)'
+  - id: overflow
+    requires:
+    - site
+    lease_ticks: 4000
+    attempts: 4
+    effect:
+      field: '@fn:zone_named(@cfg:start.overflow.label)'
+      op: truthy
+    steps:
+    - template: create-stockpile
+      params:
+        action: create_stockpile
+        label: '@cfg:start.overflow.label'
+        rect: '@fn:rect(@var:site.min.0, @fn:add(@var:site.min.1, @cfg:start.shelter.room_h, 1), @cfg:start.overflow.w, @cfg:start.overflow.h)'
+    - template: roof-rect
+      when:
+        field: '@var:last_ok'
+        op: truthy
+      params:
+        designator: Designator_AreaBuildRoof
+        rect: '@fn:rect(@var:site.min.0, @fn:add(@var:site.min.1, @cfg:start.shelter.room_h, 1), @cfg:start.overflow.w, @cfg:start.overflow.h)'
+    - template: edit-storage
+      when:
+        field: '@var:last_ok'
+        op: truthy
+      params:
+        zone: '@cfg:start.overflow.label'
+        disallow: '@cfg:start.overflow.reserve_interior'
+  complete:
+    conditions:
+      shelter:
+        all:
+        - field: '@fn:room_role_at(@var:site.min)'
+          op: eq
+          value: Bedroom
+        - field: '@fn:room_stat(@var:site.min, impressiveness)'
+          op: gte
+          value: '@cfg:rooms.archetypes.bedroom.stat_target.impressiveness'
+      beds:
+        field: '@obs:beds_total'
+        op: gte
+        value: '@obs:colonists.count'
+      food:
+        field: '@obs:food_source_present'
+        op: truthy
+      meals:
+        field: '@obs:meals_present'
+        op: truthy
+      recreation:
+        field: '@obs:recreation_present'
+        op: truthy
+    fix:
+      meals:
+      - phase: cookstation
+        when:
+          field: '@obs:cookstation_ready'
+          op: falsy
+      - meals
+standing_goals:
+- id: maintain-storage
+  requires:
+  - site
+  effect:
+    field: '@fn:zone_named(@cfg:start.site.anchor_name)'
+    op: truthy
+  repeat:
+    while:
+      field: '@fn:zone_named(@cfg:start.site.anchor_name)'
+      op: falsy
+  steps:
+  - template: create-stockpile
+    params:
+      action: create_stockpile
+      label: '@cfg:start.site.anchor_name'
+      rect: '@var:site.rect'
+- id: maintain-overflow
+  requires:
+  - site
+  when:
+    field: '@fn:zone_named(@cfg:start.site.anchor_name)'
+    op: truthy
+  effect:
+    field: '@fn:zone_named(@cfg:start.overflow.label)'
+    op: truthy
+  repeat:
+    while:
+      field: '@fn:zone_named(@cfg:start.overflow.label)'
+      op: falsy
+  steps:
+  - template: create-stockpile
+    params:
+      action: create_stockpile
+      label: '@cfg:start.overflow.label'
+      rect: '@fn:rect(@var:site.min.0, @fn:add(@var:site.min.1, @cfg:start.shelter.room_h, 1), @cfg:start.overflow.w, @cfg:start.overflow.h)'
+  - template: roof-rect
+    when:
+      field: '@var:last_ok'
+      op: truthy
+    params:
+      designator: Designator_AreaBuildRoof
+      rect: '@fn:rect(@var:site.min.0, @fn:add(@var:site.min.1, @cfg:start.shelter.room_h, 1), @cfg:start.overflow.w, @cfg:start.overflow.h)'
+  - template: edit-storage
+    when:
+      field: '@var:last_ok'
+      op: truthy
+    params:
+      zone: '@cfg:start.overflow.label'
+      disallow: '@cfg:start.overflow.reserve_interior'
+- id: sustained-shelter
+  option: secure-shelter-and-beds
+  requires:
+  - site
+  effect:
+    field: '@obs:beds_total'
+    op: gte
+    value: '@obs:colonists.count'
+  repeat:
+    while:
+      field: '@fn:sub(@obs:colonists.count, @fn:add(@obs:beds_total, @obs:bed_blueprints))'
+      op: gt
+      value: 0
+  steps:
+  - template: build-one
+    needs: '@fn:free_cell(@cfg:start.shelter.bed_def, @var:site.rect, 1, @fn:stuff(@cfg:start.shelter.stuff_preference))'
+    params:
+      def: '@cfg:start.shelter.bed_def'
+      at: '@fn:free_cell(@cfg:start.shelter.bed_def, @var:site.rect, 1, @fn:stuff(@cfg:start.shelter.stuff_preference))'
+      stuff: '@fn:stuff(@cfg:start.shelter.stuff_preference)'
+- id: food-security
+  option: establish-food-security
+  requires:
+  - site
+  effect:
+    field: '@obs:meals_present'
+    op: truthy
+  repeat:
+    while:
+      field: '@obs:meals_present'
+      op: falsy
+  steps:
+  - template: create-growing
+    when:
+      field: '@obs:zones_growing'
+      op: eq
+      value: 0
+    params:
+      action: create_growing
+      label: start.growing
+      rect: '@fn:fertile(@fn:rect(@fn:sub(@var:site.min.0, @cfg:start.food.zone_w, 1), @var:site.min.1, @cfg:start.food.zone_w,
+        @cfg:start.food.zone_h), @cfg:start.fertility.sample_step)'
+      plant: '@cfg:start.food.plant'
+  - template: set-plant
+    when:
+      field: '@obs:zones_growing'
+      op: gte
+      value: 1
+    params:
+      action: set_plant
+      label: start.growing
+      plant: '@cfg:start.food.plant'
+  - template: add-bill
+    when:
+      all:
+      - field: '@obs:cookstation_ids'
+        op: not_empty
+      - field: '@obs:cookbill_configured'
+        op: falsy
+    params:
+      thing: '@fn:first(@obs:cookstation_ids)'
+      recipe: '@cfg:start.cooking.recipe'
+      mode: '@cfg:start.cooking.bill_mode'
+      count: '@fn:add(@fn:mul(@obs:colonists.count, @cfg:start.cooking.meals_per_day), @cfg:start.cooking.buffer)'
+- id: arm-every-colonist
+  option: arm-every-colonist
+  effect:
+    field: '@fn:arm_pending(@cfg:start.arm.weapon_kinds, @cfg:start.arm.armor_defs)'
+    op: falsy
+  repeat:
+    while:
+      field: '@fn:arm_pending(@cfg:start.arm.weapon_kinds, @cfg:start.arm.armor_defs)'
+      op: truthy
+  steps:
+  - template: equip-pawn
+    cooldown_polls: 60
+    needs: '@fn:arm_weapon(@cfg:start.arm.weapon_kinds)'
+    params:
+      pawn: '@fn:arm_pawn(@cfg:start.arm.weapon_kinds)'
+      job: Equip
+      target: '@fn:arm_weapon(@cfg:start.arm.weapon_kinds)'
+  - template: wear-apparel
+    cooldown_polls: 60
+    needs: '@fn:first(@fn:armor_ids(@cfg:start.arm.armor_defs))'
+    params:
+      pawn: '@fn:best(@cfg:start.arm.armored_skill)'
+      job: Wear
+      target: '@fn:first(@fn:armor_ids(@cfg:start.arm.armor_defs))'
+- id: review-equipment
+  requires:
+  - site
+  when:
+    field: '@fn:mod(@obs:day, @cfg:govern.equipment.review_days)'
+    op: eq
+    value: 0
+  effect:
+    field: '@fn:equip_pending(@cfg:start.arm.weapon_kinds, @cfg:start.arm.armored_skill, @cfg:start.arm.armor_defs)'
+    op: falsy
+  repeat:
+    while:
+      field: '@fn:equip_pending(@cfg:start.arm.weapon_kinds, @cfg:start.arm.armored_skill, @cfg:start.arm.armor_defs)'
+      op: truthy
+  steps:
+  - template: equip-pawn
+    cooldown_polls: 60
+    needs: '@fn:upgrade_weapon(@cfg:start.arm.weapon_kinds)'
+    params:
+      pawn: '@fn:upgrade_pawn(@cfg:start.arm.weapon_kinds)'
+      job: Equip
+      target: '@fn:upgrade_weapon(@cfg:start.arm.weapon_kinds)'
+  - template: wear-apparel
+    cooldown_polls: 60
+    needs: '@fn:upgrade_armor(@cfg:start.arm.armored_skill, @cfg:start.arm.armor_defs)'
+    params:
+      pawn: '@fn:upgrade_armor_pawn(@cfg:start.arm.armored_skill, @cfg:start.arm.armor_defs)'
+      job: Wear
+      target: '@fn:upgrade_armor(@cfg:start.arm.armored_skill, @cfg:start.arm.armor_defs)'
+- id: build-chokepoint-defense
+  option: build-chokepoint-defense
+  requires:
+  - site
+  lease_ticks: 16000
+  attempts: 8
+  effect:
+    all:
+    - field: '@fn:enclosed_at(@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.blueprints.compound.rect_dx), @fn:add(@var:site.min.1,
+        @cfg:govern.blueprints.compound.rect_dy), @cfg:govern.blueprints.compound.w, @cfg:govern.blueprints.compound.h), @cfg:govern.blueprints.compound.min_room_cells)'
+      op: gte
+      value: 1
+    - field: '@fn:count(@fn:find_defs_in(@cfg:govern.defense.trap_defs, @fn:rect(@fn:add(@var:site.min.0, @cfg:govern.blueprints.compound.rect_dx,
+        @cfg:govern.blueprints.compound.entrance_dx), @fn:sub(@fn:add(@var:site.min.1, @cfg:govern.blueprints.compound.rect_dy),
+        @cfg:govern.blueprints.compound.hall_depth), @cfg:govern.blueprints.compound.entrance_w, @fn:add(@cfg:govern.blueprints.compound.hall_depth,
+        1))))'
+      op: gte
+      value: '@cfg:govern.defense.trap_count'
+  repeat:
+    while:
+      any:
+      - field: '@fn:enclosed_at(@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.blueprints.compound.rect_dx), @fn:add(@var:site.min.1,
+          @cfg:govern.blueprints.compound.rect_dy), @cfg:govern.blueprints.compound.w, @cfg:govern.blueprints.compound.h),
+          @cfg:govern.blueprints.compound.min_room_cells)'
+        op: lt
+        value: 1
+      - field: '@fn:sub(@cfg:govern.defense.trap_count, @fn:add(@fn:count(@fn:find_defs_in(@cfg:govern.defense.trap_defs,
+          @fn:rect(@fn:add(@var:site.min.0, @cfg:govern.blueprints.compound.rect_dx, @cfg:govern.blueprints.compound.entrance_dx),
+          @fn:sub(@fn:add(@var:site.min.1, @cfg:govern.blueprints.compound.rect_dy), @cfg:govern.blueprints.compound.hall_depth),
+          @cfg:govern.blueprints.compound.entrance_w, @fn:add(@cfg:govern.blueprints.compound.hall_depth, 1)))), @fn:blueprints_in(@cfg:govern.defense.trap_defs,
+          @fn:rect(@fn:add(@var:site.min.0, @cfg:govern.blueprints.compound.rect_dx, @cfg:govern.blueprints.compound.entrance_dx),
+          @fn:sub(@fn:add(@var:site.min.1, @cfg:govern.blueprints.compound.rect_dy), @cfg:govern.blueprints.compound.hall_depth),
+          @cfg:govern.blueprints.compound.entrance_w, @fn:add(@cfg:govern.blueprints.compound.hall_depth, 1)))))'
+        op: gt
+        value: 0
+  steps:
+  - template: build-layout
+    cooldown_polls: 60
+    when:
+      field: '@fn:enclosed_at(@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.blueprints.compound.rect_dx), @fn:add(@var:site.min.1,
+        @cfg:govern.blueprints.compound.rect_dy), @cfg:govern.blueprints.compound.w, @cfg:govern.blueprints.compound.h), @cfg:govern.blueprints.compound.min_room_cells)'
+      op: lt
+      value: 1
+    params:
+      stop_on_error: false
+      ops:
+      - def: '@cfg:start.shelter.door_def'
+        at: '@fn:cell(@fn:add(@var:site.min.0, @cfg:govern.blueprints.compound.rect_dx, @fn:fdiv(@cfg:govern.blueprints.compound.w,
+          2)), @fn:add(@var:site.min.1, @cfg:govern.blueprints.compound.rect_dy, @cfg:govern.blueprints.compound.h, -1))'
+        stuff: '@fn:stuff(@cfg:govern.blueprints.compound.door_stuff)'
+      - def: '@cfg:start.shelter.door_def'
+        at: '@fn:cell(@fn:add(@var:site.min.0, @cfg:govern.blueprints.compound.rect_dx, @fn:fdiv(@cfg:govern.blueprints.compound.entrance_dx,
+          2)), @fn:add(@var:site.min.1, @cfg:govern.blueprints.compound.rect_dy))'
+        stuff: '@fn:stuff(@cfg:govern.blueprints.compound.door_stuff)'
+      - def: '@cfg:start.shelter.door_def'
+        at: '@fn:cell(@fn:add(@var:site.min.0, @cfg:govern.blueprints.compound.rect_dx), @fn:add(@var:site.min.1, @cfg:govern.blueprints.compound.rect_dy,
+          @fn:fdiv(@cfg:govern.blueprints.compound.h, 2)))'
+        stuff: '@fn:stuff(@cfg:govern.blueprints.compound.door_stuff)'
+      - def: '@cfg:start.shelter.door_def'
+        at: '@fn:cell(@fn:add(@var:site.min.0, @cfg:govern.blueprints.compound.rect_dx, @cfg:govern.blueprints.compound.w,
+          -1), @fn:add(@var:site.min.1, @cfg:govern.blueprints.compound.rect_dy, @fn:fdiv(@cfg:govern.blueprints.compound.h,
+          2)))'
+        stuff: '@fn:stuff(@cfg:govern.blueprints.compound.door_stuff)'
+      - def: '@cfg:start.shelter.wall_def'
+        rect: '@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.blueprints.compound.rect_dx), @fn:add(@var:site.min.1, @cfg:govern.blueprints.compound.rect_dy),
+          @fn:fdiv(@cfg:govern.blueprints.compound.entrance_dx, 2), 1)'
+        stuff: '@fn:stuff(@cfg:start.shelter.stuff_preference)'
+      - def: '@cfg:start.shelter.wall_def'
+        rect: '@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.blueprints.compound.rect_dx, @fn:fdiv(@cfg:govern.blueprints.compound.entrance_dx,
+          2), 1), @fn:add(@var:site.min.1, @cfg:govern.blueprints.compound.rect_dy), @fn:sub(@cfg:govern.blueprints.compound.entrance_dx,
+          @fn:fdiv(@cfg:govern.blueprints.compound.entrance_dx, 2), 1), 1)'
+        stuff: '@fn:stuff(@cfg:start.shelter.stuff_preference)'
+      - def: '@cfg:start.shelter.wall_def'
+        rect: '@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.blueprints.compound.rect_dx, @cfg:govern.blueprints.compound.entrance_dx,
+          @cfg:govern.blueprints.compound.entrance_w), @fn:add(@var:site.min.1, @cfg:govern.blueprints.compound.rect_dy),
+          @fn:sub(@cfg:govern.blueprints.compound.w, @cfg:govern.blueprints.compound.entrance_dx, @cfg:govern.blueprints.compound.entrance_w),
+          1)'
+        stuff: '@fn:stuff(@cfg:start.shelter.stuff_preference)'
+      - def: '@cfg:start.shelter.wall_def'
+        rect: '@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.blueprints.compound.rect_dx), @fn:add(@var:site.min.1, @cfg:govern.blueprints.compound.rect_dy,
+          1), 1, @fn:sub(@fn:fdiv(@cfg:govern.blueprints.compound.h, 2), 1))'
+        stuff: '@fn:stuff(@cfg:start.shelter.stuff_preference)'
+      - def: '@cfg:start.shelter.wall_def'
+        rect: '@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.blueprints.compound.rect_dx), @fn:add(@var:site.min.1, @cfg:govern.blueprints.compound.rect_dy,
+          @fn:fdiv(@cfg:govern.blueprints.compound.h, 2), 1), 1, @fn:sub(@cfg:govern.blueprints.compound.h, @fn:fdiv(@cfg:govern.blueprints.compound.h,
+          2), 1))'
+        stuff: '@fn:stuff(@cfg:start.shelter.stuff_preference)'
+      - def: '@cfg:start.shelter.wall_def'
+        rect: '@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.blueprints.compound.rect_dx), @fn:add(@var:site.min.1, @cfg:govern.blueprints.compound.rect_dy,
+          @cfg:govern.blueprints.compound.h, -1), @fn:fdiv(@cfg:govern.blueprints.compound.w, 2), 1)'
+        stuff: '@fn:stuff(@cfg:start.shelter.stuff_preference)'
+      - def: '@cfg:start.shelter.wall_def'
+        rect: '@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.blueprints.compound.rect_dx, @fn:fdiv(@cfg:govern.blueprints.compound.w,
+          2), 1), @fn:add(@var:site.min.1, @cfg:govern.blueprints.compound.rect_dy, @cfg:govern.blueprints.compound.h, -1),
+          @fn:sub(@cfg:govern.blueprints.compound.w, @fn:fdiv(@cfg:govern.blueprints.compound.w, 2), 1), 1)'
+        stuff: '@fn:stuff(@cfg:start.shelter.stuff_preference)'
+      - def: '@cfg:start.shelter.wall_def'
+        rect: '@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.blueprints.compound.rect_dx, @cfg:govern.blueprints.compound.w,
+          -1), @fn:add(@var:site.min.1, @cfg:govern.blueprints.compound.rect_dy, 1), 1, @fn:sub(@fn:fdiv(@cfg:govern.blueprints.compound.h,
+          2), 1))'
+        stuff: '@fn:stuff(@cfg:start.shelter.stuff_preference)'
+      - def: '@cfg:start.shelter.wall_def'
+        rect: '@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.blueprints.compound.rect_dx, @cfg:govern.blueprints.compound.w,
+          -1), @fn:add(@var:site.min.1, @cfg:govern.blueprints.compound.rect_dy, @fn:fdiv(@cfg:govern.blueprints.compound.h,
+          2), 1), 1, @fn:sub(@cfg:govern.blueprints.compound.h, @fn:fdiv(@cfg:govern.blueprints.compound.h, 2), 1))'
+        stuff: '@fn:stuff(@cfg:start.shelter.stuff_preference)'
+      - def: '@cfg:start.shelter.wall_def'
+        rect: '@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.blueprints.compound.rect_dx, @cfg:govern.blueprints.compound.entrance_dx,
+          -1), @fn:sub(@fn:add(@var:site.min.1, @cfg:govern.blueprints.compound.rect_dy), @cfg:govern.blueprints.compound.hall_depth),
+          1, @cfg:govern.blueprints.compound.hall_depth)'
+        stuff: '@fn:stuff(@cfg:start.shelter.stuff_preference)'
+      - def: '@cfg:start.shelter.wall_def'
+        rect: '@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.blueprints.compound.rect_dx, @cfg:govern.blueprints.compound.entrance_dx,
+          @cfg:govern.blueprints.compound.entrance_w), @fn:sub(@fn:add(@var:site.min.1, @cfg:govern.blueprints.compound.rect_dy),
+          @cfg:govern.blueprints.compound.hall_depth), 1, @cfg:govern.blueprints.compound.hall_depth)'
+        stuff: '@fn:stuff(@cfg:start.shelter.stuff_preference)'
+      - def: '@cfg:start.shelter.wall_def'
+        at: '@fn:cell(@fn:add(@var:site.min.0, @cfg:govern.blueprints.compound.rect_dx, @fn:fdiv(@cfg:govern.blueprints.compound.w,
+          2)), @fn:add(@var:site.min.1, @cfg:govern.blueprints.compound.rect_dy, @cfg:govern.blueprints.compound.h, -1))'
+        stuff: '@fn:stuff(@cfg:start.shelter.stuff_preference)'
+      - def: '@cfg:start.shelter.wall_def'
+        at: '@fn:cell(@fn:add(@var:site.min.0, @cfg:govern.blueprints.compound.rect_dx, @fn:fdiv(@cfg:govern.blueprints.compound.entrance_dx,
+          2)), @fn:add(@var:site.min.1, @cfg:govern.blueprints.compound.rect_dy))'
+        stuff: '@fn:stuff(@cfg:start.shelter.stuff_preference)'
+      - def: '@cfg:start.shelter.wall_def'
+        at: '@fn:cell(@fn:add(@var:site.min.0, @cfg:govern.blueprints.compound.rect_dx), @fn:add(@var:site.min.1, @cfg:govern.blueprints.compound.rect_dy,
+          @fn:fdiv(@cfg:govern.blueprints.compound.h, 2)))'
+        stuff: '@fn:stuff(@cfg:start.shelter.stuff_preference)'
+      - def: '@cfg:start.shelter.wall_def'
+        at: '@fn:cell(@fn:add(@var:site.min.0, @cfg:govern.blueprints.compound.rect_dx, @cfg:govern.blueprints.compound.w,
+          -1), @fn:add(@var:site.min.1, @cfg:govern.blueprints.compound.rect_dy, @fn:fdiv(@cfg:govern.blueprints.compound.h,
+          2)))'
+        stuff: '@fn:stuff(@cfg:start.shelter.stuff_preference)'
+  - template: build-one
+    for_each: '@fn:checker_cells(@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.blueprints.compound.rect_dx, @cfg:govern.blueprints.compound.entrance_dx),
+      @fn:sub(@fn:add(@var:site.min.1, @cfg:govern.blueprints.compound.rect_dy), @cfg:govern.blueprints.compound.hall_depth),
+      @cfg:govern.blueprints.compound.entrance_w, @fn:add(@cfg:govern.blueprints.compound.hall_depth, 1)))'
+    when:
+      field: '@fn:sub(@cfg:govern.defense.trap_count, @fn:add(@fn:count(@fn:find_defs_in(@cfg:govern.defense.trap_defs, @fn:rect(@fn:add(@var:site.min.0,
+        @cfg:govern.blueprints.compound.rect_dx, @cfg:govern.blueprints.compound.entrance_dx), @fn:sub(@fn:add(@var:site.min.1,
+        @cfg:govern.blueprints.compound.rect_dy), @cfg:govern.blueprints.compound.hall_depth), @cfg:govern.blueprints.compound.entrance_w,
+        @fn:add(@cfg:govern.blueprints.compound.hall_depth, 1)))), @fn:blueprints_in(@cfg:govern.defense.trap_defs, @fn:rect(@fn:add(@var:site.min.0,
+        @cfg:govern.blueprints.compound.rect_dx, @cfg:govern.blueprints.compound.entrance_dx), @fn:sub(@fn:add(@var:site.min.1,
+        @cfg:govern.blueprints.compound.rect_dy), @cfg:govern.blueprints.compound.hall_depth), @cfg:govern.blueprints.compound.entrance_w,
+        @fn:add(@cfg:govern.blueprints.compound.hall_depth, 1)))))'
+      op: gt
+      value: 0
+    needs: '@fn:buildable_at(@fn:first(@cfg:govern.defense.trap_defs), @var:it, @fn:stuff(@cfg:govern.defense.trap_stuff))'
+    params:
+      def: '@fn:first(@cfg:govern.defense.trap_defs)'
+      at: '@var:it'
+      stuff: '@fn:stuff(@cfg:govern.defense.trap_stuff)'
+- id: stockpile-medicine
+  option: stockpile-medicine
+  requires:
+  - site
+  effect:
+    field: '@fn:find_def(@cfg:govern.medicine.plant)'
+    op: present
+  repeat:
+    while:
+      field: '@fn:find_def(@cfg:govern.medicine.plant)'
+      op: absent
+  steps:
+  - template: create-growing
+    when:
+      field: '@obs:zones_growing'
+      op: lt
+      value: 2
+    params:
+      action: create_growing
+      label: '@cfg:govern.medicine.zone_label'
+      rect: '@fn:fertile(@fn:rect(@fn:sub(@var:site.min.0, @cfg:govern.medicine.zone_w, 1), @fn:add(@var:site.min.1, @cfg:govern.medicine.zone_dy),
+        @cfg:govern.medicine.zone_w, @cfg:govern.medicine.zone_h), @cfg:start.fertility.sample_step)'
+      plant: '@cfg:govern.medicine.plant'
+- id: maintain-mood-stability
+  option: maintain-mood-stability
+  requires:
+  - site
+  effect:
+    field: '@fn:find_def(@fn:first(@cfg:start.recreation.defs))'
+    op: present
+  repeat:
+    while:
+      field: '@fn:find_def(@fn:first(@cfg:start.recreation.defs))'
+      op: absent
+  steps:
+  - template: build-one
+    when:
+      field: '@fn:blueprints(@cfg:start.recreation.defs)'
+      op: eq
+      value: 0
+    needs: '@fn:free_cell(@fn:first(@cfg:start.recreation.defs), @fn:rect(@fn:add(@var:site.min.0, @cfg:start.shelter.room_w,
+      1), @var:site.min.1, 3, @cfg:start.shelter.room_h), 0, @fn:stuff(@cfg:start.shelter.stuff_preference))'
+    params:
+      def: '@fn:first(@cfg:start.recreation.defs)'
+      at: '@fn:free_cell(@fn:first(@cfg:start.recreation.defs), @fn:rect(@fn:add(@var:site.min.0, @cfg:start.shelter.room_w,
+        1), @var:site.min.1, 3, @cfg:start.shelter.room_h), 0, @fn:stuff(@cfg:start.shelter.stuff_preference))'
+      stuff: '@fn:stuff(@cfg:start.shelter.stuff_preference)'
+- id: establish-power-grid
+  option: establish-power-grid
+  requires:
+  - site
+  effect:
+    field: '@fn:find_def(@fn:first(@cfg:govern.power.gen_defs))'
+    op: present
+  repeat:
+    while:
+      all:
+      - field: '@fn:find_def(@fn:first(@cfg:govern.power.gen_defs))'
+        op: absent
+      - field: '@fn:blueprints(@cfg:govern.power.gen_defs)'
+        op: eq
+        value: 0
+  steps:
+  - template: clear-vegetation
+    needs: '@fn:turbine_site_blocked(@fn:first(@cfg:govern.power.gen_defs), @fn:rect(@fn:add(@var:site.min.0, @cfg:govern.power.rect_dx),
+      @fn:add(@var:site.min.1, @cfg:govern.power.rect_dy), @cfg:govern.power.rect_w, @cfg:govern.power.rect_h), @cfg:govern.power.wind.axis,
+      @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.foot,
+      @cfg:govern.power.wind.site_kinds)'
+    cooldown_polls: '@cfg:govern.power.wind.clear_cooldown'
+    params:
+      designator: '@cfg:govern.power.wind.clear_designator'
+      things: '@fn:ids(@fn:obstructions(@fn:wind_path(@fn:turbine_site_blocked(@fn:first(@cfg:govern.power.gen_defs), @fn:rect(@fn:add(@var:site.min.0,
+        @cfg:govern.power.rect_dx), @fn:add(@var:site.min.1, @cfg:govern.power.rect_dy), @cfg:govern.power.rect_w, @cfg:govern.power.rect_h),
+        @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap,
+        @cfg:govern.power.wind.foot, @cfg:govern.power.wind.site_kinds), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width,
+        @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.foot), @cfg:govern.power.wind.clear_kinds))'
+  - template: build-one
+    needs: '@fn:turbine_site(@fn:first(@cfg:govern.power.gen_defs), @fn:rect(@fn:add(@var:site.min.0, @cfg:govern.power.rect_dx),
+      @fn:add(@var:site.min.1, @cfg:govern.power.rect_dy), @cfg:govern.power.rect_w, @cfg:govern.power.rect_h), @cfg:govern.power.wind.axis,
+      @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.foot,
+      @cfg:govern.power.wind.site_kinds)'
+    params:
+      def: '@fn:first(@cfg:govern.power.gen_defs)'
+      at: '@fn:turbine_site(@fn:first(@cfg:govern.power.gen_defs), @fn:rect(@fn:add(@var:site.min.0, @cfg:govern.power.rect_dx),
+        @fn:add(@var:site.min.1, @cfg:govern.power.rect_dy), @cfg:govern.power.rect_w, @cfg:govern.power.rect_h), @cfg:govern.power.wind.axis,
+        @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.foot,
+        @cfg:govern.power.wind.site_kinds)'
+      rot: '@cfg:govern.power.gen_rot'
+- id: maintain-turbine-windpath
+  option: establish-power-grid
+  requires:
+  - site
+  when:
+    field: '@fn:find_def(@fn:first(@cfg:govern.power.gen_defs))'
+    op: present
+  effect:
+    all:
+    - field: '@fn:count(@fn:wind_obstructions(@cfg:govern.power.gen_defs, @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width,
+        @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.foot, @cfg:govern.power.wind.site_kinds))'
+      op: eq
+      value: 0
+    - any:
+      - field: '@cfg:govern.power.wind.suppress'
+        op: ne
+        value: floor
+      - all:
+        - field: '@fn:terrain_at(@fn:nth(@fn:wind_path(@fn:pos(@fn:nth(@fn:find_defs(@cfg:govern.power.gen_defs),0)), @cfg:govern.power.wind.axis,
+            @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.foot),0))'
+          op: eq
+          value: '@cfg:govern.power.wind.floor_def'
+        - field: '@fn:terrain_at(@fn:nth(@fn:wind_path(@fn:pos(@fn:nth(@fn:find_defs(@cfg:govern.power.gen_defs),0)), @cfg:govern.power.wind.axis,
+            @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.foot),1))'
+          op: eq
+          value: '@cfg:govern.power.wind.floor_def'
+    - any:
+      - field: '@cfg:govern.power.wind.suppress'
+        op: ne
+        value: grow
+      - all:
+        - field: '@fn:zone_at(@fn:nth(@fn:wind_path(@fn:pos(@fn:nth(@fn:find_defs(@cfg:govern.power.gen_defs),0)), @cfg:govern.power.wind.axis,
+            @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.foot),0))'
+          op: present
+        - field: '@fn:zone_at(@fn:nth(@fn:wind_path(@fn:pos(@fn:nth(@fn:find_defs(@cfg:govern.power.gen_defs),0)), @cfg:govern.power.wind.axis,
+            @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.foot),1))'
+          op: present
+  repeat:
+    while:
+      any:
+      - field: '@fn:count(@fn:wind_obstructions(@cfg:govern.power.gen_defs, @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width,
+          @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.foot, @cfg:govern.power.wind.site_kinds))'
+        op: gt
+        value: 0
+      - all:
+        - field: '@cfg:govern.power.wind.suppress'
+          op: eq
+          value: floor
+        - any:
+          - field: '@fn:terrain_at(@fn:nth(@fn:wind_path(@fn:pos(@fn:nth(@fn:find_defs(@cfg:govern.power.gen_defs),0)), @cfg:govern.power.wind.axis,
+              @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.foot),0))'
+            op: ne
+            value: '@cfg:govern.power.wind.floor_def'
+          - field: '@fn:terrain_at(@fn:nth(@fn:wind_path(@fn:pos(@fn:nth(@fn:find_defs(@cfg:govern.power.gen_defs),0)), @cfg:govern.power.wind.axis,
+              @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.foot),1))'
+            op: ne
+            value: '@cfg:govern.power.wind.floor_def'
+      - all:
+        - field: '@cfg:govern.power.wind.suppress'
+          op: eq
+          value: grow
+        - any:
+          - field: '@fn:zone_at(@fn:nth(@fn:wind_path(@fn:pos(@fn:nth(@fn:find_defs(@cfg:govern.power.gen_defs),0)), @cfg:govern.power.wind.axis,
+              @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.foot),0))'
+            op: absent
+          - field: '@fn:zone_at(@fn:nth(@fn:wind_path(@fn:pos(@fn:nth(@fn:find_defs(@cfg:govern.power.gen_defs),0)), @cfg:govern.power.wind.axis,
+              @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.foot),1))'
+            op: absent
+  steps:
+  - template: clear-vegetation
+    cooldown_polls: '@cfg:govern.power.wind.clear_cooldown'
+    when:
+      field: '@fn:count(@fn:wind_obstructions(@cfg:govern.power.gen_defs, @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width,
+        @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.clear_kinds))'
+      op: gt
+      value: 0
+    params:
+      designator: '@cfg:govern.power.wind.clear_designator'
+      things: '@fn:ids(@fn:wind_obstructions(@cfg:govern.power.gen_defs, @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width,
+        @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.clear_kinds))'
+  - template: lay-floor
+    for_each: '@fn:find_defs(@cfg:govern.power.gen_defs)'
+    when:
+      all:
+      - field: '@cfg:govern.power.wind.suppress'
+        op: eq
+        value: floor
+      - field: '@fn:count(@fn:wind_obstructions(@cfg:govern.power.gen_defs, @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width,
+          @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.foot, @cfg:govern.power.wind.site_kinds))'
+        op: eq
+        value: 0
+      - field: '@fn:blueprints(@cfg:govern.power.wind.floor_def)'
+        op: eq
+        value: 0
+      - field: '@fn:terrain_at(@fn:nth(@fn:wind_path(@fn:pos(@var:it), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width,
+          @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.foot),0))'
+        op: ne
+        value: '@cfg:govern.power.wind.floor_def'
+    params:
+      def: '@cfg:govern.power.wind.floor_def'
+      rect: '@fn:nth(@fn:wind_path(@fn:pos(@var:it), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth,
+        @cfg:govern.power.wind.gap, @cfg:govern.power.wind.foot),0)'
+      fill: true
+  - template: lay-floor
+    for_each: '@fn:find_defs(@cfg:govern.power.gen_defs)'
+    when:
+      all:
+      - field: '@cfg:govern.power.wind.suppress'
+        op: eq
+        value: floor
+      - field: '@fn:count(@fn:wind_obstructions(@cfg:govern.power.gen_defs, @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width,
+          @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.foot, @cfg:govern.power.wind.site_kinds))'
+        op: eq
+        value: 0
+      - field: '@fn:blueprints(@cfg:govern.power.wind.floor_def)'
+        op: eq
+        value: 0
+      - field: '@fn:terrain_at(@fn:nth(@fn:wind_path(@fn:pos(@var:it), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width,
+          @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.foot),1))'
+        op: ne
+        value: '@cfg:govern.power.wind.floor_def'
+    params:
+      def: '@cfg:govern.power.wind.floor_def'
+      rect: '@fn:nth(@fn:wind_path(@fn:pos(@var:it), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth,
+        @cfg:govern.power.wind.gap, @cfg:govern.power.wind.foot),1)'
+      fill: true
+  - template: create-growing
+    for_each: '@fn:find_defs(@cfg:govern.power.gen_defs)'
+    when:
+      all:
+      - field: '@cfg:govern.power.wind.suppress'
+        op: eq
+        value: grow
+      - field: '@fn:count(@fn:wind_obstructions(@cfg:govern.power.gen_defs, @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width,
+          @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.foot, @cfg:govern.power.wind.site_kinds))'
+        op: eq
+        value: 0
+      - field: '@fn:zone_at(@fn:nth(@fn:wind_path(@fn:pos(@var:it), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width,
+          @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.foot),0))'
+        op: absent
+    params:
+      action: create_growing
+      label: '@cfg:govern.power.wind.grow_label'
+      rect: '@fn:nth(@fn:wind_path(@fn:pos(@var:it), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth,
+        @cfg:govern.power.wind.gap, @cfg:govern.power.wind.foot),0)'
+      plant: '@cfg:govern.power.wind.grow_plant'
+  - template: create-growing
+    for_each: '@fn:find_defs(@cfg:govern.power.gen_defs)'
+    when:
+      all:
+      - field: '@cfg:govern.power.wind.suppress'
+        op: eq
+        value: grow
+      - field: '@fn:count(@fn:wind_obstructions(@cfg:govern.power.gen_defs, @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width,
+          @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.foot, @cfg:govern.power.wind.site_kinds))'
+        op: eq
+        value: 0
+      - field: '@fn:zone_at(@fn:nth(@fn:wind_path(@fn:pos(@var:it), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width,
+          @cfg:govern.power.wind.depth, @cfg:govern.power.wind.gap, @cfg:govern.power.wind.foot),1))'
+        op: absent
+    params:
+      action: create_growing
+      label: '@cfg:govern.power.wind.grow_label'
+      rect: '@fn:nth(@fn:wind_path(@fn:pos(@var:it), @cfg:govern.power.wind.axis, @cfg:govern.power.wind.half_width, @cfg:govern.power.wind.depth,
+        @cfg:govern.power.wind.gap, @cfg:govern.power.wind.foot),1)'
+      plant: '@cfg:govern.power.wind.grow_plant'
+- id: build-dining-room
+  option: maintain-mood-stability
+  requires:
+  - site
+  when:
+    field: '@fn:pawns_with_thought(AteWithoutTable)'
+    op: gt
+    value: 0
+  lease_ticks: 12000
+  attempts: 8
+  effect:
+    all:
+    - any:
+      - field: '@fn:room_role_at(@fn:cell(@fn:add(@var:site.min.0, @cfg:govern.dining.rect_dx), @fn:add(@var:site.min.1, @cfg:govern.dining.rect_dy)))'
+        op: eq
+        value: DiningRoom
+      - field: '@fn:room_role_at(@fn:cell(@fn:add(@var:site.min.0, @cfg:govern.dining.rect_dx), @fn:add(@var:site.min.1, @cfg:govern.dining.rect_dy)))'
+        op: eq
+        value: RecRoom
+    - field: '@fn:room_stat(@fn:cell(@fn:add(@var:site.min.0, @cfg:govern.dining.rect_dx), @fn:add(@var:site.min.1, @cfg:govern.dining.rect_dy)),
+        impressiveness)'
+      op: gte
+      value: '@cfg:rooms.archetypes.dining_hall.stat_target.impressiveness'
+  steps:
+  - template: build-layout
+    params:
+      stop_on_error: false
+      ops: '@fn:plan_room(@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.dining.rect_dx), @fn:add(@var:site.min.1, @cfg:govern.dining.rect_dy),
+        @cfg:govern.dining.room_w, @cfg:govern.dining.room_h), dining_hall).ops'
+  - template: roof-rect
+    when:
+      field: '@var:last_ok'
+      op: truthy
+    params:
+      designator: Designator_AreaBuildRoof
+      rect: '@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.dining.rect_dx), @fn:add(@var:site.min.1, @cfg:govern.dining.rect_dy),
+        @cfg:govern.dining.room_w, @cfg:govern.dining.room_h)'
+- id: enclose-kitchen
+  option: establish-food-security
+  requires:
+  - site
+  when:
+    field: '@obs:cookstation_ready'
+    op: truthy
+  lease_ticks: 12000
+  attempts: 8
+  effect:
+    all:
+    - field: '@fn:room_role_at(@fn:cell(@fn:add(@var:site.min.0, @cfg:govern.kitchen.rect_dx), @fn:add(@var:site.min.1, @cfg:govern.kitchen.rect_dy)))'
+      op: eq
+      value: Kitchen
+    - field: '@fn:room_stat(@fn:cell(@fn:add(@var:site.min.0, @cfg:govern.kitchen.rect_dx), @fn:add(@var:site.min.1, @cfg:govern.kitchen.rect_dy)),
+        cleanliness)'
+      op: gte
+      value: 0
+  steps:
+  - template: build-layout
+    params:
+      stop_on_error: false
+      ops: '@fn:plan_room(@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.kitchen.rect_dx), @fn:add(@var:site.min.1, @cfg:govern.kitchen.rect_dy),
+        @cfg:govern.kitchen.room_w, @cfg:govern.kitchen.room_h), kitchen).ops'
+  - template: roof-rect
+    when:
+      field: '@var:last_ok'
+      op: truthy
+    params:
+      designator: Designator_AreaBuildRoof
+      rect: '@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.kitchen.rect_dx), @fn:add(@var:site.min.1, @cfg:govern.kitchen.rect_dy),
+        @cfg:govern.kitchen.room_w, @cfg:govern.kitchen.room_h)'
+- id: build-hospital
+  option: maintain-mood-stability
+  requires:
+  - site
+  when:
+    field: '@fn:pawns_wounded()'
+    op: gte
+    value: '@cfg:govern.hospital.need_threshold'
+  lease_ticks: 12000
+  attempts: 8
+  effect:
+    all:
+    - field: '@fn:room_role_at(@fn:cell(@fn:add(@var:site.min.0, @cfg:govern.hospital.rect_dx), @fn:add(@var:site.min.1, @cfg:govern.hospital.rect_dy)))'
+      op: eq
+      value: Hospital
+    - field: '@fn:room_stat(@fn:cell(@fn:add(@var:site.min.0, @cfg:govern.hospital.rect_dx), @fn:add(@var:site.min.1, @cfg:govern.hospital.rect_dy)),
+        cleanliness)'
+      op: gte
+      value: 0
+  steps:
+  - template: build-layout
+    params:
+      stop_on_error: false
+      ops: '@fn:plan_room(@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.hospital.rect_dx), @fn:add(@var:site.min.1, @cfg:govern.hospital.rect_dy),
+        @cfg:govern.hospital.rect_w, @cfg:govern.hospital.rect_h), hospital).ops'
+  - template: roof-rect
+    when:
+      field: '@var:last_ok'
+      op: truthy
+    params:
+      designator: Designator_AreaBuildRoof
+      rect: '@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.hospital.rect_dx), @fn:add(@var:site.min.1, @cfg:govern.hospital.rect_dy),
+        @cfg:govern.hospital.rect_w, @cfg:govern.hospital.rect_h)'
+- id: build-workshop
+  option: research-core-tech
+  requires:
+  - site
+  when:
+    field: '@fn:find_def(@fn:first(@cfg:govern.research.bench_defs))'
+    op: present
+  lease_ticks: 12000
+  attempts: 8
+  effect:
+    all:
+    - field: '@fn:room_role_at(@fn:cell(@fn:add(@var:site.min.0, @cfg:govern.workshop.rect_dx), @fn:add(@var:site.min.1, @cfg:govern.workshop.rect_dy)))'
+      op: eq
+      value: Workshop
+    - field: '@fn:room_stat(@fn:cell(@fn:add(@var:site.min.0, @cfg:govern.workshop.rect_dx), @fn:add(@var:site.min.1, @cfg:govern.workshop.rect_dy)),
+        impressiveness)'
+      op: gte
+      value: '@cfg:rooms.archetypes.workshop.stat_target.impressiveness'
+  steps:
+  - template: build-layout
+    params:
+      stop_on_error: false
+      ops: '@fn:plan_room(@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.workshop.rect_dx), @fn:add(@var:site.min.1, @cfg:govern.workshop.rect_dy),
+        @cfg:govern.workshop.rect_w, @cfg:govern.workshop.rect_h), workshop).ops'
+  - template: roof-rect
+    when:
+      field: '@var:last_ok'
+      op: truthy
+    params:
+      designator: Designator_AreaBuildRoof
+      rect: '@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.workshop.rect_dx), @fn:add(@var:site.min.1, @cfg:govern.workshop.rect_dy),
+        @cfg:govern.workshop.rect_w, @cfg:govern.workshop.rect_h)'
+- id: research-bench
+  option: research-core-tech
+  requires:
+  - site
+  lease_ticks: 12000
+  attempts: 6
+  effect:
+    field: '@fn:find_def(@fn:first(@cfg:govern.research.bench_defs))'
+    op: present
+  steps:
+  - template: build-one
+    when:
+      field: '@fn:blueprints(@cfg:govern.research.bench_defs)'
+      op: eq
+      value: 0
+    needs: '@fn:free_cell(@fn:first(@cfg:govern.research.bench_defs), @fn:rect(@fn:add(@var:site.min.0, @cfg:start.shelter.room_w,
+      1), @fn:add(@var:site.min.1, @cfg:start.shelter.room_h, 1), 5, 4), 0, @fn:stuff(@cfg:start.shelter.stuff_preference))'
+    params:
+      def: '@fn:first(@cfg:govern.research.bench_defs)'
+      at: '@fn:free_cell(@fn:first(@cfg:govern.research.bench_defs), @fn:rect(@fn:add(@var:site.min.0, @cfg:start.shelter.room_w,
+        1), @fn:add(@var:site.min.1, @cfg:start.shelter.room_h, 1), 5, 4), 0, @fn:stuff(@cfg:start.shelter.stuff_preference))'
+      stuff: '@fn:stuff(@cfg:start.shelter.stuff_preference)'
+- id: research-progress
+  option: research-core-tech
+  effect:
+    any:
+    - field: '@fn:research_current()'
+      op: present
+    - field: '@fn:research_available()'
+      op: empty
+  repeat:
+    while:
+      all:
+      - field: '@fn:research_current()'
+        op: absent
+      - field: '@fn:research_available()'
+        op: not_empty
+  steps:
+  - template: queue-research
+    when:
+      field: '@fn:research_available()'
+      op: not_empty
+    params:
+      queue: '@cfg:govern.research.queue'
+      append: true
+  - template: set-research
+    optional: true
+    when:
+      all:
+      - field: '@fn:research_current()'
+        op: absent
+      - field: '@fn:research_available()'
+        op: not_empty
+    needs: '@fn:first(@fn:research_available())'
+    params:
+      def: '@fn:first(@fn:research_available())'
+- id: mission-offers
+  when:
+    all:
+    - field: '@fn:living_hostiles()'
+      op: empty
+    - field: '@obs:meals_present'
+      op: truthy
+    - field: '@fn:armed_count()'
+      op: gte
+      value: 1
+  effect:
+    field: '@fn:letters(true)'
+    op: empty
+  repeat:
+    while:
+      field: '@fn:letters(true)'
+      op: not_empty
+  steps:
+  - template: answer-letter
+    for_each:
+      from: '@fn:letters(true)'
+      where:
+        field: '@var:it.choices'
+        op: contains_any
+        values: '@cfg:govern.missions.accept_choices'
+    params:
+      id: '@var:it.id'
+      action: choose
+      choice: '@fn:first(@cfg:govern.missions.accept_choices)'
+- id: hunting-pause
+  when:
+    field: '@obs:stocks.nutrition'
+    op: gte
+    value: '@cfg:govern.hunt.full_nutrition'
+  effect:
+    all:
+    - field: '@fn:steward_stock(hunting, suspended)'
+      op: truthy
+    - field: '@fn:steward_stock(hunting_leather, suspended)'
+      op: truthy
+  steps:
+  - template: set-stock-target
+    params:
+      kind: hunting
+      suspended: true
+  - template: set-stock-target
+    params:
+      kind: hunting_leather
+      suspended: true
+- id: hunting-scarce
+  when:
+    field: '@obs:stocks.nutrition'
+    op: lt
+    value: '@cfg:govern.hunt.scarce_nutrition'
+  effect:
+    field: '@fn:steward_stock(hunting, suspended)'
+    op: falsy
+  steps:
+  - template: set-stock-target
+    params:
+      kind: hunting
+      suspended: false
+      target: '@cfg:govern.hunt.meat_target'
+  - template: set-stock-target
+    params:
+      kind: hunting_leather
+      suspended: false
+      target: '@cfg:govern.hunt.leather_target'
+- id: scale-mining
+  effect:
+    field: '@fn:steward_stock(mining, target)'
+    op: gte
+    value: '@cfg:govern.mining.target'
+  steps:
+  - template: set-stock-target
+    params:
+      kind: mining
+      target: '@cfg:govern.mining.target'
+- id: expand-housing
+  requires:
+  - site
+  when:
+    field: '@fn:bed_demand()'
+    op: gt
+    value: 0
+  lease_ticks: 12000
+  attempts: 8
+  effect:
+    field: '@fn:bed_demand()'
+    op: eq
+    value: 0
+  steps:
+  - template: build-layout
+    params:
+      stop_on_error: false
+      ops: '@fn:plan_room(@fn:rect(@var:site.min.0, @fn:sub(@var:site.min.1, @fn:add(@cfg:govern.expansion.footprint.h, 1)),
+        @cfg:govern.expansion.footprint.w, @cfg:govern.expansion.footprint.h), bedroom).ops'
+  - template: build-layout
+    when:
+      field: '@var:last_ok'
+      op: truthy
+    params:
+      stop_on_error: false
+      ops: '@fn:plan_room(@fn:rect(@fn:add(@var:site.min.0, @fn:add(@cfg:govern.expansion.footprint.w, 1)), @fn:sub(@var:site.min.1,
+        @fn:add(@cfg:govern.expansion.footprint.h, 1)), @cfg:govern.expansion.footprint.w, @cfg:govern.expansion.footprint.h),
+        bedroom).ops'
+  - template: build-layout
+    when:
+      field: '@var:last_ok'
+      op: truthy
+    params:
+      stop_on_error: false
+      ops: '@fn:plan_room(@fn:rect(@fn:add(@var:site.min.0, @fn:add(@fn:mul(@cfg:govern.expansion.footprint.w, 2), 2)), @fn:sub(@var:site.min.1,
+        @fn:add(@cfg:govern.expansion.footprint.h, 1)), @cfg:govern.expansion.footprint.w, @cfg:govern.expansion.footprint.h),
+        bedroom).ops'
+  - template: build-layout
+    when:
+      field: '@var:last_ok'
+      op: truthy
+    params:
+      stop_on_error: false
+      ops: '@fn:plan_room(@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.expansion.overflow.dx), @fn:add(@var:site.min.1, @cfg:govern.expansion.overflow.dy),
+        @cfg:govern.expansion.footprint.w, @cfg:govern.expansion.footprint.h), bedroom).ops'
+- id: private-bedrooms
+  option: secure-shelter-and-beds
+  requires:
+  - site
+  when:
+    all:
+    - field: '@fn:rooms_matching({role: Bedroom, min_impressiveness: 40})'
+      op: not_empty
+    - field: '@fn:bed_demand()'
+      op: gt
+      value: 0
+  lease_ticks: 12000
+  attempts: 8
+  effect:
+    field: '@fn:bed_demand()'
+    op: eq
+    value: 0
+  steps:
+  - template: assign-job
+    for_each: '@fn:colonist_ids()'
+    when:
+      field: '@fn:bed_demand()'
+      op: gt
+      value: 0
+    params:
+      pawn: '@var:it'
+      job: LayDown
+      target: '@fn:rooms_matching({role: Bedroom, min_impressiveness: 40}).0.at'
+- id: floor-rooms
+  option: maintain-mood-stability
+  requires:
+  - site
+  lease_ticks: 12000
+  attempts: 6
+  effect:
+    all:
+    - any:
+      - field: '@fn:enclosed_at(@fn:rect(@var:site.min.0, @var:site.min.1, @cfg:start.shelter.room_w, @cfg:start.shelter.room_h),
+          @cfg:start.shelter.min_room_cells)'
+        op: lt
+        value: 1
+      - field: '@fn:terrain_at(@fn:rect(@fn:add(@var:site.min.0, 1), @fn:add(@var:site.min.1, 1), @fn:sub(@cfg:start.shelter.room_w,
+          2), @fn:sub(@cfg:start.shelter.room_h, 2)))'
+        op: eq
+        value: '@cfg:govern.floors.floor_def'
+    - any:
+      - field: '@fn:enclosed_at(@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.kitchen.rect_dx), @fn:add(@var:site.min.1, @cfg:govern.kitchen.rect_dy),
+          @cfg:govern.kitchen.room_w, @cfg:govern.kitchen.room_h), @cfg:govern.kitchen.min_room_cells)'
+        op: lt
+        value: 1
+      - field: '@fn:terrain_at(@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.kitchen.rect_dx, 1), @fn:add(@var:site.min.1,
+          @cfg:govern.kitchen.rect_dy, 1), @fn:sub(@cfg:govern.kitchen.room_w, 2), @fn:sub(@cfg:govern.kitchen.room_h, 2)))'
+        op: eq
+        value: '@cfg:govern.floors.floor_def'
+    - any:
+      - field: '@fn:enclosed_at(@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.dining.rect_dx), @fn:add(@var:site.min.1, @cfg:govern.dining.rect_dy),
+          @cfg:govern.dining.room_w, @cfg:govern.dining.room_h), @cfg:govern.dining.min_room_cells)'
+        op: lt
+        value: 1
+      - field: '@fn:terrain_at(@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.dining.rect_dx, 1), @fn:add(@var:site.min.1,
+          @cfg:govern.dining.rect_dy, 1), @fn:sub(@cfg:govern.dining.room_w, 2), @fn:sub(@cfg:govern.dining.room_h, 2)))'
+        op: eq
+        value: '@cfg:govern.floors.floor_def'
+    - any:
+      - field: '@fn:enclosed_at(@fn:rect(@var:site.min.0, @fn:sub(@var:site.min.1, @fn:add(@cfg:govern.expansion.room_h, 1)),
+          @cfg:govern.expansion.room_w, @cfg:govern.expansion.room_h), @cfg:govern.expansion.min_room_cells)'
+        op: lt
+        value: 1
+      - field: '@fn:terrain_at(@fn:rect(@fn:add(@var:site.min.0, 1), @fn:sub(@var:site.min.1, @cfg:govern.expansion.room_h),
+          @fn:sub(@cfg:govern.expansion.room_w, 2), @fn:sub(@cfg:govern.expansion.room_h, 2)))'
+        op: eq
+        value: '@cfg:govern.floors.floor_def'
+    - any:
+      - field: '@fn:enclosed_at(@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.expansion.room_w, 1), @fn:sub(@var:site.min.1,
+          @fn:add(@cfg:govern.expansion.room_h, 1)), @cfg:govern.expansion.room_w, @cfg:govern.expansion.room_h), @cfg:govern.expansion.min_room_cells)'
+        op: lt
+        value: 1
+      - field: '@fn:terrain_at(@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.expansion.room_w, 2), @fn:sub(@var:site.min.1,
+          @cfg:govern.expansion.room_h), @fn:sub(@cfg:govern.expansion.room_w, 2), @fn:sub(@cfg:govern.expansion.room_h, 2)))'
+        op: eq
+        value: '@cfg:govern.floors.floor_def'
+  repeat:
+    while:
+      any:
+      - all:
+        - field: '@fn:enclosed_at(@fn:rect(@var:site.min.0, @var:site.min.1, @cfg:start.shelter.room_w, @cfg:start.shelter.room_h),
+            @cfg:start.shelter.min_room_cells)'
+          op: gte
+          value: 1
+        - field: '@fn:terrain_at(@fn:rect(@fn:add(@var:site.min.0, 1), @fn:add(@var:site.min.1, 1), @fn:sub(@cfg:start.shelter.room_w,
+            2), @fn:sub(@cfg:start.shelter.room_h, 2)))'
+          op: ne
+          value: '@cfg:govern.floors.floor_def'
+      - all:
+        - field: '@fn:enclosed_at(@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.kitchen.rect_dx), @fn:add(@var:site.min.1,
+            @cfg:govern.kitchen.rect_dy), @cfg:govern.kitchen.room_w, @cfg:govern.kitchen.room_h), @cfg:govern.kitchen.min_room_cells)'
+          op: gte
+          value: 1
+        - field: '@fn:terrain_at(@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.kitchen.rect_dx, 1), @fn:add(@var:site.min.1,
+            @cfg:govern.kitchen.rect_dy, 1), @fn:sub(@cfg:govern.kitchen.room_w, 2), @fn:sub(@cfg:govern.kitchen.room_h, 2)))'
+          op: ne
+          value: '@cfg:govern.floors.floor_def'
+      - all:
+        - field: '@fn:enclosed_at(@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.dining.rect_dx), @fn:add(@var:site.min.1,
+            @cfg:govern.dining.rect_dy), @cfg:govern.dining.room_w, @cfg:govern.dining.room_h), @cfg:govern.dining.min_room_cells)'
+          op: gte
+          value: 1
+        - field: '@fn:terrain_at(@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.dining.rect_dx, 1), @fn:add(@var:site.min.1,
+            @cfg:govern.dining.rect_dy, 1), @fn:sub(@cfg:govern.dining.room_w, 2), @fn:sub(@cfg:govern.dining.room_h, 2)))'
+          op: ne
+          value: '@cfg:govern.floors.floor_def'
+      - all:
+        - field: '@fn:enclosed_at(@fn:rect(@var:site.min.0, @fn:sub(@var:site.min.1, @fn:add(@cfg:govern.expansion.room_h,
+            1)), @cfg:govern.expansion.room_w, @cfg:govern.expansion.room_h), @cfg:govern.expansion.min_room_cells)'
+          op: gte
+          value: 1
+        - field: '@fn:terrain_at(@fn:rect(@fn:add(@var:site.min.0, 1), @fn:sub(@var:site.min.1, @cfg:govern.expansion.room_h),
+            @fn:sub(@cfg:govern.expansion.room_w, 2), @fn:sub(@cfg:govern.expansion.room_h, 2)))'
+          op: ne
+          value: '@cfg:govern.floors.floor_def'
+      - all:
+        - field: '@fn:enclosed_at(@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.expansion.room_w, 1), @fn:sub(@var:site.min.1,
+            @fn:add(@cfg:govern.expansion.room_h, 1)), @cfg:govern.expansion.room_w, @cfg:govern.expansion.room_h), @cfg:govern.expansion.min_room_cells)'
+          op: gte
+          value: 1
+        - field: '@fn:terrain_at(@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.expansion.room_w, 2), @fn:sub(@var:site.min.1,
+            @cfg:govern.expansion.room_h), @fn:sub(@cfg:govern.expansion.room_w, 2), @fn:sub(@cfg:govern.expansion.room_h,
+            2)))'
+          op: ne
+          value: '@cfg:govern.floors.floor_def'
+  steps:
+  - template: lay-floor
+    cooldown_polls: '@cfg:govern.floors.redo_polls'
+    when:
+      all:
+      - field: '@fn:enclosed_at(@fn:rect(@var:site.min.0, @var:site.min.1, @cfg:start.shelter.room_w, @cfg:start.shelter.room_h),
+          @cfg:start.shelter.min_room_cells)'
+        op: gte
+        value: 1
+      - field: '@fn:terrain_at(@fn:rect(@fn:add(@var:site.min.0, 1), @fn:add(@var:site.min.1, 1), @fn:sub(@cfg:start.shelter.room_w,
+          2), @fn:sub(@cfg:start.shelter.room_h, 2)))'
+        op: ne
+        value: '@cfg:govern.floors.floor_def'
+    params:
+      def: '@cfg:govern.floors.floor_def'
+      rect: '@fn:rect(@fn:add(@var:site.min.0, 1), @fn:add(@var:site.min.1, 1), @fn:sub(@cfg:start.shelter.room_w, 2), @fn:sub(@cfg:start.shelter.room_h,
+        2))'
+      fill: true
+  - template: lay-floor
+    cooldown_polls: '@cfg:govern.floors.redo_polls'
+    when:
+      all:
+      - field: '@fn:enclosed_at(@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.kitchen.rect_dx), @fn:add(@var:site.min.1, @cfg:govern.kitchen.rect_dy),
+          @cfg:govern.kitchen.room_w, @cfg:govern.kitchen.room_h), @cfg:govern.kitchen.min_room_cells)'
+        op: gte
+        value: 1
+      - field: '@fn:terrain_at(@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.kitchen.rect_dx, 1), @fn:add(@var:site.min.1,
+          @cfg:govern.kitchen.rect_dy, 1), @fn:sub(@cfg:govern.kitchen.room_w, 2), @fn:sub(@cfg:govern.kitchen.room_h, 2)))'
+        op: ne
+        value: '@cfg:govern.floors.floor_def'
+    params:
+      def: '@cfg:govern.floors.floor_def'
+      rect: '@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.kitchen.rect_dx, 1), @fn:add(@var:site.min.1, @cfg:govern.kitchen.rect_dy,
+        1), @fn:sub(@cfg:govern.kitchen.room_w, 2), @fn:sub(@cfg:govern.kitchen.room_h, 2))'
+      fill: true
+  - template: lay-floor
+    cooldown_polls: '@cfg:govern.floors.redo_polls'
+    when:
+      all:
+      - field: '@fn:enclosed_at(@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.dining.rect_dx), @fn:add(@var:site.min.1, @cfg:govern.dining.rect_dy),
+          @cfg:govern.dining.room_w, @cfg:govern.dining.room_h), @cfg:govern.dining.min_room_cells)'
+        op: gte
+        value: 1
+      - field: '@fn:terrain_at(@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.dining.rect_dx, 1), @fn:add(@var:site.min.1,
+          @cfg:govern.dining.rect_dy, 1), @fn:sub(@cfg:govern.dining.room_w, 2), @fn:sub(@cfg:govern.dining.room_h, 2)))'
+        op: ne
+        value: '@cfg:govern.floors.floor_def'
+    params:
+      def: '@cfg:govern.floors.floor_def'
+      rect: '@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.dining.rect_dx, 1), @fn:add(@var:site.min.1, @cfg:govern.dining.rect_dy,
+        1), @fn:sub(@cfg:govern.dining.room_w, 2), @fn:sub(@cfg:govern.dining.room_h, 2))'
+      fill: true
+  - template: lay-floor
+    cooldown_polls: '@cfg:govern.floors.redo_polls'
+    when:
+      all:
+      - field: '@fn:enclosed_at(@fn:rect(@var:site.min.0, @fn:sub(@var:site.min.1, @fn:add(@cfg:govern.expansion.room_h, 1)),
+          @cfg:govern.expansion.room_w, @cfg:govern.expansion.room_h), @cfg:govern.expansion.min_room_cells)'
+        op: gte
+        value: 1
+      - field: '@fn:terrain_at(@fn:rect(@fn:add(@var:site.min.0, 1), @fn:sub(@var:site.min.1, @cfg:govern.expansion.room_h),
+          @fn:sub(@cfg:govern.expansion.room_w, 2), @fn:sub(@cfg:govern.expansion.room_h, 2)))'
+        op: ne
+        value: '@cfg:govern.floors.floor_def'
+    params:
+      def: '@cfg:govern.floors.floor_def'
+      rect: '@fn:rect(@fn:add(@var:site.min.0, 1), @fn:sub(@var:site.min.1, @cfg:govern.expansion.room_h), @fn:sub(@cfg:govern.expansion.room_w,
+        2), @fn:sub(@cfg:govern.expansion.room_h, 2))'
+      fill: true
+  - template: lay-floor
+    cooldown_polls: '@cfg:govern.floors.redo_polls'
+    when:
+      all:
+      - field: '@fn:enclosed_at(@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.expansion.room_w, 1), @fn:sub(@var:site.min.1,
+          @fn:add(@cfg:govern.expansion.room_h, 1)), @cfg:govern.expansion.room_w, @cfg:govern.expansion.room_h), @cfg:govern.expansion.min_room_cells)'
+        op: gte
+        value: 1
+      - field: '@fn:terrain_at(@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.expansion.room_w, 2), @fn:sub(@var:site.min.1,
+          @cfg:govern.expansion.room_h), @fn:sub(@cfg:govern.expansion.room_w, 2), @fn:sub(@cfg:govern.expansion.room_h, 2)))'
+        op: ne
+        value: '@cfg:govern.floors.floor_def'
+    params:
+      def: '@cfg:govern.floors.floor_def'
+      rect: '@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.expansion.room_w, 2), @fn:sub(@var:site.min.1, @cfg:govern.expansion.room_h),
+        @fn:sub(@cfg:govern.expansion.room_w, 2), @fn:sub(@cfg:govern.expansion.room_h, 2))'
+      fill: true
+options:
+- id: secure-shelter-and-beds
+  summary: Enclosed roofed room with a bed per colonist, table, and a first recreation item.
+  survival_benefit: 'Removes exposure/Outdoor-sleep failure modes: slept-outside and no-table mood debuffs, deteriorating
+    items left outdoors; first failure cascade stopper.'
+  investment: low — ~1 day of construction work; wood/steel for ~13x13 room, beds, horseshoe pin (guide 00:10-00:13).
+  wealth_impact: low positive — building wealth counts at 0.5x; furniture is cheap.
+  raid_threat_impact: neutral — trivial wealth added; no defensive value itself, but prevents mood-collapse spirals that cost
+    pawns.
+  phase: early
+  prerequisites: []
+  sources:
+  - guide ~00:10-00:14 (13x13 shack, beds, horseshoe pin)
+  - guide ~00:48 (base planning)
+- id: establish-food-security
+  summary: 'Renewable food: growing zone on best soil (rice), cooking, and a freezer buffer.'
+  survival_benefit: Prevents starvation — the baseline survival failure. ~2 meals/pawn/day; ~15-30 crop tiles per pawn depending
+    on meal tier; freezer at -5C stops spoilage loss.
+  investment: medium — ongoing grower/cook work; power + cooler for freezer; farmland.
+  wealth_impact: low-medium positive — crops/meals are item wealth; keep buffer sized to need, excess food is a major hoarded-wealth
+    source (guide 03:32:27).
+  raid_threat_impact: slightly negative — overstocked meals/raw food inflate item wealth with zero combat value; right-size
+    the buffer.
+  phase: early
+  prerequisites:
+  - secure-shelter-and-beds
+  sources:
+  - guide ~01:19-01:33 (crops/pawn math, nutrient paste, freezer -5C)
+  - 'wiki: Wealth management (overproduction warning)'
+- id: arm-every-colonist
+  summary: Every combat-capable pawn equipped; ranged to best shooters, melee + armor to front-line.
+  survival_benefit: An unarmed colonist is a dead colonist in the first raid; day-one arming is the cheapest defense there
+    is.
+  investment: low — starting weapons suffice; later ~60 steel + 7 components per assault rifle.
+  wealth_impact: low positive — weapons are item wealth but worn gear pulls double duty.
+  raid_threat_impact: positive — best defense-per-wealth-point available early; combat-capable coverage beats stockpiled gear.
+  phase: early
+  prerequisites: []
+  sources:
+  - guide ~01:58:17-01:58:40 (weapons to best shooters)
+  - guide ~02:08:56 (rush assault rifles)
+- id: build-chokepoint-defense
+  summary: Spike-trap corridor / choke point with an open-door funnel so raiders path through it.
+  survival_benefit: Kills early raiders and animals with zero pawn damage — 'always fight in choke points, always use spike
+    traps, always kite' (guide 02:01:47).
+  investment: low — wood/steel spike traps (wood 8 dmg, steel 20), a wall line, auto-rearm enabled.
+  wealth_impact: minimal — traps and walls are cheap building wealth at 0.5x.
+  raid_threat_impact: positive — large defensive return for almost no wealth; keeps early raids below pawn capacity.
+  phase: early
+  prerequisites:
+  - secure-shelter-and-beds
+  sources:
+  - guide ~01:58:40-02:03 (spike traps, open-door funnel, cover)
+  - guide ~01:00:08 (early barricade fallback)
+- id: stockpile-medicine
+  summary: Grow healroot, buy/hold industrial medicine, medic carries medicine; build a clean hospital room.
+  survival_benefit: Untreated wounds and infections kill; tend speed decides survival. Recovery speed between raids is the
+    real attrition war (guide 04:53:59).
+  investment: low-medium — healroot plot, ~24-30 silver/medicine bought, dedicated room + beds.
+  wealth_impact: low positive — medicine is valuable item wealth but consumed on use; keep a working stock, not a hoard.
+  raid_threat_impact: positive — converts raid damage into recoverable injuries instead of lost pawns (lost pawns both hurt
+    defense and feed the adaption factor downward pressure... deaths reduce adaption but cost capability).
+  phase: early
+  prerequisites:
+  - establish-food-security
+  sources:
+  - guide ~00:18:02 (healroot)
+  - guide ~01:10:40 (hospital)
+  - guide ~03:38:03 (medic carries medicine)
+  - guide ~04:53:59-04:54:36 (recovery wins wars)
+- id: maintain-mood-stability
+  summary: Recreation variety (6 types), impressive shared rooms, apparel >51% HP policy, scheduled drug policy.
+  survival_benefit: Prevents mental breaks — berserk/tantrum/run-wild pawns during raids or crises are a top colony-killer.
+  investment: low-medium — rec items, dining/rec room combined for double impressiveness, cheap drug crops.
+  wealth_impact: low positive — art/furniture wealth; combining rooms gets 2-3x moodlets per wealth point.
+  raid_threat_impact: neutral-positive — breaks during defense cause deaths; wealth cost is small.
+  phase: early
+  prerequisites:
+  - secure-shelter-and-beds
+  sources:
+  - guide ~04:03:12 (6 rec types)
+  - guide ~05:42:18-05:43 (mood-threshold drug policy)
+  - guide ~03:38:19 (apparel HP policy)
+  - 'wiki: Wealth management (multi-function rooms)'
+- id: establish-power-grid
+  summary: Wind/wood-fueled generation plus researched batteries; hidden conduits where affordable.
+  survival_benefit: Unlocks freezer, lights (work/move speed), turrets, heaters — everything downstream needs power.
+  investment: medium — batteries research, generator + battery + conduit materials.
+  wealth_impact: medium positive — building wealth at 0.5x; batteries are a modest chunk.
+  raid_threat_impact: neutral — enables defense (turrets) and food security (freezer); hidden conduits remove short-circuit
+    explosion risk (guide 04:04:53).
+  phase: early
+  prerequisites:
+  - secure-shelter-and-beds
+  sources:
+  - guide ~00:16:22 (wind + battery)
+  - guide ~00:53:08 (power choice)
+  - guide ~04:04:53 (hidden conduits)
+- id: research-core-tech
+  summary: 'Research bench + priority path: batteries, solar, microelectronics (comms), precision rifling, fabrication.'
+  survival_benefit: Defense tech buys time to research everything else; fabrication removes the component bottleneck that
+    stalls the whole colony.
+  investment: medium — a research-capable pawn's ongoing work-time; bench + lab room.
+  wealth_impact: minimal — benches are cheap building wealth.
+  raid_threat_impact: positive — better weapons/defense tech raises defense faster than research adds wealth.
+  phase: early-mid
+  prerequisites:
+  - establish-power-grid
+  sources:
+  - guide ~03:02-03:18 (full research order + skips)
+  - guide ~03:16:45 (defenses/microelectronics/fabrication priority)
+- id: recruit-for-skill-gaps
+  summary: Prisoner room + warden recruitment to fill missing core skills (construction, plants, medical, social).
+  survival_benefit: Missing skills stall the colony; each recruit adds a worker and a gun. Avoid old/addicted/violence-incapable
+    pawns early (guide 04:09-04:12).
+  investment: medium — prisoner beds/food, warden time over days-weeks of resistance.
+  wealth_impact: high positive — each pawn adds market value AND a pawn-point entry (15 + (wealth-10k)/3120 pts below 400k).
+  raid_threat_impact: mixed — pawns are the most expensive scaling factor after raw wealth; recruit for capability, not headcount.
+    Healthy pawns count full; keeping them healthy matters.
+  phase: early-mid
+  prerequisites:
+  - establish-food-security
+  - maintain-mood-stability
+  sources:
+  - guide ~00:29:16 (prisoner room)
+  - guide ~04:09:28-04:12 (recruit to cover gaps, avoid bad recruits)
+  - 'wiki: Raid points (pawn points)'
+- id: build-compound-wall
+  summary: Perimeter wall enclosing base + fields with a single controlled entrance feeding the trap corridor.
+  survival_benefit: Stops raiders wandering to crops/coolers/colonists; forces all threats through the prepared funnel. Protects
+    cooler units and fields from torching.
+  investment: medium-high — many wall segments (stone blocks preferred over flammable wood).
+  wealth_impact: medium positive — large building footprint, but at 0.5x storyteller rate.
+  raid_threat_impact: positive — controls attacker geometry; wealth cost is half-rated building wealth.
+  phase: mid
+  prerequisites:
+  - build-chokepoint-defense
+  sources:
+  - guide ~02:06:25-02:07 (compound phase)
+  - guide ~03:42:00 (coolers are raid-bait)
+- id: construct-killbox
+  summary: 'Long firing-lane killbox sized to assault-rifle range: sandbag cover, roofed firing line, declumping turret at
+    entry.'
+  survival_benefit: Converts numerical inferiority into a shooting gallery; an unpowered turret at the corridor entrance makes
+    raiders stack up instead of flooding in (guide 02:09:57).
+  investment: high — construction work, sandbags/walls, roofing, lights, one turret.
+  wealth_impact: medium positive — mostly building wealth at 0.5x.
+  raid_threat_impact: strongly positive — the core mid-game answer to raid scaling; defense output far exceeds its wealth
+    cost.
+  phase: mid
+  prerequisites:
+  - build-compound-wall
+  - research-core-tech
+  sources:
+  - guide ~02:09:44-02:17 (killbox construction, declump turret, roofed firing line)
+- id: deploy-turret-screen
+  summary: Spaced mini/autocannon/uranium-slug turrets covering the killbox and compound approaches.
+  survival_benefit: Turrets add free firepower and act as distractors/ablative targets; spaced to prevent chain explosions
+    (guide 04:04:31).
+  investment: medium-high — steel + components per turret, power draw.
+  wealth_impact: medium positive — building wealth at 0.5x plus component cost.
+  raid_threat_impact: positive — scales defense with raid points; costs components, so pair with secure-component-supply.
+  phase: mid
+  prerequisites:
+  - construct-killbox
+  - establish-power-grid
+  sources:
+  - guide ~02:17-02:25 (turret types/placement)
+  - guide ~04:04:31 (spacing vs chain explosion)
+- id: secure-component-supply
+  summary: Buy components early on every trader visit; later deep drilling + fabrication bench to self-supply.
+  survival_benefit: Components are 'the biggest bottleneck you will ever undergo' (guide 03:24:07); no components = no turrets,
+    no fabrication, stalled colony.
+  investment: medium — recurring silver (~43/component bought); fabrication needs advanced components + research.
+  wealth_impact: neutral-low — components are compact item wealth; spend silver (pure wealth) for capability.
+  raid_threat_impact: positive — converts passive silver wealth into defense-enabling materials.
+  phase: early-mid
+  prerequisites:
+  - open-trade-routes
+  sources:
+  - guide ~03:24:07-03:24:34 (buy components until fabrication)
+  - guide ~03:16:49 (deep drilling, fabrication)
+- id: open-trade-routes
+  summary: Regular caravans to neutral factions (~30d restock), comms console + trade beacon, best-social pawn trades.
+  survival_benefit: Buys what you can't make (components, medicine, weapons); sells surplus; gifts build goodwill into allies.
+  investment: medium — a pawn + pack animal absent for days; comms console needs microelectronics.
+  wealth_impact: reduces net wealth — selling at the built-in loss (~60% value) converts items to less silver; caravan cargo
+    doesn't count while off-map.
+  raid_threat_impact: positive — main valve for the wealth-control strategy; trades dead item value for capability or goodwill.
+  phase: mid
+  prerequisites:
+  - establish-food-security
+  sources:
+  - guide ~03:19-03:24 (caravan cadence, comms console, social trader)
+  - guide ~04:07:35 (settle near traders)
+  - 'wiki: Wealth management (sell-at-loss lowers wealth)'
+- id: produce-export-goods
+  summary: 'Convert labor into sellables: flake (not yayo), quality clothing/dusters, spare armor; optional organ harvest.'
+  survival_benefit: Funds component/medicine/weapon purchases; goods are compact value that converts to capability.
+  investment: medium — psychoid/cloth plots, crafter work, drug lab.
+  wealth_impact: high positive while held — unsold goods and silver both count; only worthwhile if regularly converted via
+    open-trade-routes.
+  raid_threat_impact: negative if hoarded, neutral-positive if cycled — production for its own sake inflates wealth; sell
+    or gift the output.
+  phase: mid
+  prerequisites:
+  - open-trade-routes
+  - maintain-mood-stability
+  sources:
+  - guide ~03:26:50-03:29 (flake > yayo, dusters, organs ~1783 silver)
+  - 'wiki: Wealth management (don''t produce for money''s sake)'
+- id: cap-idle-wealth
+  summary: 'Keep-wealth-low discipline: don''t overproduce, sell/gift surplus, destroy trash gear, park overflow in caravans.'
+  survival_benefit: 'Directly shrinks raid points: ~139 storyteller wealth per raid point at 3 colonists (less per point as
+    pop grows). Prevents ''too rich too quick'' raid compounding.'
+  investment: low — hauling/destroy work, occasional gifting caravan; opportunity cost of a leaner stockpile.
+  wealth_impact: 'negative — the goal IS reducing wealth: gifts destroy it, sales convert below market, deterioration/caravan-parking
+    hide it.'
+  raid_threat_impact: strongly positive — the only lever that lowers raid size instead of racing it; most valuable at high
+    threat scale (Losing is Fun 220%+).
+  phase: mid-late
+  prerequisites:
+  - open-trade-routes
+  sources:
+  - guide ~03:31:28-03:35 (small stockpile, sell/gift wealth away)
+  - 'wiki: Wealth management (control strategies)'
+  - 'wiki: Raid points (wealth curve)'
+- id: invest-wealth-in-defense
+  summary: 'Spend-down before wealth spikes: convert silver/goods into weapons, armor, components, doomsday/triple rockets,
+    artifacts.'
+  survival_benefit: Turns raid-scaling wealth into raid-beating capability; consumables (rockets, lances) delete raids then
+    leave no wealth behind.
+  investment: high — silver stockpile spent on trader visits; production materials.
+  wealth_impact: neutral-to-negative net — trades 1x-counted silver for capability items; used consumables remove wealth entirely.
+  raid_threat_impact: 'positive — the wealth-investment alternative to cap-idle-wealth: keep wealth only where it fights.'
+  phase: mid-late
+  prerequisites:
+  - open-trade-routes
+  - construct-killbox
+  sources:
+  - guide ~03:32:47 ('immediately expand upon defenses' when rich)
+  - 'wiki: Wealth management (investment strategies: rockets, barrels, artifacts)'
+- id: sustain-post-raid-recovery
+  summary: 'Maintain recovery reserve: medicine, repair materials (blocks), hospital capacity, backup parts for turrets/mortars.'
+  survival_benefit: Late raids are an attrition war — 'not about winning the fight, but how fast you recover' (guide 04:53:59).
+    Reserve stockpiles decide whether the next raid is survivable.
+  investment: medium — standing reserve of medicine, blocks, components, spare barrels; hospital beds.
+  wealth_impact: medium positive — reserves are item wealth; justified because they're consumed exactly when threat peaks.
+  raid_threat_impact: positive — healthy pawns fight at full pawn-point value and capability; repair speed keeps defenses
+    online between raids.
+  phase: late
+  prerequisites:
+  - stockpile-medicine
+  - secure-component-supply
+  sources:
+  - guide ~04:53:59-04:54:36 (recovery is the real battle)
+  - guide ~04:54:36 (backup resource stockpile, hospital)
+- id: launch-ship-endgame
+  summary: Research the full ship tree, build reactor + cryptosleep caskets, survive the launch window.
+  survival_benefit: Victory condition — ends the game; alternatively take the Ship to the Stars quest to a ready ship.
+  investment: high — deep research tree (fabrication onward), large material build, days of reactor startup under attack.
+  wealth_impact: high positive — ship parts are expensive building/item wealth; irrelevant once launched.
+  raid_threat_impact: negative — reactor activation forces raids at min 500 raid points regardless of threat scale; wealth
+    peaks right when raids do. Stockpile first (sustain-post-raid-recovery).
+  phase: late
+  prerequisites:
+  - research-core-tech
+  - sustain-post-raid-recovery
+  - invest-wealth-in-defense
+  sources:
+  - guide ~04:53:38 (prepare for ship launch)
+  - guide ~05:40:59 (Ship to the Stars alternative)
+  - guide ~07:00 (reactor launch, 23 raids)
+  - 'wiki: Raid points (reactor min 500)'
+decide:
+  select:
+    role: rimbrain.select
+    batch_pawns: true
+    fallback: priority_head
+    shadow: true
+    cadence_polls: 1
+    rung: shadow
+    pawn_instructions: 'combat: pick this pawn''s action — strike an enemy in weapon range, close distance, kite, retreat,
+      or hold at rally. Nearest threats first; never mix melee into a ranged firing line.'
+    pawn_scope:
+      for_each: colonists
+      context:
+        me: '@fn:combat_card(@var:it.id)'
+        enemies: '@fn:hostile_cards(@var:it.id)'
+        squad: '@fn:squad_card()'
+      options:
+      - id: combat-retreat
+        label: retreat to safety
+        template: move-pawn
+        when:
+          all:
+          - not:
+              field: '@fn:touched(@var:it.id)'
+              op: truthy
+          - any:
+            - field: '@fn:outranged_by(@var:it.id)'
+              op: truthy
+            - field: '@fn:outrun_by(@var:it.id)'
+              op: truthy
+            - field: '@fn:health_of(@var:it.id)'
+              op: lt
+              value: '@cfg:combat.min_health'
+        needs: '@fn:safe_cell(@var:it.id)'
+        params:
+          pawn: '@var:it.id'
+          cell: '@fn:safe_cell(@var:it.id)'
+        priority: '@cfg:combat.option_weights.combat-retreat'
+      - id: combat-relief
+        label: stand down for relief
+        template: draft-pawn
+        when:
+          all:
+          - not:
+              field: '@fn:touched(@var:it.id)'
+              op: truthy
+          - any:
+            - field: '@fn:need_of(@var:it.id, ''rest'')'
+              op: lt
+              value: '@cfg:combat.relief.rest'
+            - field: '@fn:need_of(@var:it.id, ''food'')'
+              op: lt
+              value: '@cfg:combat.relief.food'
+        params:
+          pawn: '@var:it.id'
+          drafted: false
+        priority: '@cfg:combat.option_weights.combat-relief'
+      - id: combat-focus
+        label: squad focus-fire
+        template: attack-target
+        when:
+          all:
+          - field: '@fn:draftable(@var:it.id)'
+            op: truthy
+          - field: '@fn:fighter_engages(@var:it.id)'
+            op: truthy
+          - field: '@fn:engaged_hostiles()'
+            op: not_empty
+        needs: '@fn:focus_target()'
+        params:
+          pawn: '@var:it.id'
+          target: '@fn:focus_target()'
+        priority: '@cfg:combat.option_weights.combat-focus'
+      - id: combat-kite
+        label: kite the threat
+        template: move-pawn
+        when:
+          all:
+          - field: '@fn:draftable(@var:it.id)'
+            op: truthy
+          - field: '@fn:outranges(@var:it.id, @fn:nearest_hostile(@var:it.pos))'
+            op: truthy
+          - not:
+              field: '@fn:outrun_by(@var:it.id)'
+              op: truthy
+        needs: '@fn:kite_cell(@var:it.id)'
+        params:
+          pawn: '@var:it.id'
+          cell: '@fn:kite_cell(@var:it.id)'
+        priority: '@cfg:combat.option_weights.combat-kite'
+      - id: combat-block
+        label: block the breach
+        template: move-pawn
+        when:
+          all:
+          - field: '@fn:draftable(@var:it.id)'
+            op: truthy
+          - field: '@fn:combat_mode()'
+            op: eq
+            value: overrun
+          - field: '@fn:enemy_mix().melee'
+            op: gt
+            value: 0
+          - field: '@fn:skill_of(@var:it.id, ''melee'')'
+            op: gte
+            value: '@cfg:combat.chase_skill'
+        needs: '@fn:block_cell(@var:it.id)'
+        params:
+          pawn: '@var:it.id'
+          cell: '@fn:block_cell(@var:it.id)'
+        priority: '@cfg:combat.option_weights.combat-block'
+      - id: combat-chase
+        label: chase the fleeing
+        template: attack-target
+        when:
+          all:
+          - field: '@fn:draftable(@var:it.id)'
+            op: truthy
+          - field: '@fn:fighter_engages(@var:it.id)'
+            op: truthy
+          - field: '@fn:skill_of(@var:it.id, ''shooting'')'
+            op: gte
+            value: '@cfg:combat.chase_skill'
+          - field: '@fn:ticks_since_hostile()'
+            op: lt
+            value: '@cfg:combat.release_ticks'
+        needs: '@fn:nearest_fleeing(@var:it.pos)'
+        params:
+          pawn: '@var:it.id'
+          target: '@fn:nearest_fleeing(@var:it.pos)'
+        priority: '@cfg:combat.option_weights.combat-chase'
+      - id: combat-strike
+        label: strike
+        for_each: living_hostiles
+        template: attack-target
+        when:
+          all:
+          - field: '@fn:draftable(@var:it.id)'
+            op: truthy
+          - field: '@fn:fighter_engages(@var:it.id)'
+            op: truthy
+          - not:
+              field: '@fn:touched(@var:it.id)'
+              op: truthy
+          - any:
+            - field: '@fn:range_class(@var:it.id)'
+              op: eq
+              value: melee
+            - field: '@fn:in_range(@var:it.id, @var:target.id)'
+              op: truthy
+        params:
+          pawn: '@var:it.id'
+          target: '@var:target.id'
+        priority: '@fn:sub(100, @fn:dist_to(@var:it.id, @var:target.id))'
+      - id: combat-close
+        label: close distance on
+        for_each: living_hostiles
+        template: move-pawn
+        when:
+          all:
+          - field: '@fn:draftable(@var:it.id)'
+            op: truthy
+          - field: '@fn:fighter_engages(@var:it.id)'
+            op: truthy
+          - not:
+              field: '@fn:touched(@var:it.id)'
+              op: truthy
+          - field: '@fn:range_class(@var:it.id)'
+            op: ne
+            value: melee
+          - not:
+              field: '@fn:in_range(@var:it.id, @var:target.id)'
+              op: truthy
+        needs: '@fn:pos_of(@var:target.id)'
+        params:
+          pawn: '@var:it.id'
+          cell: '@fn:pos_of(@var:target.id)'
+        priority: '@fn:sub(90, @fn:dist_to(@var:it.id, @var:target.id))'
+      - id: combat-shelter
+        label: shelter in Home
+        template: move-pawn
+        when:
+          all:
+          - field: '@fn:draftable(@var:it.id)'
+            op: truthy
+          - not:
+              field: '@fn:fighter_engages(@var:it.id)'
+              op: truthy
+          - field: '@fn:engaged_hostiles()'
+            op: not_empty
+          - not:
+              field: '@fn:touched(@var:it.id)'
+              op: truthy
+        needs: '@fn:safe_cell(@var:it.id)'
+        params:
+          pawn: '@var:it.id'
+          cell: '@fn:safe_cell(@var:it.id)'
+        priority: '@cfg:combat.option_weights.combat-move'
+      - id: combat-move
+        label: take rally position
+        template: move-pawn
+        when:
+          all:
+          - field: '@fn:draftable(@var:it.id)'
+            op: truthy
+          - field: '@fn:engaged_hostiles()'
+            op: not_empty
+        needs: '@fn:rally_cell(@var:it.id)'
+        params:
+          pawn: '@var:it.id'
+          cell: '@fn:rally_cell(@var:it.id)'
+        priority: '@cfg:combat.option_weights.combat-move'
+  plan:
+    role: rimbrain.plan
+    cadence_s: 150
+    on_phase_boundary: true
+rooms:
+  tier_table: auto
+  archetypes:
+    bedroom:
+      tier_target: average
+      stat_target:
+        impressiveness: 40
+      wall: Wall
+      door: Door
+      floor: WoodPlankFloor
+      stuff_preference:
+      - WoodLog
+      - Steel
+      furniture:
+      - def: Bed
+        count: 1
+        anchor: wall
+      - def: Dresser
+        linked_to: Bed
+      - def: EndTable
+        linked_to: Bed
+      - def: StandingLamp
+        count: 1
+      - def: PlantPot
+        optional: true
+    dining_hall:
+      size:
+        w: 6
+        h: 7
+      stat_target:
+        impressiveness: 40
+      wall: Wall
+      door: Door
+      floor: WoodPlankFloor
+      furniture:
+      - def: Table2x2
+        count: 2
+        anchor: free
+      - def: DiningChair
+        count: 8
+        adjacent_to: Table2x2
+    hospital:
+      size:
+        w: 6
+        h: 6
+      stat_target:
+        cleanliness: 0
+      wall: Wall
+      door: Door
+      floor: PavedTile
+      furniture:
+      - def: HospitalBed
+        count: 2
+        anchor: wall
+      - def: VitalsMonitor
+        linked_to: HospitalBed
+    kitchen:
+      size:
+        w: 6
+        h: 6
+      stat_target:
+        cleanliness: 0
+      wall: Wall
+      door: Door
+      floor: PavedTile
+      furniture:
+      - def: FueledStove
+        count: 1
+        anchor: wall
+      - def: TableButcher
+        count: 1
+        anchor: wall
+        separate: true
+    workshop:
+      size:
+        w: 8
+        h: 6
+      stat_target:
+        impressiveness: 30
+      wall: Wall
+      door: Door
+      floor: PavedTile
+      furniture:
+      - def: SimpleWorkbench
+        count: 2
+        anchor: wall
+      - def: ToolCabinet
+        links: 2
+        linked_to: SimpleWorkbench
+      - def: Stool
+        at: each_bench
+mods:
+  realistic_rooms_rewritten:
+    package_id: Lucifer.RealisticRooms
+    settings:
+      minSpaceRatherTight: 6.5
+      minSpaceAverageSized: 16.5
+      minSpaceSomewhatSpacious: 28.5
+      minSpaceQuiteSpacious: 49.5
+      minSpaceVerySpacious: 84.5
+      minSpaceExtremelySpacious: 174.5
+      filthTweakEnabled: true
+start:
+  site:
+    zone_w: 9
+    zone_h: 9
+    search_w: 38
+    search_h: 39
+    anchor_dx: 14
+    anchor_dy: 24
+    radius: 60
+    weights:
+      items_proximity: 2.0
+      home_proximity: 1.0
+      fertility: 8.0
+    fertile_step: 3
+    anchor_name: start.storage
+  shelter:
+    room_w: 7
+    room_h: 7
+    min_room_cells: 16
+    wall_def: Wall
+    door_def: Door
+    bed_def: Bed
+    bed_defs:
+    - Bed
+    - DoubleBed
+    - SleepingSpot
+    - DoubleSleepingSpot
+    stuff_preference:
+    - WoodLog
+    - Steel
+    - BlocksGranite
+    - BlocksLimestone
+  food:
+    zone_w: 7
+    zone_h: 7
+    plant: Plant_Rice
+  cooking:
+    station_defs:
+    - Campfire
+    - FueledStove
+    - ElectricStove
+    recipe: CookMealSimple
+    bill_mode: TargetCount
+    meals_per_day: 2
+    buffer: 2
+    meal_defs:
+    - MealSimple
+    - MealFine
+    - MealLavish
+  arm:
+    weapon_kinds:
+    - match: ranged
+      skill: Shooting
+      defs:
+      - Gun_BoltActionRifle
+      - Gun_ChargeRifle
+      - Gun_Autopistol
+      - Gun_PumpShotgun
+      - Gun_MachinePistol
+      - Gun_Revolver
+      - Bow_Great
+      - Bow_Short
+    - match: melee
+      skill: Melee
+      defs:
+      - MeleeWeapon_LongSword
+      - MeleeWeapon_Spear
+      - MeleeWeapon_Gladius
+      - MeleeWeapon_Axe
+      - MeleeWeapon_Knife
+      - MeleeWeapon_Club
+    armor_defs:
+    - Apparel_PlateArmor
+    - Apparel_FlakJacket
+    - Apparel_FlakVest
+    - Apparel_Duster
+    - Apparel_Jacket
+    armored_skill: Melee
+  overflow:
+    label: start.overflow
+    w: 6
+    h: 6
+    reserve_interior:
+    - Foods
+    - Medicine
+    - Weapons
+    - Apparel
+  recreation:
+    defs:
+    - HorseshoesPin
+    - ChessTable
+    - Telescope
+  fertility:
+    sample_step: 3
+  goals:
+    shelter:
+      attempts: 12
+      lease_ticks: 18000
+    haul:
+      spec:
+        attempts: 10
+        lease_ticks: 12000
+    food:
+      spec:
+        attempts: 8
+        lease_ticks: 10000
+universal:
+  idle_patterns:
+  - idle
+  - wander
+  - standing
+  - wait
+  chase_skill: Melee
+govern:
+  equipment:
+    review_days: 15
+  research:
+    bench_defs:
+    - SimpleResearchBench
+    - HiTechResearchBench
+    queue:
+    - Battery
+    - SolarPanels
+    - Microelectronics
+    - GeothermalPower
+    - Fabrication
+    - MedicineProduction
+    - DrugProduction
+  missions:
+    accept_choices:
+    - Accept
+  hunt:
+    full_nutrition: 12
+    scarce_nutrition: 6
+    meat_target: 200
+    leather_target: 25
+  expansion:
+    room_w: 7
+    room_h: 7
+    min_room_cells: 9
+    archetype: bedroom
+    footprint:
+      w: 6
+      h: 4
+    overflow:
+      dx: 9
+      dy: 0
+  mining:
+    target: 600
+  medicine:
+    zone_label: start.healroot
+    plant: Healroot
+    zone_w: 6
+    zone_h: 4
+    zone_dy: 8
+  power:
+    gen_defs:
+    - WindTurbine
+    rect_dx: -10
+    rect_dy: -12
+    rect_w: 9
+    rect_h: 9
+    gen_rot: N
+    wind:
+      axis: z
+      half_width: 3
+      depth: 8
+      gap: 0
+      foot: 2
+      site_kinds:
+      - tree
+      - harvestable
+      - building
+      - resource_rock
+      - blueprint
+      clear_kinds:
+      - tree
+      - harvestable
+      clear_designator: cut
+      clear_cooldown: 50
+      suppress: floor
+      floor_def: WoodFloor
+      grow_label: wind.path
+      grow_plant: Plant_Grass
+  defense:
+    trap_defs:
+    - TrapSpike
+    trap_stuff:
+    - Steel
+    trap_count: 8
+  blueprints:
+    compound:
+      rect_dx: -14
+      rect_dy: -16
+      w: 38
+      h: 31
+      entrance_dx: 16
+      entrance_w: 2
+      hall_depth: 8
+      door_stuff:
+      - Steel
+      min_room_cells: 100
+  dining:
+    rect_dx: 7
+    rect_dy: -12
+    room_w: 6
+    room_h: 7
+    min_room_cells: 9
+    build_table: Table2x2
+    table_defs:
+    - Table2x2
+    - Table1x2c
+    - Table2x4
+    - Table3x3
+    chair_defs:
+    - DiningChair
+    chair_offsets:
+    - - -1
+      - -1
+    - - 0
+      - -1
+    - - 1
+      - -1
+    - - 2
+      - -1
+    - - -1
+      - 0
+    - - 2
+      - 0
+    - - -1
+      - 1
+    - - 2
+      - 1
+    - - -1
+      - 2
+    - - 0
+      - 2
+    - - 1
+      - 2
+    - - 2
+      - 2
+    shell_cooldown: 60
+  kitchen:
+    rect_dx: 0
+    rect_dy: -12
+    room_w: 6
+    room_h: 6
+    min_room_cells: 9
+  hospital:
+    rect_dx: 14
+    rect_dy: -12
+    rect_w: 6
+    rect_h: 6
+    need_threshold: 1
+  workshop:
+    rect_dx: 15
+    rect_dy: 5
+    rect_w: 8
+    rect_h: 6
+  bedrooms:
+    built_kinds:
+    - building
+    blocking_kinds:
+    - building
+    - blueprint
+  floors:
+    floor_def: WoodFloor
+    redo_polls: 100
+mutate:
+  goals_per_pass: 10
+  on_failure: true
+  near_failure:
+    requeues: 2
+    refusals: 3
+    blocked_polls: 15
+    escalate: true
+    defect_patterns: true
+  cooldown_polls: 40
+  max_passes_per_run: 8
+  max_ops: 5
+fastevolve:
+  max_reloads_per_day: 2
+  autosave_pattern: (?i)autosave
+  saves_poll_every: 10
+  max_anchor_age_days: 1
+  pause_during_evolve: true
+  max_passes_per_day: 3
+  triggers:
+    use_mutate: true
+    fail_when:
+      all:
+      - field: '@obs:colonists.downed'
+        op: gte
+        value: 2
+    near_when:
+      any:
+      - field: '@obs:colonists.downed'
+        op: gte
+        value: 1
+      - field: '@obs:map.fires'
+        op: gte
+        value: 1
+derived_from: pack.start-mode-v0
+improve:
+  cadence:
+    episodes_per_cycle: 1
+    max_iterations: 20
+  defect_patterns:
+  - id: repeated_refusal
+    event_type: action.refused
+    group_by: payload.template_id
+    min_count: 2
+    remediation: fix_template_params
+  - id: params_invalid
+    event_type: action.refused
+    group_by: payload.error.code
+    match_value: dispatch.params_invalid
+    min_count: 1
+    remediation: fix_template_params
+  - id: verify_failure
+    event_type: task.transition
+    group_by: payload.kind
+    match_to_state:
+    - failed
+    - expired
+    min_count: 2
+    remediation: retune_lease_or_effect
+  - id: poor_mood
+    event_type: colony.vitals
+    where:
+      field: payload.mood_min
+      op: lt
+      value: 30
+    group_by: event_type
+    min_count: 3
+    remediation:
+      ops:
+      - op: set_cfg
+        path: start.cooking.buffer
+        value: 6
+      - op: append
+        path: start.recreation.defs
+        value: PokerTable
+  - id: extreme_break_risk
+    event_type: colony.vitals
+    where:
+      field: payload.extreme_risk
+      op: gte
+      value: 1
+    group_by: event_type
+    min_count: 1
+    remediation:
+      ops:
+      - op: append
+        path: start.recreation.defs
+        value: BilliardsTable
+      - op: set_cfg
+        path: start.cooking.buffer
+        value: 6
+  - id: extreme_break_alert
+    event_type: colony.vitals
+    where:
+      field: payload.alerts
+      op: contains
+      value: Extreme break risk
+    group_by: event_type
+    min_count: 1
+    remediation:
+      ops:
+      - op: append
+        path: start.recreation.defs
+        value: BilliardsTable
+      - op: set_cfg
+        path: start.cooking.buffer
+        value: 6
+  - id: mental_break_active
+    event_type: colony.vitals
+    where:
+      field: payload.in_mental_state
+      op: gte
+      value: 1
+    group_by: event_type
+    min_count: 1
+    remediation:
+      ops:
+      - op: append
+        path: start.recreation.defs
+        value: PokerTable
+      - op: set_cfg
+        path: start.cooking.buffer
+        value: 8
+  - id: repeat_sickness
+    event_type: colony.sickness
+    group_by: payload.pawn
+    window_ticks: 3600000
+    min_count: 2
+    remediation:
+      ops:
+      - op: set_cfg
+        path: start.cooking.station_defs
+        value:
+        - ElectricStove
+        - FueledStove
+        - Campfire
+  - id: disease_outbreak
+    event_type: colony.sickness
+    group_by: event_type
+    window_ticks: 60000
+    min_count: 3
+    remediation:
+      ops:
+      - op: set_cfg
+        path: start.cooking.station_defs
+        value:
+        - ElectricStove
+        - FueledStove
+        - Campfire
+  - id: food_poisoning_chronic
+    event_type: colony.sickness
+    where:
+      field: payload.hediff
+      op: eq
+      value: FoodPoisoning
+    group_by: event_type
+    window_ticks: 3600000
+    min_count: 3
+    remediation:
+      ops:
+      - op: set_cfg
+        path: start.cooking.station_defs
+        value:
+        - ElectricStove
+        - FueledStove
+        - Campfire
+  - id: starving_colonist
+    event_type: colony.vitals
+    where:
+      field: payload.starving
+      op: gte
+      value: 1
+    group_by: event_type
+    min_count: 2
+    remediation:
+      ops:
+      - op: set_cfg
+        path: start.cooking.buffer
+        value: 8
+      - op: set_cfg
+        path: start.food.zone_w
+        value: 9
+      - op: set_cfg
+        path: start.food.zone_h
+        value: 9
+  - id: starvation_onset
+    event_type: colony.sickness
+    where:
+      field: payload.hediff
+      op: eq
+      value: Malnutrition
+    group_by: payload.pawn
+    window_ticks: 3600000
+    min_count: 1
+    remediation:
+      ops:
+      - op: set_cfg
+        path: start.cooking.buffer
+        value: 8
+      - op: set_cfg
+        path: start.food.zone_w
+        value: 9
+      - op: set_cfg
+        path: start.food.zone_h
+        value: 9
+  - id: food_crisis
+    event_type: colony.vitals
+    where:
+      field: payload.food_days
+      op: lt
+      value: 1.5
+    group_by: event_type
+    min_count: 2
+    remediation:
+      ops:
+      - op: set_cfg
+        path: start.cooking.buffer
+        value: 8
+      - op: set_cfg
+        path: start.food.zone_w
+        value: 9
+      - op: set_cfg
+        path: start.food.zone_h
+        value: 9
+  - id: temperature_stress
+    event_type: colony.sickness
+    where:
+      field: payload.hediff
+      op: in
+      value:
+      - Hypothermia
+      - Heatstroke
+    group_by: payload.pawn
+    window_ticks: 3600000
+    min_count: 1
+    remediation:
+      ops:
+      - op: append
+        path: start.arm.armor_defs
+        value: Apparel_Parka
+      - op: append
+        path: start.arm.armor_defs
+        value: Apparel_CowboyHat
+  - id: multiple_downed
+    event_type: colony.vitals
+    where:
+      field: payload.downed
+      op: gte
+      value: 2
+    group_by: event_type
+    min_count: 1
+    remediation:
+      ops:
+      - op: drop_rule
+        ids:
+        - chase-fleeing
+  - id: total_incapacitation
+    event_type: colony.vitals
+    where:
+      field: payload.all_downed
+      op: eq
+      value: true
+    group_by: event_type
+    min_count: 1
+    remediation:
+      ops:
+      - op: drop_rule
+        ids:
+        - chase-fleeing
+      - op: set_cfg
+        path: start.arm.armor_defs
+        value:
+        - Apparel_PlateArmor
+        - Apparel_FlakJacket
+        - Apparel_FlakVest
+        - Apparel_Duster
+        - Apparel_Jacket
+  - id: bleeding_out
+    event_type: colony.vitals
+    where:
+      field: payload.bleeding
+      op: gte
+      value: 1
+    group_by: event_type
+    min_count: 2
+    remediation:
+      ops:
+      - op: drop_rule
+        ids:
+        - chase-fleeing
+  - id: untended_wounds
+    event_type: colony.vitals
+    where:
+      field: payload.needs_tending
+      op: gte
+      value: 1
+    group_by: event_type
+    min_count: 3
+    remediation:
+      ops:
+      - op: append
+        path: start.shelter.bed_defs
+        value: HospitalBed
+  - id: colonist_death
+    event_type: colony.vitals
+    where:
+      field: payload.dead
+      op: gte
+      value: 1
+    group_by: event_type
+    min_count: 1
+    remediation:
+      ops:
+      - op: drop_rule
+        ids:
+        - chase-fleeing
+      - op: set_cfg
+        path: start.arm.armor_defs
+        value:
+        - Apparel_PlateArmor
+        - Apparel_FlakJacket
+        - Apparel_FlakVest
+        - Apparel_Duster
+        - Apparel_Jacket
+  - id: colonist_death_letter
+    event_type: colony.letter
+    where:
+      field: payload.def
+      op: eq
+      value: Death
+    group_by: event_type
+    min_count: 1
+    remediation:
+      ops:
+      - op: drop_rule
+        ids:
+        - chase-fleeing
+  - id: raid_pressure
+    event_type: colony.letter
+    where:
+      field: payload.def
+      op: eq
+      value: ThreatBig
+    group_by: event_type
+    window_ticks: 3600000
+    min_count: 3
+    remediation:
+      ops:
+      - op: drop_rule
+        ids:
+        - chase-fleeing
+      - op: set_cfg
+        path: start.arm.armor_defs
+        value:
+        - Apparel_PlateArmor
+        - Apparel_FlakJacket
+        - Apparel_FlakVest
+        - Apparel_Duster
+        - Apparel_Jacket
+  - id: escalating_threat
+    event_type: colony.vitals
+    where:
+      field: payload.threat_points
+      op: gt
+      value: 400
+    group_by: event_type
+    min_count: 3
+    remediation:
+      ops:
+      - op: set_cfg
+        path: start.arm.armor_defs
+        value:
+        - Apparel_PlateArmor
+        - Apparel_FlakJacket
+        - Apparel_FlakVest
+        - Apparel_Duster
+        - Apparel_Jacket
+  - id: fire_rampant
+    event_type: colony.vitals
+    where:
+      field: payload.fires
+      op: gte
+      value: 5
+    group_by: event_type
+    min_count: 2
+    remediation:
+      ops:
+      - op: set_cfg
+        path: start.shelter.stuff_preference
+        value:
+        - BlocksGranite
+        - BlocksLimestone
+        - BlocksSandstone
+        - Steel
+        - WoodLog
+  - id: power_failure
+    event_type: colony.vitals
+    where:
+      field: payload.power_net_w
+      op: lt
+      value: 0
+    group_by: event_type
+    min_count: 3
+    remediation:
+      ops:
+      - op: set_cfg
+        path: start.cooking.buffer
+        value: 8
+  - id: medicine_shortage
+    event_type: colony.vitals
+    where:
+      field: payload.medicine
+      op: lte
+      value: 0
+    group_by: event_type
+    min_count: 3
+    remediation:
+      ops:
+      - op: set_cfg
+        path: start.overflow.reserve_interior
+        value:
+        - Foods
+        - Medicine
+        - Weapons
+        - Apparel
+        - Textiles
+  - id: spoilage_pileup
+    event_type: colony.vitals
+    where:
+      field: payload.rotting_outside
+      op: gte
+      value: 5
+    group_by: event_type
+    min_count: 2
+    remediation:
+      ops:
+      - op: set_cfg
+        path: start.overflow.w
+        value: 8
+      - op: set_cfg
+        path: start.overflow.h
+        value: 8
+  - id: exhaustion
+    event_type: colony.vitals
+    where:
+      field: payload.exhausted
+      op: gte
+      value: 1
+    group_by: event_type
+    min_count: 3
+    remediation:
+      ops:
+      - op: set_cfg
+        path: start.shelter.bed_defs
+        value:
+        - Bed
+        - DoubleBed
+        - HospitalBed
+        - SleepingSpot
+        - DoubleSleepingSpot
+  - id: recreation_deprivation
+    event_type: colony.vitals
+    where:
+      field: payload.bored
+      op: gte
+      value: 1
+    group_by: event_type
+    min_count: 3
+    remediation:
+      ops:
+      - op: append
+        path: start.recreation.defs
+        value: PokerTable
+  - id: starvation_alert
+    event_type: colony.vitals
+    where:
+      field: payload.alerts
+      op: contains
+      value: Starvation
+    group_by: event_type
+    min_count: 1
+    remediation:
+      ops:
+      - op: set_cfg
+        path: start.cooking.buffer
+        value: 8
+      - op: set_cfg
+        path: start.food.zone_w
+        value: 9
+      - op: set_cfg
+        path: start.food.zone_h
+        value: 9
+  metrics:
+    refusal_rate: 0.4
+    verify_failure_rate: 0.3
+    task_completion_rate: 0.3
+    min_events: 5
+  audit_gates:
+  - code.suite
+  - policy.invariant
+  - ux.feed_coverage
+  promotion:
+    episode_boundary_only: true
+    incumbent_wins_ties: true
+  day_failure_threshold: 0.8
+combat:
+  delegate_order: combat
+  rally_anchor: anchor-rally
+  engage_radius: 40
+  overrun_radius: 5
+  near_hostile: 30
+  release_ticks: 600
+  release_polls: 5
+  prolonged_ticks: 36000
+  min_health: 30
+  relief:
+    food: 30
+    rest: 25
+  direct_command: true
+  allow_unarmed: true
+  pause_over_ms: 1000
+  engage_odds_floor: 0.4
+  option_weights:
+    combat-retreat: 100
+    combat-relief: 80
+    combat-block: 70
+    combat-focus: 60
+    combat-chase: 50
+    combat-kite: 40
+    combat-move: 20
+  range_bands:
+    short: 12
+    medium: 30
+  chase_skill: 6
+  power_overrides: {}
+  assault_duties:
+  - AssaultColony
+  - PrisonerAssaultColony
+  - Breaching
+  - Sapper
+  - Escort
+  - Kidnap
+  - Steal
+  - HuntEnemiesIndividual
+  - AssaultThing
+  - NestAssault
+  watch_lords:
+  - LordJob_Siege
+  - LordJob_StageThenAssault
+  manhunter_mental: Manhunter
