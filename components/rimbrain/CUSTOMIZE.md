@@ -114,6 +114,20 @@ pattern, scan cadence, anchor age bound, pause behavior, per-day
 reflection budget, and the trigger predicates — all pack data, validated
 at pack load.
 
+## Guided editor (feature 018)
+
+**Edit Brain** on the launcher's Setup screen opens the selected pack in a
+guided editor: an outline of sections/phases on the left, typed controls
+for scalars, a predicate builder, and template-dropdown + `params_schema`
+rows for steps — plus a Raw YAML tab when you want the file itself.
+
+Save writes a **new sibling pack**, never the source: `packs/<name>/pack.yaml`
+with `pack_id: pack.<name>` and `derived_from: <source pack id>`, so lineage
+survives in the pack list. Saving under the *currently running* pack's name
+requires an explicit confirm — it hot-swaps the live brain (write +
+`brain_reset.request {}`). `packs/candidates/` stays reserved for the
+improvement loop.
+
 ## Safe editing rules
 
 - **Refusals are information, not failures.** A pack that won't load tells you exactly what it didn't like — read `action.refused`/`load` errors, fix the named field.

@@ -16,7 +16,8 @@ import urllib.request
 from datetime import datetime, timezone
 from urllib.parse import urlparse
 
-from .registry import err, get_endpoint
+from .bindings import resolve_role
+from .registry import ROLE_REQUIREMENTS, err, get_endpoint
 from .secrets import SecretError, resolve_api_key
 
 CONNECT_TIMEOUT_S = 5
@@ -85,7 +86,8 @@ def _model_list(api: str, base_url: str, decide_path: str | None,
     return {"ok": False, "status": 0, "detail": f"unknown api {api!r}"}
 
 
-def _decide_probe(url: str, key: str | None, model: str | None = None) -> dict:
+def _decide_probe(url: str, key: str | None, model: str | None = None,
+                  timeout: int = HTTP_TIMEOUT_S) -> dict:
     """POST a minimal typed question; reachable decide route == healthy."""
     headers = {"Content-Type": "application/json", "Accept": "application/json"}
     if key:
@@ -98,7 +100,7 @@ def _decide_probe(url: str, key: str | None, model: str | None = None) -> dict:
     req = urllib.request.Request(url, data=json.dumps(payload).encode(),
                                  headers=headers)
     try:
-        with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT_S) as resp:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
             body = json.loads(resp.read() or b"{}")
             return {"ok": True, "models": [] if not isinstance(body, dict)
                     else body.get("models", [])}
@@ -156,3 +158,109 @@ def probe_endpoint(id_or_entry, *, timeout_note: bool = True) -> dict:
         "latency_ms": latency_ms,
         "probed_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
+
+
+# -- role-shaped live verification (feature 018; contracts/probe-live.md) --
+
+def _is_local(base_url: str) -> bool:
+    return urlparse(base_url).hostname in ("127.0.0.1", "localhost", "::1")
+
+
+def _role_call(ep: dict, model: str | None, role: str, key: str | None,
+               timeout_s: int) -> dict:
+    """ONE live call shaped by the role's required capability."""
+    api = ep.get("api")
+    base = ep["base_url"].rstrip("/")
+    req = ROLE_REQUIREMENTS.get(role) or {}
+    needs = set(req.get("all") or []) | set(req.get("any") or [])
+    if api == "systemone":
+        # local single-family servers can 422 on `model`; hosted
+        # decisions requires it — omit only for loopback endpoints
+        m = None if _is_local(base) else model
+        return _decide_probe(base + (ep.get("decide_path")
+                                     or "/v1/systemone"), key, m,
+                             timeout=timeout_s)
+    from .client import _post_json
+    if "embeddings" in needs:
+        return _post_json(base + "/embeddings",
+                          {"model": model, "input": ["ping"]},
+                          key, timeout_s)
+    return _post_json(base + "/chat/completions",
+                      {"model": model, "max_tokens": 1,
+                       "messages": [{"role": "user", "content": "ping"}]},
+                      key, timeout_s)
+
+
+def probe_live(role: str, *, timeout_s: int = HTTP_TIMEOUT_S) -> dict:
+    """Role-shaped live verification: resolve the role offline, then run
+    one real call against the bound model — typed question for
+    typed_decisions roles, minimal completion for chat roles, embeddings
+    ping for embed roles. Verdicts: answered | model_failed |
+    unreachable | missing_secret | fallback_only | unbound.
+    Read-only; never mutates registry or bindings."""
+    from . import registry as _reg
+    try:
+        bdoc = _reg.load_bindings()
+    except _reg.RegistryError as exc:
+        return exc.envelope
+    out: dict = {
+        "ok": True, "role": role,
+        "fallbacks": list((bdoc.get("degraded_paths") or {})
+                          .get(role, [])),
+        "checked_utc": datetime.now(timezone.utc)
+        .strftime("%Y-%m-%dT%H:%M:%SZ")}
+    res = resolve_role(role)
+    if not res.get("ok"):
+        out.update(verdict="unbound", endpoint=None, model=None,
+                   api=None, degraded=False,
+                   detail=res["error"]["message"])
+        return out
+    resolved = res["resolved"]
+    out["degraded"] = bool(res.get("degraded"))
+    if resolved.get("kind") == "fallback":
+        out.update(verdict="fallback_only", endpoint=None, model=None,
+                   api=None, name=resolved.get("name"))
+        return out
+    ep = get_endpoint(resolved["endpoint_id"])
+    if ep is None:
+        out.update(verdict="unbound", endpoint=resolved["endpoint_id"],
+                   model=resolved.get("model"), api=None,
+                   detail="endpoint missing from registry")
+        return out
+    model = resolved.get("model")
+    out.update(endpoint=ep["id"], model=model, api=ep.get("api"))
+    parsed = urlparse(ep["base_url"])
+    host = parsed.hostname or ""
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    tcp_err = _tcp_check(host, port)
+    if tcp_err:
+        out.update(verdict="unreachable",
+                   detail=f"TCP {host}:{port} failed: {tcp_err}")
+        return out
+    try:
+        key = resolve_api_key(ep.get("api_key_ref"))
+    except SecretError as exc:
+        out.update(verdict="missing_secret",
+                   detail=exc.envelope["error"]["message"])
+        return out
+    started = time.monotonic()
+    r = _role_call(ep, model, role, key, timeout_s)
+    out["latency_ms"] = round((time.monotonic() - started) * 1000, 1)
+    if r["ok"]:
+        out["verdict"] = "answered"
+        return out
+    out["verdict"] = "model_failed"
+    status = r.get("status")
+    emsg = r.get("detail")
+    if r.get("error"):  # shared envelope from client._post_json
+        status = status or (r["error"].get("details") or {}).get("status")
+        emsg = emsg or r["error"].get("message")
+        if r["error"].get("retryable"):
+            out["retryable"] = True
+    if status:
+        out["status"] = status
+        if status == 429 or status >= 500:
+            out["retryable"] = True
+    if emsg:
+        out["detail"] = emsg
+    return out

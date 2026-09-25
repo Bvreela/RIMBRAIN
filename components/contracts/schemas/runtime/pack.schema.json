@@ -124,6 +124,10 @@
       "pattern": "^pack\\.[a-z0-9][a-z0-9._-]{0,63}$",
       "description": "id grammar (common/id) with the pack. prefix."
     },
+    "derived_from": {
+      "type": "string",
+      "description": "Lineage: pack id this pack was derived from (guided-editor save-as-new, feature 018). Additive metadata; rides the pack hash like any other field."
+    },
     "revision": {
       "type": "string",
       "minLength": 1,

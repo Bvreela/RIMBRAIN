@@ -85,6 +85,25 @@
           "type": "string",
           "maxLength": 4096,
           "description": "Operator notes (verification dates, quirks). Never secrets."
+        },
+        "serve": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["cmd"],
+          "properties": {
+            "cmd": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "type": "string", "minLength": 1 },
+              "description": "Argv that launches this endpoint's local server (e.g. laya.exe serve ...). cmd[0] is an executable path; presence + existence enables a Start control in the overlay."
+            },
+            "path_prepend": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 },
+              "description": "Directories prepended to PATH in the spawned server environment (e.g. CUDA wheel bin dirs)."
+            }
+          },
+          "description": "Optional local-server launch recipe. Only meaningful for endpoints this machine can start; absent = no Start control."
         }
       },
       "allOf": [

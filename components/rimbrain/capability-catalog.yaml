@@ -493,6 +493,14 @@ entries:
   - state.rooms
   domains:
   - construction
+- id: equip_pending
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.pawns
+  - map.find
+  domains:
+  - equipment
 - id: fdiv
   kind: fn
   status: implemented
@@ -716,6 +724,38 @@ entries:
   status: implemented
   bridge_methods:
   - state.pawns
+  domains:
+  - equipment
+- id: upgrade_armor
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.pawns
+  - map.find
+  domains:
+  - equipment
+- id: upgrade_armor_pawn
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.pawns
+  - map.find
+  domains:
+  - equipment
+- id: upgrade_pawn
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.pawns
+  - map.find
+  domains:
+  - equipment
+- id: upgrade_weapon
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.pawns
+  - map.find
   domains:
   - equipment
 - id: weapons_avail

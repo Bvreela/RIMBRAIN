@@ -32,7 +32,8 @@ __all__ = [
     "list_endpoints", "list_bindings", "duplicate_base_urls",
     "add_endpoint", "update_endpoint", "delete_endpoint", "get_endpoint",
     "bind_role", "resolve_role", "scan_local",
-    "probe", "probe_cached", "probe_cache",
+    "probe", "probe_cached", "probe_cache", "probe_live",
+    "validate_pack_doc", "policy_vocabulary",
     "pin_bindings", "episode_manifest",
     "UsageTracker", "DEFAULT_TRACKER",
     "openai_compat_chat", "openai_compat_embed", "systemone_decide",
@@ -118,10 +119,61 @@ def probe_cached(endpoint_id: str) -> dict:
 
 
 def probe_cache() -> dict:
-    """All cached probe results keyed by endpoint id."""
-    return dict(_PROBE_CACHE)
+    """The live probe-result cache keyed by endpoint id."""
+    return _PROBE_CACHE
 
 
 def _utcnow() -> str:
     from datetime import datetime, timezone
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+# -- feature 018: guided launcher facade entries (contracts/probe-live.md) --
+
+def probe_live(role: str, *, timeout_s: int = 10) -> dict:
+    """Role-shaped live verification — resolves the role's binding
+    offline, then runs one real call against the bound model shaped by
+    its required capability. See probe.probe_live for verdicts."""
+    return _probe.probe_live(role, timeout_s=timeout_s)
+
+
+def validate_pack_doc(doc: dict) -> dict:
+    """Loader-identical pack validation as a pure function — the same
+    sequence ``templates.load_pack`` applies after parsing (migrate →
+    schema → sealed-inventory methods → policy audit) with no file I/O.
+    ``{ok: True, issues: []}`` or ``{ok: False, issues: [...]}``."""
+    from . import templates as _t
+    if not isinstance(doc, dict):
+        return {"ok": False, "issues": ["$: pack must be an object"]}
+    sv = doc.get("schema_version") or 0
+    try:
+        sv = int(sv)
+    except (TypeError, ValueError):
+        return {"ok": False,
+                "issues": [f"$.schema_version: {sv!r} not an integer"]}
+    if sv > 1:
+        return {"ok": False,
+                "issues": [f"$.schema_version: {sv} > 1"]}
+    d = _t.migrate_v0(doc)
+    issues = list(_t.validate_pack(d))
+    inv = _t.inventory_methods()
+    for i, t in enumerate(_t.templates_of(d)):
+        m = t.get("method") if isinstance(t, dict) else None
+        if m and m not in inv:
+            issues.append(
+                f"$.templates[{i}].method: '{m}' not in bridge inventory")
+    if d.get("policy_version") is not None:
+        from .policy import validate_policy
+        issues += validate_policy(d)
+    return {"ok": not issues, "issues": issues[:25]}
+
+
+def policy_vocabulary() -> dict:
+    """Pack-dialect vocabulary for guided editing — sourced from
+    policy.py (authoritative); callers never duplicate the table."""
+    from . import policy as _p
+    return {"ok": True,
+            "ops": list(_p._OPS),
+            "combinators": ["all", "any", "not"],
+            "functions": sorted(_p.FN),
+            "resolvers": ["@cfg:", "@obs:", "@var:"]}

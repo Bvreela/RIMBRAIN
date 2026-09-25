@@ -64,7 +64,7 @@ _CAPABILITIES = {
 }
 _ENDPOINT_KEYS = {
     "id", "label", "api", "base_url", "api_key_ref", "strict", "decide_path",
-    "models", "capabilities", "context", "cost_hint", "notes",
+    "models", "capabilities", "context", "cost_hint", "notes", "serve",
 }
 _BINDING_KEYS = {"endpoint", "model", "options"}
 _DOC_KEYS = {"schema_version", "endpoints"}

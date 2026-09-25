@@ -34,6 +34,13 @@ endpoints:
     api_key_ref: null                       # local, open (LAYA_API_KEY env can require Bearer)
     models: [laya, english, jev-latest]     # served names per /v1/models (ggmlc ModernBERT-large, 421M, ctx 512; 'laya_english_q8_0' is the FILE name, not a served id)
     capabilities: [typed_decisions]         # choice/score/noul in one encoder pass; ~55ms/4 questions on RTX 5060 Ti
+    serve:                                  # lets the overlay Start the server (mirrors tools/serve-laya.ps1)
+      cmd: ["J:/RimAgent/models/laya/laya.exe", "serve",
+            "J:/RimAgent/models/laya/laya_english_q8_0.gguf",
+            "--port", "8780", "--device", "auto", "--cuda-graph"]
+      path_prepend:                         # CUDA-12 pip-wheel DLLs must be on PATH
+        - J:/RimAgent/models/laya/.venv/Lib/site-packages/nvidia/cuda_runtime/bin
+        - J:/RimAgent/models/laya/.venv/Lib/site-packages/nvidia/cublas/bin
     notes: "Verified live 2026-09-22 via tools/serve-laya.ps1. Native binary at J:\\RimAgent\\models\\laya (ggmlc v0.9.2 sm89, needs CUDA-12 pip-wheel DLLs on PATH). Decision Studio UI at GET /."
 
   - id: openrouter-decisions

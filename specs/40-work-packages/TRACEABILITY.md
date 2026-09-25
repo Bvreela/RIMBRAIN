@@ -130,3 +130,31 @@ Suite evidence: 239/239 green at Phase 5 checkpoint; focused evolve/planstage/se
 | FR-2112 failure-triggered-only passes | `run()` bypasses generic per-poll `maybe_trigger` under `fast_evolve`; only `FastEvolve.tick` invokes the pass; `test_no_trigger_is_inert` |
 
 Suite evidence: 266/266 runtime tests green post-implementation (248 prior + 18..24 fast-evolve cases).
+
+## Feature 018 — guided launcher UI (FR-001..024)
+
+| Requirement | Evidence |
+|---|---|
+| FR-001 menu by default, `-y` skip, flags headless | `rimbrain.py` arg routing (bare/`run` → setup overlay + return; `run -y` sole-arg → fair preset; `-y` + flags → exit 2); smoke: `python rimbrain.py` → live `--setup` window, `run -y --mode sim` → exit 2 |
+| FR-002 declarative param grid | `dashboard/paramspec.py::PARAM_SPEC` (all 16 loop flags); `test_paramspec.py::test_every_loop_flag_has_a_row` |
+| FR-003 fair-run defaults | `paramspec.defaults()`; `test_paramspec.py::test_defaults_match_fair_preset`, `test_argv_defaults_equal_run_y` |
+| FR-004 constraint mirror | `paramspec.violations()` mirrors `loop.main` fail-closed checks + dev-pack gate; `test_paramspec.py` violation matrix (cycle/dev, live confirm, live-mutate gate, fastevolve fair/scored, combat stage, dev pack) |
+| FR-005 GO spawns visible argv | `SetupFrame._go` → `RunHandle.spawn(paramspec.argv(cfg))`; verbatim preview label on Setup |
+| FR-006..008 role rows + live role-shaped verdicts + fallbacks | `runtime/probe.py::probe_live` (decide/chat/embeddings shapes; verdicts answered/model_failed/unreachable/missing_secret/fallback_only/unbound + `fallbacks` verbatim); `test_probe_live.py` (9) |
+| FR-009 off-thread checks, checking state, never blocks GO | `brains.check_all` thread-per-role → `queue.Queue` drained on refresh; `test_brains.py::test_check_all_*` |
+| FR-010 facade-only probing | `runtime/api.py::probe_live`; dashboard imports `runtime.api` only (`_RUNTIME_OK` guard, same as `server.py`) |
+| FR-011..012 pack list w/ class badges + lineage, dev gating | `scan_pack_descriptors` (class/pack_id/derived_from, fail-open fair); Setup radio list disables dev under fair + `violations` blocks GO; `test_paramspec.py::test_dev_pack_blocked_under_fair` |
+| FR-013 mid-run swap via reset channel | Setup "Use (live swap)" + monitor Use → `write_reset_request({"pack": id})` (unchanged channel) |
+| FR-014 outline by pack structure | `packedit.build_outline` (v0→v1 label map; v1 sections when present); `test_packedit.py` outline cases |
+| FR-015 typed forms | `PackEditor` dispatch: scalars→typed controls, predicates→builder, steps→template dropdown + `params_schema` param rows, lists→add/del/reorder |
+| FR-016 freeform + insert-assist | string fields keep text entry; insert combobox fed by `api.policy_vocabulary()` only (no copied table) |
+| FR-017 helper text | template `description:` rendered under step; field hints on Setup rows |
+| FR-018 loader-identical save gate | `api.validate_pack_doc` runs migrate→schema→inventory→policy as a pure fn; `test_packedit.py::test_validate_wiring_via_facade` |
+| FR-019 save-as-new + lineage | `packedit.save_as_new` → `packs/<name>/pack.yaml` (`pack_id: pack.<name>`, `derived_from`, slug `[a-z0-9-]+`, candidates refused); `derived_from` added to `pack.schema.json`; `test_packedit.py` save cases |
+| FR-020 raw mode retained | PackEditor "Raw YAML" tab (in-place write + reset when active) |
+| FR-021 window owns loop child | `RunHandle` (spawn/poll/terminate-kill); monitor status line each refresh; close → terminate |
+| FR-022 mid-run setup, params read-only | running greys argv controls + "applies to next run"; pack/brains/editor live; `_refresh` flips editability on state change |
+| FR-023 restart applies edited argv | GO → "Restart run" (confirm → terminate → respawn); monitor Restart → Setup |
+| FR-024 overwrite-active pairs write+reset | `PackEditor._save_new` active-name path: confirm "hot-swaps the live brain" → write + `brain_reset.request {}` |
+
+Suite evidence: `test_probe_live.py` (9), `test_paramspec.py` (14), `test_brains.py` (10), `test_packedit.py` (12); combined dashboard+runtime run 324/324 green (also fixed `api.probe_cache` returning a copy — `.clear()` callers got a no-op — and catalogued the 021 `upgrade_*`/`equip_pending` fns). Frozen parity: rebuilt `dist/rimbrain.exe` — bare exe spawns `overlay --setup` beside `dist/state|packs`, `run -y --mode sim` exits 2, `run --mode sim` headless run identical to dev.
