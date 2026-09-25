@@ -486,6 +486,26 @@ entries:
   domains:
   - observation
   - ui_control
+- id: bed_demand
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.pawns
+  - state.pawn
+  - state.rooms
+  domains:
+  - construction
+  - housing
+  notes: "feature 020: residents − couples − usable private-bedroom beds (T018); couples from state.pawn partner/spouse fields, per-poll detail cache shared with pawns_wounded/pawns_with_thought"
+- id: def_stats
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - defs.get
+  domains:
+  - defs_metadata
+  - construction
+  notes: "feature 020 (T006): defs.get wrapper exposing size/cost/beauty/linkable_range/cover when present; per-poll cache"
 - id: enclosed_at
   kind: fn
   status: implemented
@@ -772,6 +792,45 @@ entries:
   - state.storage
   domains:
   - storage_zones
+- id: pawns_wounded
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.pawns
+  - state.pawn
+  domains:
+  - hospital
+  - pawns
+  notes: "feature 020 (T036): colonists with bleeding/unhealed/incapacitating conditions or downed — hospital need gate; per-poll pawn-detail cache"
+- id: pawns_with_thought
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.pawns
+  - state.pawn
+  domains:
+  - housing
+  - pawns
+  notes: "feature 020 (T026): colonists holding a thought def (AteWithoutTable etc.) — need triggers; per-poll pawn-detail cache"
+- id: plan_room
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - defs.get
+  - map.cell
+  - state.rooms
+  - ui.build_many
+  domains:
+  - construction
+  notes: "feature 020 (T013): compile a room archetype over a site rect to build-layout ops — deterministic, null on unfit rect, existing-structure aware"
+- id: room_at
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.rooms
+  domains:
+  - construction
+  - observation
 - id: room_count
   kind: fn
   status: implemented
@@ -780,6 +839,59 @@ entries:
   - state.base
   domains:
   - construction
+- id: room_role_at
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.rooms
+  domains:
+  - construction
+  - observation
+- id: room_stat
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.rooms
+  domains:
+  - construction
+  - observation
+  notes: "feature 020: impressiveness/beauty/cleanliness/temp from a room row, cell, or room id"
+- id: rooms_matching
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.rooms
+  domains:
+  - construction
+  - observation
+  notes: "feature 020: rows matching {role, min_cells, min_impressiveness}; problem/outdoor rows never count"
+- id: space_score
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - map.cell
+  domains:
+  - construction
+  - observation
+  notes: "feature 020 (T011): 1.4·standable + 0.5·passable − 0.9/furnishing over map.cell rows; the bridge does not expose room space"
+- id: space_target
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - defs.get
+  - map.cell
+  domains:
+  - construction
+  notes: "feature 020 (T022): minScore for a tier under the resolved profile (live scoreStages → cfg → vanilla)"
+- id: space_tier
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - defs.get
+  - map.cell
+  domains:
+  - construction
+  notes: "feature 020 (T022): tier label for a space score under the resolved profile"
 - id: idle_count
   kind: fn
   status: implemented
@@ -935,11 +1047,12 @@ entries:
   - defs_metadata
 - id: cap.defs.get
   kind: capability
-  status: gap
+  status: implemented
   bridge_methods:
   - defs.get
   domains:
   - defs_metadata
+  notes: "feature 020: consumed by def_stats (T006) and the tier-profile resolver (T007, defs.get(Space).scoreStages)"
 - id: cap.defs.search
   kind: capability
   status: gap
@@ -1190,11 +1303,12 @@ entries:
   - observation
 - id: cap.state.base
   kind: capability
-  status: gap
+  status: implemented
   bridge_methods:
   - state.base
   domains:
   - observation
+  notes: "feature 020: base.rooms merged into the room-row reader shared by room_role_at/rooms_matching/room_stat; base.anchors feed site/rank_site"
 - id: cap.state.designations
   kind: capability
   status: gap
@@ -1272,11 +1386,12 @@ entries:
   - https://rimworldwiki.com/wiki/Research
 - id: cap.state.rooms
   kind: capability
-  status: gap
+  status: implemented
   bridge_methods:
   - state.rooms
   domains:
   - construction
+  notes: "feature 020: role/cells/impressiveness/beauty/cleanliness/temp/owners are consumed via room_at/room_role_at/rooms_matching/room_stat; space and wealth are NOT exposed by the bridge — space_score(rect) estimates from map.cell, wealth remains a gap"
 - id: cap.state.summary
   kind: capability
   status: gap

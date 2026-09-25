@@ -26,6 +26,8 @@ from __future__ import annotations
 import json
 import re
 
+import yaml
+
 _FN_RE = re.compile(r"^@fn:(\w+)\((.*)\)$", re.S)
 
 
@@ -56,9 +58,9 @@ def _split_args(s: str) -> list[str]:
             continue
         if ch in "\"'":
             q = ch
-        elif ch in "([":
+        elif ch in "([{":
             depth += 1
-        elif ch in ")]":
+        elif ch in ")]}":
             depth -= 1
         if ch == "," and depth == 0:
             out.append("".join(cur).strip())
@@ -87,7 +89,15 @@ def _literal(s: str):
     try:
         return float(s)
     except ValueError:
-        return s
+        pass
+    # inline dict/list literals — `rooms_matching({role: Bedroom, ...})`
+    # arrives as raw text (feature 020); YAML-safe subset, never code
+    if s[:1] in "{[":
+        try:
+            return yaml.safe_load(s)
+        except Exception:
+            return s
+    return s
 
 
 def resolve(spec, ctx):
@@ -2476,6 +2486,801 @@ def _fn_rank_site(ctx, w=9, h=9, w_items=2.0, w_home=1.0,
             "score": score(best)}
 
 
+# -- feature 020: room archetypes -----------------------------------------
+
+_ROOM_FNS = (
+    "space_score", "space_tier", "space_target", "room_at", "room_role_at",
+    "rooms_matching", "room_stat", "bed_demand", "pawns_with_thought",
+    "pawns_wounded", "plan_room", "def_stats")
+
+_VANILLA_TIERS = {"rather_tight": 12.5, "average": 29.0, "somewhat": 55.0,
+                  "quite": 70.0, "very": 130.0, "extremely": 349.5}
+_TIER_KEYS = ("rather_tight", "average", "somewhat", "quite", "very",
+              "extremely")
+
+
+def _room_rows(ctx):
+    """Normalized room rows: obs.rooms (list or {rooms:[...]}) merged with
+    state.base.rooms, dicts only — the shared reader for room fns."""
+    rooms = ctx.obs.get("rooms") or []
+    if isinstance(rooms, dict):
+        rooms = rooms.get("rooms") or []
+    base = ctx.obs.get("base") or {}
+    if isinstance(base, dict) and isinstance(base.get("rooms"), list):
+        rooms = list(rooms) + base["rooms"]
+    return [r for r in rooms if isinstance(r, dict)]
+
+
+def _room_contains(r, cell):
+    pos = _room_pos(r)
+    if pos is None or not isinstance(cell, (list, tuple)) or len(cell) < 2:
+        return False
+    (x0, z0), (x1, z1) = pos
+    return x0 <= cell[0] <= x1 and z0 <= cell[1] <= z1
+
+
+def _fn_room_at(ctx, cell):
+    """Room row containing `cell` ([x,z]) or null."""
+    for r in _room_rows(ctx):
+        if _room_contains(r, cell):
+            return r
+    return None
+
+
+def _fn_room_role_at(ctx, cell):
+    r = _fn_room_at(ctx, cell)
+    return (r or {}).get("role")
+
+
+def _fn_rooms_matching(ctx, spec=None):
+    """Rows matching {role, min_cells, min_impressiveness} (each optional);
+    problem-bearing and outdoor rows never count as verified rooms."""
+    spec = spec if isinstance(spec, dict) else {}
+    role = spec.get("role")
+    min_cells = spec.get("min_cells")
+    min_imp = spec.get("min_impressiveness")
+    out = []
+    for r in _room_rows(ctx):
+        if r.get("problems") or r.get("outdoors"):
+            continue
+        if role is not None and str(r.get("role") or "").lower() \
+                != str(role).lower():
+            continue
+        cells = r.get("cells")
+        if min_cells is not None:
+            try:
+                if int(cells or 0) < int(min_cells):
+                    continue
+            except (TypeError, ValueError):
+                continue
+        if min_imp is not None:
+            v = _room_stat_value(r, "impressiveness")
+            if v is None or v < _num(min_imp) or 0:
+                continue
+        out.append(r)
+    return out
+
+
+_ROOM_STAT_ALIASES = {
+    "impressiveness": ("impressiveness", "impressive", "score"),
+    "beauty": ("beauty",),
+    "cleanliness": ("cleanliness", "clean"),
+    "temp": ("temp", "temperature"),
+}
+
+
+def _room_stat_value(r, stat):
+    key = str(stat)
+    if r.get(key) is not None:
+        return _num(r.get(key))
+    for alias in _ROOM_STAT_ALIASES.get(key, (key,)):
+        if r.get(alias) is not None:
+            return _num(r.get(alias))
+    return None
+
+
+def _fn_room_stat(ctx, room, stat):
+    """`room_stat(room, stat)` — room = cell, row dict, or room id."""
+    if isinstance(room, dict):
+        return _room_stat_value(room, stat)
+    if isinstance(room, (list, tuple)) and len(room) >= 2:
+        r = _fn_room_at(ctx, list(room)[:2])
+        return _room_stat_value(r, stat) if r else None
+    for r in _room_rows(ctx):
+        if str(r.get("id")) == str(room):
+            return _room_stat_value(r, stat)
+    return None
+
+
+def _fn_def_stats(ctx, d):
+    """defs.get wrapper — normalized {size, cost, beauty, linkable_range,
+    cover} when the row carries them; per-poll cache (T006)."""
+    key = ("def_stats", str(d))
+    if key not in ctx.cache:
+        res = ctx.rpc("defs.get", {"def": d})
+        row = res if isinstance(res, dict) else {}
+        stats = row.get("stats") if isinstance(row.get("stats"), dict) \
+            else {}
+
+        def _get(*names):
+            for src in (row, stats):
+                for n in names:
+                    if isinstance(src, dict) and src.get(n) is not None:
+                        return src[n]
+            return None
+        size = _get("size")
+        if isinstance(size, dict):
+            size = [size.get("x") or size.get("w"),
+                    size.get("z") or size.get("h")]
+        ctx.cache[key] = {
+            "def": d,
+            "known": bool(row),
+            "size": size,
+            "cost": _get("cost", "marketValue", "market_value"),
+            "beauty": _get("beauty"),
+            "linkable_range": _get("linkableRange", "linkable_range",
+                                   "linkRadius", "linkable_range_stat"),
+            "cover": _get("coverEffectiveness", "cover"),
+        }
+    return ctx.cache[key]
+
+
+def _def_size(ctx, d):
+    """Interior footprint of a furniture def, tolerant of {x,z}/{w,h} —
+    [1, 1] when the def row is missing or has no size."""
+    size = _fn_def_stats(ctx, d).get("size")
+    if isinstance(size, (list, tuple)) and len(size) >= 2:
+        try:
+            return [max(1, int(size[0])), max(1, int(size[1]))]
+        except (TypeError, ValueError):
+            pass
+    if isinstance(size, dict):
+        try:
+            return [max(1, int(size.get("x") or size.get("w") or 1)),
+                    max(1, int(size.get("z") or size.get("h") or 1))]
+        except (TypeError, ValueError):
+            pass
+    return [1, 1]
+
+
+def _def_known(ctx, d):
+    return bool(_fn_def_stats(ctx, d).get("known"))
+
+
+def _pawn_detail_poll(ctx, pid):
+    """Per-poll state.pawn detail cache shared by bed_demand /
+    pawns_with_thought / pawns_wounded (T018/T026/T036) — ctx.cache is
+    per-poll, so health/thought data stays fresh without duplicate RPCs."""
+    key = ("pawn_detail", str(pid))
+    if key not in ctx.cache:
+        res = ctx.rpc("state.pawn", {"pawn": pid})
+        ctx.cache[key] = res if isinstance(res, dict) else {}
+    return ctx.cache[key]
+
+
+# -- tier profile ---------------------------------------------------------
+
+def _tier_key(label: str) -> str | None:
+    s = re.sub(r"[^a-z]", "", str(label).lower())
+    for key, frag in (("extremely", "extremelyspacious"),
+                      ("somewhat", "somewhatspacious"),
+                      ("quite", "quitespacious"),
+                      ("very", "veryspacious"),
+                      ("average", "averagesized"),
+                      ("rather_tight", "rathertight")):
+        if frag in s or (key == "average" and s == "average"):
+            return key
+    return None
+
+
+def _live_tiers(ctx) -> dict:
+    """defs.get(Space).scoreStages -> {key: minScore}; {} unless all six
+    stages parse (detection is all-or-nothing, fail-closed)."""
+    res = ctx.rpc("defs.get", {"def": "Space"})
+    stages = res.get("scoreStages") if isinstance(res, dict) else None
+    if not isinstance(stages, list):
+        return {}
+    tiers = {}
+    for s in stages:
+        if not isinstance(s, dict):
+            continue
+        key = _tier_key(str(s.get("label") or s.get("name") or ""))
+        val = s.get("minScore")
+        if val is None:
+            val = s.get("min")
+        if key and key not in tiers and val is not None:
+            try:
+                tiers[key] = float(val)
+            except (TypeError, ValueError):
+                pass
+    return tiers if set(tiers) == set(_TIER_KEYS) else {}
+
+
+def _mod_tier_settings(ctx) -> dict:
+    """mods.realistic_rooms_rewritten.settings minSpace* fields -> tiers;
+    {} unless all six resolve (T023 cfg surface)."""
+    mod = ((ctx.cfg or {}).get("mods") or {}).get(
+        "realistic_rooms_rewritten") or {}
+    s = mod.get("settings") if isinstance(mod, dict) else {}
+    if not isinstance(s, dict):
+        return {}
+    flat = {re.sub(r"[^a-z]", "", str(k).lower()): v for k, v in s.items()}
+    out = {}
+    for key, frag in (("extremely", "minspaceextremelyspacious"),
+                      ("somewhat", "minspacesomewhatspacious"),
+                      ("quite", "minspacequitespacious"),
+                      ("very", "minspaceveryspacious"),
+                      ("average", "minspaceaveragesized"),
+                      ("rather_tight", "minspacerathertight")):
+        v = flat.get(frag)
+        if v is None:
+            return {}
+        try:
+            out[key] = float(v)
+        except (TypeError, ValueError):
+            return {}
+    return out
+
+
+def _rooms_event(ctx, name, **extra):
+    """Once-per-run policy event row (kind: event) — e.g. the tier-profile
+    fallback (T007)."""
+    seen = ctx.state.setdefault("rooms_events", {})
+    if name in seen:
+        return
+    seen[name] = getattr(ctx, "tick", 0)
+    if ctx.decisions is not None:
+        ctx.decisions.append({
+            "tick": getattr(ctx, "tick", 0),
+            "poll": getattr(ctx, "poll", None),
+            "source": "rooms", "kind": "event", "event": name, **extra})
+
+
+def _tier_profile(ctx) -> dict:
+    """Resolved space-tier thresholds {tiers, source}. Order (T007):
+    explicit cfg table → live defs.get(Space).scoreStages → cfg mod
+    settings → vanilla (strictest) + one rooms.profile_fallback event per
+    run on any inconclusive path."""
+    key = "tier_profile"
+    if key in ctx.cache:
+        return ctx.cache[key]
+    rmod = ((ctx.cfg or {}).get("rooms") or {}).get("tier_table") or "auto"
+    vanilla = dict(_VANILLA_TIERS)
+    live = _live_tiers(ctx)
+    modded = bool(live) and any(abs(live[k] - vanilla[k]) > 1e-6
+                                for k in _TIER_KEYS)
+    msettings = _mod_tier_settings(ctx)
+    if rmod == "vanilla":
+        res = {"tiers": vanilla, "source": "vanilla"}
+    elif rmod == "realistic_rooms_rewritten":
+        # auto-detect wins over the cfg claim: no mod evidence -> vanilla
+        if modded:
+            res = {"tiers": live, "source": "live"}
+        else:
+            res = {"tiers": vanilla, "source": "vanilla"}
+            _rooms_event(ctx, "rooms.profile_fallback",
+                         why="mod_absent" if live else "detect_failed")
+    else:  # auto
+        if live:
+            res = {"tiers": live, "source": "live"}
+        elif msettings:
+            res = {"tiers": msettings, "source": "cfg"}
+        else:
+            res = {"tiers": vanilla, "source": "vanilla"}
+            _rooms_event(ctx, "rooms.profile_fallback", why="detect_failed")
+    ctx.cache[key] = res
+    return res
+
+
+def _fn_space_tier(ctx, score):
+    """Highest tier band whose minScore <= score; 'cramped' below the
+    smallest threshold (T022)."""
+    tiers = _tier_profile(ctx)["tiers"]
+    v = _num(score)
+    if v is None:
+        return None
+    label = "cramped"
+    for k in _TIER_KEYS:
+        if v >= tiers[k]:
+            label = k
+    return label
+
+
+def _fn_space_target(ctx, tier):
+    return _tier_profile(ctx)["tiers"].get(str(tier))
+
+
+def _fn_space_score(ctx, rect):
+    """1.4·standable + 0.5·passable over map.cell rows, −0.9 per
+    furnishing thing on a cell (T011); cached per poll."""
+    if not isinstance(rect, (list, tuple)) or len(rect) < 4:
+        return 0.0
+    rx, rz, rw, rh = (int(v) for v in rect[:4])
+    key = ("space_score", rx, rz, rw, rh)
+    if key in ctx.cache:
+        return ctx.cache[key]
+    score = 0.0
+    for z in range(rz, rz + rh):
+        for x in range(rx, rx + rw):
+            res = ctx.rpc("map.cell", {"cell": [x, z]})
+            if not isinstance(res, dict):
+                continue
+            stand = res.get("standable")
+            if stand is None:
+                stand = res.get("walkable")
+            passable = res.get("passable")
+            if passable is None:
+                passable = stand
+            if stand:
+                score += 1.4
+            elif passable:
+                score += 0.5
+            things = res.get("things") or []
+            if isinstance(things, list):
+                score -= 0.9 * len([t for t in things
+                                    if isinstance(t, dict)])
+    ctx.cache[key] = score
+    return score
+
+
+def _tier_footprint(ctx, tier):
+    """Smallest interior footprint meeting the tier's minScore under the
+    all-standable estimate (1.4/cell); prefers a ≥4-wide rect when within
+    a 25% area margin (T024 — vanilla average ~4×6, RR ~3×4)."""
+    v = _fn_space_target(ctx, tier)
+    if v is None:
+        return None
+    need = max(1, int(-(-float(v) // 1.4)))
+    best = None
+    for h in range(3, 51):
+        for w in range(3, 51):
+            if w * h >= need:
+                cand = (w, h)
+                if best is None or cand[0] * cand[1] < best[0] * best[1]:
+                    best = cand
+    if best is None:
+        return None
+    bw, bh = best
+    for w in range(3, 51):
+        for h in range(3, 51):
+            if min(w, h) >= 4 and w * h >= need \
+                    and w * h <= bw * bh * 1.25:
+                if w * h < bw * bh * 1.25 or w * h == bw * bh * 1.25:
+                    best = (w, h)
+    return list(best)
+
+
+# -- plan_room compiler ---------------------------------------------------
+
+def _arch_rect(ctx, arch):
+    """Interior footprint from tier_target (profile-relative, wins) or
+    explicit size (nominal/vanilla-class fallback)."""
+    tier = arch.get("tier_target") if isinstance(arch, dict) else None
+    if tier:
+        return _tier_footprint(ctx, tier)
+    size = arch.get("size") if isinstance(arch, dict) else None
+    if isinstance(size, dict):
+        try:
+            return [max(1, int(size.get("w") or size.get("x") or 1)),
+                    max(1, int(size.get("h") or size.get("z") or 1))]
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+def _interior_cells(x, z, w, h, order="ring"):
+    """Deterministic interior cell order: ring = inner perimeter
+    (north-center-first, then W/E/S edges), free = top-row-left-right."""
+    cells = [(x + i, z + j) for j in range(h) for i in range(w)]
+    if order == "ring":
+        top = [(x + i, z + h - 1) for i in range(w)]
+        left = [(x, z + j) for j in range(h - 2, 0, -1)]
+        right = [(x + w - 1, z + j) for j in range(h - 2, 0, -1)]
+        bottom = [(x + i, z) for i in range(w)]
+        top.sort(key=lambda c: abs(c[0] - (x + w // 2)))
+        left.sort(key=lambda c: abs(c[1] - (z + h // 2)))
+        right.sort(key=lambda c: abs(c[1] - (z + h // 2)))
+        bottom.sort(key=lambda c: abs(c[0] - (x + w // 2)))
+        return top + left + right + bottom
+    if order == "center":
+        cx, cz = x + w // 2, z + h // 2
+        return sorted(cells, key=lambda c: (abs(c[0] - cx) + abs(c[1] - cz),
+                                            c[0], c[1]))
+    return cells
+
+
+def _furn_occupancy(cell, size, edge):
+    """Interior cells a furniture of `size` occupies when anchored on
+    `edge` (north/south/west/east) — extends away from the wall."""
+    cx, cz = cell
+    sw, sh = size
+    # interior z grows northward: north edge anchors at z+h-1 and
+    # extends toward the center (decreasing z); south mirrors it
+    if edge == "north":
+        return [(cx + i, cz - j) for i in range(sw) for j in range(sh)]
+    if edge == "south":
+        return [(cx + i, cz + j) for i in range(sw) for j in range(sh)]
+    if edge == "west":
+        return [(cx + j, cz + i) for i in range(sh) for j in range(sw)]
+    if edge == "east":
+        return [(cx - j, cz + i) for i in range(sh) for j in range(sw)]
+    return [(cx + i, cz + j) for i in range(sw) for j in range(sh)]
+
+
+def _edge_of(cell, x, z, w, h):
+    cx, cz = cell
+    if cz == z + h - 1:
+        return "north"
+    if cz == z:
+        return "south"
+    if cx == x:
+        return "west"
+    if cx == x + w - 1:
+        return "east"
+    return None
+
+
+_ROT_OF_EDGE = {"north": "N", "south": "S", "west": "W", "east": "E"}
+
+
+def _dist(a, b):
+    return ((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2) ** 0.5
+
+
+def _find_placement(ctx, rule, arch, interior, used, targets, optional):
+    """First free deterministic placement for one furnishing instance, or
+    None. Constraints: count/anchor/linked_to (linkable_range via
+    def_stats)/adjacent_to/separate/optional."""
+    x, z, w, h = interior
+    d = rule["def"]
+    size = _def_size(ctx, d)
+    anchor = rule.get("anchor") or "free"
+    order = {"wall": "ring", "corner": "ring", "center": "center"}.get(
+        anchor, "free")
+    cands = _interior_cells(x, z, w, h, order)
+    if anchor == "corner":
+        cands = [(x, z + h - 1), (x + w - 1, z + h - 1), (x, z),
+                 (x + w - 1, z)]
+    link_radius = 4.0
+    link_stat = _fn_def_stats(ctx, d).get("linkable_range")
+    if link_stat is not None:
+        try:
+            link_radius = float(link_stat)
+        except (TypeError, ValueError):
+            pass
+    for c in cands:
+        edge = _edge_of(c, x, z, w, h)
+        occ = _furn_occupancy(c, size, edge)
+        if any(o in used or not (x <= o[0] < x + w and z <= o[1] < z + h)
+               for o in occ):
+            continue
+        if rule.get("separate") and any(_dist(c, u) < 2.0
+                                        for u in used):
+            continue
+        ok = True
+        if rule.get("linked_to") and targets:
+            if not any(_dist(c, t) <= link_radius for t in targets):
+                ok = False
+        elif rule.get("linked_to") and not targets:
+            ok = False  # link target must exist (same archetype or map)
+        if rule.get("adjacent_to") and targets:
+            if not any(abs(c[0] - t[0]) + abs(c[1] - t[1]) == 1
+                       for t in targets):
+                ok = False
+        if ok:
+            return c, occ, edge
+    return None
+
+
+def _fn_plan_room(ctx, rect, archetype_id):
+    """Compile a room archetype over an interior rect → {ops, warnings}
+    for build-layout, or null when the rect can't fit / rules can't be
+    satisfied (predictable failure — never partial ops). Deterministic:
+    pure function of rect + archetype + def sizes (T013)."""
+    if not isinstance(rect, (list, tuple)) or len(rect) < 4:
+        return None
+    try:
+        rx, rz, rw, rh = (int(v) for v in rect[:4])
+    except (TypeError, ValueError):
+        return None
+    if rw < 1 or rh < 1:
+        return None
+    arch = ((ctx.cfg or {}).get("rooms") or {}).get(
+        "archetypes") or {}
+    a = arch.get(str(archetype_id))
+    if not isinstance(a, dict):
+        return None
+    foot = _arch_rect(ctx, a)
+    if foot is None:
+        return None
+    w, h = foot
+    # the arg rect is the site anchor + upper bound: the archetype
+    # footprint must fit inside it, else the room can't compile here
+    if rw < w or rh < h:
+        return None
+    x, z = rx, rz
+    if w > 50 or h > 50 or w * h > 2500:
+        return None  # ~36 map-region bound (data-model)
+    warnings = []
+    wall = a.get("wall") or "Wall"
+    door = a.get("door") or "Door"
+    floor = a.get("floor")
+    stuff = a.get("stuff")
+    if stuff is None:
+        prefs = a.get("stuff_preference")
+        if isinstance(prefs, list) and prefs:
+            stuff = _fn_stuff(ctx, prefs)
+    for d in (wall, door):
+        if d and not _def_known(ctx, d):
+            return None
+    if floor and not _def_known(ctx, floor):
+        return None
+    # existing-structure awareness: overlapping a different room's
+    # interior fails compile (merge/split safety); full containment is
+    # the subdivision/conversion case and is allowed with a warning.
+    our_min, our_max = [x, z], [x + w - 1, z + h - 1]
+    for r in _room_rows(ctx):
+        pos = _room_pos(r)
+        if pos is None:
+            continue
+        (x0, z0), (x1, z1) = pos
+        if x1 < our_min[0] or x0 > our_max[0] \
+                or z1 < our_min[1] or z0 > our_max[1]:
+            continue
+        if (x0, z0, x1, z1) == (our_min[0], our_min[1],
+                                our_max[0], our_max[1]):
+            continue  # re-issue over our own room
+        if x0 <= our_min[0] and z0 <= our_min[1] \
+                and x1 >= our_max[0] and z1 >= our_max[1]:
+            warnings.append(f"subdivides_room:{r.get('id')}")
+        else:
+            return None
+    # door on the bottom edge, reachable from outside
+    dx = x + w // 2
+    dz = z + h
+    if ctx.game is not None:
+        outside = ctx.rpc("map.cell", {"cell": [dx, dz + 1]})
+        walk = outside.get("walkable") if isinstance(outside, dict) \
+            else None
+        if walk is False:
+            alt = None
+            for i in range(w):
+                c = ctx.rpc("map.cell", {"cell": [x + i, dz + 1]})
+                if not isinstance(c, dict) or c.get("walkable") is False:
+                    continue
+                alt = x + i
+                break
+            if alt is None:
+                return None
+            dx = alt
+    ops = []
+    # walls as line segments, bottom edge split around the door cell so
+    # no door-over-wall-blueprint conflict (upstream CanPlaceBlueprintAt)
+    def _line(c0, c1):
+        return {"def": wall, "line": [c0, c1]}
+    top = _line([x - 1, z + h], [x + w, z + h])
+    left = _line([x - 1, z - 1], [x - 1, z + h - 1])
+    right = _line([x + w, z - 1], [x + w, z + h - 1])
+    bottom_a = _line([x - 1, z - 1], [dx - 1, z - 1])
+    bottom_b = _line([dx + 1, z - 1], [x + w, z - 1])
+    ops += [top, left, right, bottom_a, bottom_b]
+    door_op = {"def": door, "at": [dx, dz], "rot": "S"}
+    if stuff:
+        for o in ops:
+            o["stuff"] = stuff
+        door_op["stuff"] = stuff
+    ops.append(door_op)
+    if floor:
+        fop = {"def": floor, "rect": [x, z, w, h], "fill": True}
+        if stuff:
+            fop["stuff"] = stuff
+        ops.append(fop)
+    used = set()
+    placed = []  # (def, cell) — link/adjacency/at targets resolve here
+    for rule in a.get("furniture") or []:
+        if not isinstance(rule, dict):
+            continue
+        d = rule["def"]
+        optional = bool(rule.get("optional"))
+        if not _def_known(ctx, d):
+            if optional:
+                warnings.append(f"skip:unknown_def:{d}")
+                continue
+            return None
+        targets = [c for (dd, c) in placed
+                   if rule.get("linked_to")
+                   and str(dd) == str(rule["linked_to"])]
+        at_sel = rule.get("at")
+        if at_sel and str(at_sel).startswith("each_"):
+            name = str(at_sel)[5:]
+            tgt = [c for (dd, c) in placed
+                   if name.lower() in str(dd).lower()]
+            if not tgt:
+                if optional:
+                    warnings.append(f"skip:no_target:{d}")
+                    continue
+                return None
+            for t in tgt:
+                c = None
+                for cand in ([t[0], t[1] - 1], [t[0], t[1] + 1],
+                             [t[0] - 1, t[1]], [t[0] + 1, t[1]]):
+                    if (x <= cand[0] < x + w and z <= cand[1] < z + h
+                            and tuple(cand) not in used):
+                        c = cand
+                        break
+                if c is None:
+                    if optional:
+                        warnings.append(f"skip:no_cell:{d}")
+                        continue
+                    return None
+                used.add(tuple(c))
+                placed.append((d, c))
+                op = {"def": d, "at": c}
+                if stuff:
+                    op["stuff"] = stuff
+                ops.append(op)
+            continue
+        n = int(rule.get("count") or 1)
+        links = int(rule.get("links") or 0)
+        if links and targets:
+            n = max(1, -(-len(targets) // links))
+        cnt = 0
+        while cnt < n:
+            res = _find_placement(ctx, rule, a, (x, z, w, h), used,
+                                  targets, optional)
+            if res is None:
+                if optional:
+                    warnings.append(f"skip:unplaceable:{d}")
+                    break
+                return None
+            c, occ, edge = res
+            for o in occ:
+                used.add(o)
+            used.add(tuple(c))
+            placed.append((d, c))
+            cnt += 1
+            op = {"def": d, "at": list(c)}
+            if edge and rule.get("anchor") in ("wall", "corner"):
+                op["rot"] = _ROT_OF_EDGE[edge or "north"]
+            if stuff:
+                op["stuff"] = stuff
+            ops.append(op)
+    if warnings and ctx.decisions is not None:
+        ctx.decisions.append({
+            "tick": getattr(ctx, "tick", 0),
+            "poll": getattr(ctx, "poll", None),
+            "source": "rooms", "kind": "event",
+            "event": "rooms.plan_warning",
+            "archetype": str(archetype_id), "warnings": list(warnings)})
+    return {"ops": ops, "warnings": warnings}
+
+
+# -- bedroom demand / pawn health gates -----------------------------------
+
+def _fn_bed_demand(ctx):
+    """Residents − couples (share a bed) − usable private-bedroom beds
+    (T018). Couples from state.pawn partner/spouse/lover fields; usable
+    from Bedroom rows' beds/owners when present, else row count."""
+    colonists = _colonist_rows(ctx)
+    ids = [c.get("id") for c in colonists if c.get("id")]
+    pairs = set()
+    for c in colonists:
+        pid = c.get("id")
+        det = _pawn_detail_poll(ctx, pid)
+        partner = None
+        for k in ("partner", "spouse", "lover", "relations"):
+            v = det.get(k)
+            if isinstance(v, dict):
+                partner = v.get("id") or v.get("pawn")
+            elif isinstance(v, list):
+                partner = next((x.get("id") if isinstance(x, dict)
+                                else x for x in v), None)
+            if partner:
+                break
+        if partner is not None:
+            pairs.add(tuple(sorted((str(pid), str(partner)))))
+    couples = sum(1 for p in pairs if p[0] in ids and p[1] in ids)
+    needed = max(0, len(ids) - couples)
+    bedrooms = _fn_rooms_matching(ctx, {"role": "Bedroom"})
+    # a valid bedroom = an assigned private room: one room satisfies one
+    # resident. Rooms without owners (fresh/unassigned) don't count.
+    if any(isinstance(r.get("owners"), list) for r in bedrooms):
+        usable = sum(1 for r in bedrooms if r.get("owners"))
+    else:
+        usable = sum(max(1, int(r.get("beds") or 0))
+                     for r in bedrooms)
+    return max(0, needed - usable)
+
+
+def _thought_names(det):
+    th = det.get("thoughts") or []
+    if isinstance(th, dict):
+        th = th.get("defs") or th.get("thoughts") or th.get("items") or []
+    if not isinstance(th, list):
+        return []
+    out = []
+    for t in th:
+        if isinstance(t, str):
+            out.append(t)
+        elif isinstance(t, dict):
+            out.append(str(t.get("def") or t.get("defName")
+                           or t.get("thought") or t.get("label") or ""))
+    return out
+
+
+def _fn_pawns_with_thought(ctx, def_name):
+    """Colonists currently holding a thought whose def/label matches
+    `def_name` (exact or substring, case-insensitive) — T026."""
+    want = str(def_name).lower()
+    n = 0
+    for c in _colonist_rows(ctx):
+        pid = c.get("id")
+        if not pid:
+            continue
+        det = _pawn_detail_poll(ctx, pid)
+        if any(want in str(t).lower() for t in _thought_names(det)):
+            n += 1
+    return n
+
+
+def _wound_signals(det) -> bool:
+    """Bleeding / unhealed / incapacitating health signals from the
+    state.pawn detail row — tolerant of list/dict/string shapes (field
+    names pinned at impl, T036)."""
+    if det.get("downed") or det.get("incapacitated") \
+            or det.get("wounded") or det.get("bleeding") \
+            or det.get("needs_tend"):
+        return True
+    h = det.get("health")
+    if isinstance(h, str):
+        return any(k in h.lower() for k in ("bleed", "unhealed", "downed",
+                                            "incapac", "injure"))
+    if isinstance(h, list):
+        for c in h:
+            s = c if isinstance(c, str) else " ".join(
+                str(v) for v in c.values()) if isinstance(c, dict) else ""
+            if any(k in s.lower() for k in ("bleed", "unhealed", "downed",
+                                            "incapac")):
+                return True
+        return False
+    if isinstance(h, dict):
+        for key in ("bleeding", "unhealed", "incapacitated", "downed"):
+            if h.get(key):
+                return True
+        conds = h.get("conditions") or h.get("injuries") or []
+        if isinstance(conds, list):
+            for c in conds:
+                if isinstance(c, dict) and (c.get("bleeding")
+                                            or c.get("unhealed")
+                                            or c.get("incapacitating")
+                                            or c.get("downed")):
+                    return True
+                if isinstance(c, dict) and any(
+                        k in str(c.get("def") or c.get("label")
+                                 or c.get("condition") or "").lower()
+                        for k in ("bleed", "unhealed", "incapac")):
+                    return True
+    return False
+
+
+def _fn_pawns_wounded(ctx):
+    """Colonists with bleeding/unhealed/incapacitating conditions or
+    downed (T036) — backs the hospital `when` gate."""
+    n = 0
+    for c in _colonist_rows(ctx):
+        pid = c.get("id")
+        if not pid:
+            continue
+        row = c if isinstance(c, dict) else {}
+        if row.get("downed"):
+            n += 1
+            continue
+        det = _pawn_detail_poll(ctx, pid)
+        if _wound_signals(det):
+            n += 1
+    return n
+
+
 FN = {
     "add": _fn_add, "sub": _fn_sub, "mul": _fn_mul, "fdiv": _fn_fdiv,
     "mod": _fn_mod, "min": _fn_min, "max": _fn_max,
@@ -2519,6 +3324,13 @@ FN = {
     "roofed": _fn_roofed, "enclosed_at": _fn_enclosed_at,
     "zone_named": _fn_zone_named, "rank_site": _fn_rank_site,
     "room_count": _fn_room_count, "idle_count": _fn_idle_count,
+    "space_score": _fn_space_score, "space_tier": _fn_space_tier,
+    "space_target": _fn_space_target, "room_at": _fn_room_at,
+    "room_role_at": _fn_room_role_at, "rooms_matching": _fn_rooms_matching,
+    "room_stat": _fn_room_stat, "bed_demand": _fn_bed_demand,
+    "pawns_with_thought": _fn_pawns_with_thought,
+    "pawns_wounded": _fn_pawns_wounded, "plan_room": _fn_plan_room,
+    "def_stats": _fn_def_stats,
     "steward_stock": _fn_steward_stock,
     "research": _fn_research, "research_current": _fn_research_current,
     "research_available": _fn_research_available,

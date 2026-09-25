@@ -23,6 +23,46 @@ def _things(res) -> list:
     return t if isinstance(t, list) else []
 
 
+def _room_row_ok(r) -> bool:
+    """state.rooms filter mirroring StateRpc.Rooms (feature 020, T005):
+    skip rows touching the map edge, >4000 cells, a null role, or a
+    None-role room over 500 cells. Live bridge rows are already
+    filtered server-side; this keeps sim/fixture rows consistent."""
+    if not isinstance(r, dict):
+        return True
+    cells = r.get("cells")
+    try:
+        cells = int(cells) if cells is not None else None
+    except (TypeError, ValueError):
+        cells = None
+    if cells is not None and cells > 4000:
+        return False
+    if r.get("touches_map_edge") or r.get("touches_edge") \
+            or r.get("edge"):
+        return False
+    role = r.get("role")
+    if role is None and "role" in r:
+        return False
+    if (role is None or str(role) == "None") \
+            and cells is not None and cells > 500:
+        return False
+    return True
+
+
+def _filter_rooms(res):
+    """Apply the bridge room-row filter without changing the result
+    shape (list stays list; {rooms: [...]} stays dict)."""
+    rows = res.get("rooms") if isinstance(res, dict) else res
+    if not isinstance(rows, list):
+        return res
+    kept = [r for r in rows if _room_row_ok(r)]
+    if isinstance(res, dict):
+        out = dict(res)
+        out["rooms"] = kept
+        return out
+    return kept
+
+
 def observe(game, cfg: dict | None = None, *,
             vitals: dict | None = None,
             combat: dict | None = None) -> dict:
@@ -39,6 +79,7 @@ def observe(game, cfg: dict | None = None, *,
                       ("designations", "state.designations")):
         r = game.rpc(rpc)
         obs[name] = r.get("result") if r.get("ok") else {}
+    obs["rooms"] = _filter_rooms(obs.get("rooms"))
     items = game.rpc("map.find", {"kind": "item", "radius": 80})
     obs["items"] = items.get("result") if items.get("ok") else {}
     forb = game.rpc("map.find", {"kind": "item", "forbidden": True,

@@ -24,6 +24,7 @@ from runtime.loop import run  # noqa: E402
 from runtime.observe import observe_start  # noqa: E402
 from runtime.phase import PhaseEngine  # noqa: E402
 from runtime.tasks import TaskLedger  # noqa: E402
+from runtime.simgame import SIM_DEFS, derive_room_row  # noqa: E402
 from runtime import policy  # noqa: E402
 
 
@@ -97,14 +98,32 @@ class StartSim:
              "suspended": False, "managed": True}]
         self.stock_runs: list[str] = []  # steward.stock.run kinds
         self._pending: list[str] = []
+        self._room_batches: list[list[dict]] = []
+        self.pawn_beds: dict[str, int] = {}
         self.writes: list[tuple] = []
         if established:
             self.zones = [{"label": "start.storage"},
                           {"label": "start.overflow"},
                           {"label": "growing", "plant": "Plant_Rice"}]
-            self.rooms = [{"role": "Bedroom", "beds": 3, "problems": []},
-                          {"role": "Bedroom", "beds": 0, "problems": []},
-                          {"role": "Bedroom", "beds": 0, "problems": []}]
+            # feature-020 room rows: at/rect/impressiveness/owners so
+            # role+stat predicates and bed_demand resolve (each room one
+            # owner -> demand 0 -> no housing writes)
+            self.rooms = [
+                {"id": "room1", "role": "Bedroom", "cells": 24, "beds": 3,
+                 "impressiveness": 52.0, "beauty": 4.0, "cleanliness": 1.0,
+                 "temp": 21.0, "outdoors": False, "owners": ["c0"],
+                 "at": [14, 14], "rect": {"min": [14, 14], "max": [17, 19]},
+                 "problems": []},
+                {"id": "room2", "role": "Bedroom", "cells": 24, "beds": 1,
+                 "impressiveness": 52.0, "beauty": 4.0, "cleanliness": 1.0,
+                 "temp": 21.0, "outdoors": False, "owners": ["c1"],
+                 "at": [14, 21], "rect": {"min": [14, 21], "max": [17, 26]},
+                 "problems": []},
+                {"id": "room3", "role": "Bedroom", "cells": 24, "beds": 1,
+                 "impressiveness": 52.0, "beauty": 4.0, "cleanliness": 1.0,
+                 "temp": 21.0, "outdoors": False, "owners": ["c2"],
+                 "at": [21, 21], "rect": {"min": [21, 21], "max": [24, 26]},
+                 "problems": []}]
             self.beds = 3
             self.food_source = True
             self.recreation = True
@@ -213,6 +232,19 @@ class StartSim:
             src = self.forbidden if params.get("forbidden") else self.items
             return {"ok": True, "result": {
                 "count": len(src), "things": list(src)}}
+        if method == "defs.get":
+            d = params.get("def")
+            return {"ok": True,
+                    "result": dict(SIM_DEFS.get(d) or {})}
+        if method == "state.pawn":
+            pid = params.get("pawn")
+            prow = next((p for p in self.pawns if p["id"] == pid), {})
+            return {"ok": True, "result": {
+                "id": pid, "skills": self.skills.get(pid, {}),
+                "downed": prow.get("downed", False),
+                "bed": self.pawn_beds.get(pid),
+                "thoughts": list(prow.get("thoughts") or []),
+                "health": dict(prow.get("health") or {})}}
         if method == "map.open_rects":
             # sim world only has ~9x9 open patches — footprint-size
             # searches come back empty and the runtime falls back
@@ -347,10 +379,18 @@ class StartSim:
                 self._pending.append("cut:" + ",".join(sorted(ids)))
             return {"ok": True, "result": {"applied": True}}
         if method == "ui.build_many":
-            self.blueprints.extend({"pos": [14, 14]} for _ in
-                                   params.get("ops", []))
+            ops = params.get("ops") or []
+            if isinstance(ops, list) and ops:
+                # feature 020: record the compiled ops; advance()
+                # materializes the room from its wall geometry/contents
+                self._room_batches.append(ops)
+                self._pending.append(f"room:{len(self._room_batches) - 1}")
+                return {"ok": True,
+                        "result": {"placed": len(ops), "failed": []}}
+            self.blueprints.extend({"pos": [14, 14]} for _ in ops)
             self._pending.append("shelter")
-            return {"ok": True, "result": {"placed": 2, "failed": []}}
+            return {"ok": True, "result": {"placed": len(ops),
+                                           "failed": []}}
         if method == "ui.build":
             if params.get("dry_run"):  # feasibility probe — no designation
                 return {"ok": True, "result": {"placed": [params.get("at")],
@@ -472,6 +512,26 @@ class StartSim:
         return {"ok": False, "error": {"code": "sim.unknown",
                                        "message": method}}
 
+    def _materialize_room(self, ops: list) -> None:
+        """Feature 020 sim surface: derive the room row from compiled
+        ops (shared pure derivation) + atomic target-bed-first owner
+        assignment, mirroring SimGame._materialize_room."""
+        row = derive_room_row(ops, rid=len(self.rooms) + 1)
+        self.rooms.append(row)
+        if row.get("role") == "Bedroom" and row.get("beds"):
+            free = int(row["beds"]) - len(row.get("owners") or [])
+            order = [p["id"] for p in self.pawns if p.get("id")]
+            queue = [pid for pid in order if pid not in self.pawn_beds]
+            for pid in queue[:max(0, free)]:
+                prev = self.pawn_beds.get(pid)
+                if prev is not None:
+                    self.rooms[prev]["owners"] = [
+                        o for o in self.rooms[prev].get("owners") or []
+                        if o != pid]
+                self.pawn_beds[pid] = len(self.rooms) - 1
+                if pid not in row["owners"]:
+                    row["owners"].append(pid)
+
     def advance(self, iteration: int = 0) -> None:
         self.tick += 25
         for p in self._pending:
@@ -488,6 +548,10 @@ class StartSim:
                 self.blueprints = []
                 self.rooms = [{"role": "Bedroom", "beds": 0,
                                "problems": []}]
+            elif p.startswith("room:"):
+                idx = int(p[5:])
+                if 0 <= idx < len(self._room_batches):
+                    self._materialize_room(self._room_batches[idx])
             elif p.startswith("roof:"):
                 _, xy = p.split(":")
                 x, z = (int(v) for v in xy.split(","))
