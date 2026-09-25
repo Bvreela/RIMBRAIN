@@ -13,8 +13,9 @@ watch | engage | hold | overrun
 Transitions (all thresholds are `@cfg:combat.*`):
 
 - `watch → engage`: any hostile classified engaged (in Home, ≤ engage_radius of rally, assault-duty lord, manhunter-while-colonist-outside)
-- `engage → overrun`: hostile inside Home or ≤ overrun_radius of rally center
-- `engage/overrun → watch`: engaged set empties
+- `engage → hold`: fighters drafted and deployed at rally (the order's hold posture; `engage` is the transitional drafting state)
+- `engage|hold → overrun`: hostile inside Home or ≤ overrun_radius of rally center
+- `engage|hold|overrun → watch`: engaged set empties
 - `any → release` (not a mode — a release event): `living_hostiles` empty for ≥ `release_ticks`
 
 ### ThreatRow (observation unit — `state.threats` hostile entry)

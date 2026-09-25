@@ -24,6 +24,11 @@ combat:
   prolonged_ticks: 30000           # evidence escalation
   min_health: 30                   # draft floor, percent
   relief: {food: 15, rest: 15, recover: 50}
+  allow_unarmed: false             # draft unarmed pawns
+  engage_odds_floor: 0.5           # our_power/enemy_power below → watch/shelter
+  power_overrides: {}              # def → combat-power pts (wiki defaults else)
+  option_weights: {}               # option id → priority multiplier
+  chase_skill: 6                   # min melee skill for chase-fleeing
   assault_duties: [AssaultColony, PrisonerAssaultColony, Breaching,
                    Sapper, Escort, Kidnap, Steal,
                    HuntEnemiesIndividual, AssaultThing, NestAssault]
@@ -36,17 +41,18 @@ combat:
 
 `hold-rally` (move-pawn→rally_cell), `attack-nearest` (attack-target), `kite-step` (move-pawn→kite_cell), `melee-block` (move-pawn→block_cell), `chase-fleeing` (attack-target), `retreat` (move-pawn→safe_cell), `relieve` (draft-pawn false), `shelter` (set-area Home), `field-tend`, `rescue-downed`, `capture`, `ingest-drug`, `strip` (designate).
 
-**New templates** (catalog entries; bridge methods sealed): `move-pawn`→`ui.goto`, `cancel-job`→`ui.cancel_job`, `set-area`/`set-hostility`→`ui.set_policies`, `press-gizmo`→`ui.press`, `order-pawn`→`ui.order`, `field-tend`/`capture`/`ingest-drug`→`ui.job`, `animal-guard`→`ui.animal`, `rally-set`→`steward.orders.rally`, `order-run`→`steward.orders.run`, `combat-release`→`steward.orders.release`.
+**New templates** (catalog entries; bridge methods sealed): `move-pawn`→`ui.goto`, `cancel-job`→`ui.cancel_job`, `set-area`/`set-hostility`→`ui.set_policies`, `press-gizmo`→`ui.press`, `order-pawn`→`ui.order`, `field-tend`/`capture`/`ingest-drug`→`ui.job`, `designate-hunt`→`ui.designate`, `animal-guard`→`ui.animal`, `rally-set`→`steward.orders.rally`, `order-run`→`steward.orders.run`, `combat-release`→`steward.orders.release`.
 
-**New fns/selectors**: `combat_mode()`, `engaged_hostiles`, `watching_hostiles`, `hostiles_in_home()`, `hostiles_within(cell|r)`, `draftable(id|list)`, `fighters()`, `rally_cell(pawn)`, `kite_cell(pawn)`, `block_cell(pawn)`, `safe_cell(pawn)`, `weapon_stats(def|thing)` → `{class, range, dps, warmup, cooldown, burst}`, `outranges(p,h)`, `outrun_by(p)`, `outranged_by(p)`, `speed_of(id)`, `need_of(id, need)`, `health_of(id)`, `ticks_since_hostile()`, `nearest_fleeing(p)`, `skill_of(id, skill)`, `count_assigned(role)`, `enemy_mix()`, `enemy_max_range()`, `threat_power()`, `order_state(order)` → `{enabled, engaged, overrun, last}`.
+**New fns/selectors**: `combat_mode()`, `engaged_hostiles`, `watching_hostiles`, `hostiles_in_home()`, `hostiles_within(cell|r)`, `draftable(id|list)`, `fighters()`, `rally_cell(pawn)`, `kite_cell(pawn)`, `block_cell(pawn)`, `safe_cell(pawn)`, `weapon_stats(def|thing)` → `{class, range, dps, warmup, cooldown, burst}`, `outranges(p,h)`, `outrun_by(p)`, `outranged_by(p)`, `speed_of(id)`, `need_of(id, need)`, `health_of(id)`, `ticks_since_hostile()`, `nearest_fleeing(p)`, `skill_of(id, skill)`, `in_range(p,h)`, `enemy_mix()`, `enemy_max_range()`, `threat_power()`, `manhunters()`, `free_beds(kind)` — `kind` ∈ `any|medical|prison`, `casualty_ids()`, `pawns_needing_tend()`, `order_state(order)` → `{enabled, engaged, overrun, last}`.
 
-**Events**: `combat.engaged`, `combat.overrun`, `combat.released`, `combat.prolonged` + existing decide records (`select.invalid`/`degraded`, per-pick rows).
+**Evidence**: engagement lifecycle is read off the steward order ledger — `order_state(order).last` surfaces `combat_engaged`/`combat_released`. `combat.overrun`/`combat.prolonged` are decision-row markers emitted by pack rules on `order_state` transitions — evidence rows, not canonical event types (no event-map entries in v0) — plus existing decide records (`select.invalid`/`degraded`, per-pick rows).
 
 ## Request/input schema
 
 - Options: `decide.select.pawn_scope` block per `contracts/select-batch.md`; each option `{id, template, when?, needs?, params?, priority?, label?}`.
 - Fn signatures as listed; all resolve via `policy.resolve`/`policy.select` — string `@fn:name(args)` form.
-- Cfg validation: positive ints for radii/ticks; `delegate_order` ∈ known order ids or null.
+- Cfg validation: positive ints for radii/ticks; `min_health`/`relief.*` percents 0-100; `chase_skill` 0-20; `engage_odds_floor` positive float; `allow_unarmed` bool; `power_overrides`/`option_weights` string→number maps; `delegate_order` ∈ known order ids or null.
+- `rescue-downed` gate approximates route safety via `hostiles_within(casualty, near_hostile)` — no pathing fn in v0.
 
 ## Result/output schema
 
@@ -77,6 +83,8 @@ Rules fire before the decide stage each poll (existing loop order). Order steeri
 - Dispatch refusal (downed draft, unreachable cell, unfogged-only) → `{ok:false}`, recorded; fallback never issues a refused write twice per poll.
 - Endpoint down/invalid pick → `priority_head` fallback per select contract.
 - `defs.get` miss on enemy weapon → `weapon_stats` null → `outranges`/`kite` gates evaluate false (conservative).
+- `order_state` surface gap → missing fields read `null` → gates on them evaluate false (same conservative rule); `combat_mode`/classification fns are unaffected — they read `state.threats`, not the order.
+- Per-pawn `touched` state unreadable → pawn treated as touched (excluded) — conservative under FR-1907; the delegate order still fights the battle.
 
 ## Security and privacy classification
 

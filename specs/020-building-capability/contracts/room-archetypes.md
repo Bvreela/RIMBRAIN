@@ -25,7 +25,7 @@ mods:
     settings: {minSpaceRatherTight: 6.5, minSpaceAverageSized: 16.5,
                minSpaceSomewhatSpacious: 28.5, minSpaceQuiteSpacious: 49.5,
                minSpaceVerySpacious: 84.5, minSpaceExtremelySpacious: 174.5,
-               filthTweakEnabled: true}
+               filthTweakEnabled: true}   # informational in v1 — no client-side consumer yet
 ```
 
 **Fns** (all resolve via `policy.resolve`; string `@fn:name(args)` form):
@@ -33,10 +33,11 @@ mods:
 - `plan_room(rect, archetype_id)` → ops list for `build-layout`, or `null` if the rect can't fit. Deterministic; pure function of rect + archetype + def sizes.
 - `space_score(rect)` → `1.4·standable + 0.5·passable` estimate from `map.cell` rows.
 - `space_tier(score)` / `space_target(tier)` → tier label / minScore under the resolved profile.
-- `room_at(cell)` → room row or null; `rooms_matching({role, min_cells, min_impressiveness})` → rows.
+- `room_at(cell)` → room row or null; `room_role_at(cell)` → role defName or null; `rooms_matching({role, min_cells, min_impressiveness})` → rows.
 - `room_stat(room_id_or_cell, stat)` → impressiveness/beauty/cleanliness/temp.
 - `bed_demand()` → int deficit.
 - `pawns_with_thought(def_name)` → count (need triggers: `AteWithoutTable`, awful-bedroom, disturbed-sleep).
+- `pawns_wounded()` → count of colonists with bleeding/unhealed/incapacitating health conditions (hospital need trigger).
 - `enclosed_at(rect, min_cells)` `[have]`; `blueprints_in(rect, defs)` `[have]` — step gating between wall and furnish ops.
 
 **Effect predicates** (goal `effect:` specs):

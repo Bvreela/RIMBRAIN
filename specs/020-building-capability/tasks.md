@@ -26,11 +26,13 @@
 
 **⚠ CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T004 Extend `components/contracts/schemas/runtime/pack.schema.json` with optional `rooms:` block (`tier_table`, `archetypes` map) and `mods:` block (per-mod `package_id` + free-form `settings`) per `contracts/room-archetypes.md`; archetype validates `size`/`tier_target`/`stat_target`/`furniture` fields (`count`, `anchor`∈{wall,corner,center,free}, `linked_to`, `adjacent_to`, `separate`, `optional`)
-- [ ] T005 [P] Project `state.rooms` into obs (`obs.rooms`) in `components/runtime/src/runtime/observe.py` — role/cells/impressiveness/beauty/cleanliness/temp/owners/at rows; skip >4000-cell/edge-touching rows as bridge does
+- [ ] T004 Extend `components/contracts/schemas/runtime/pack.schema.json` with optional `rooms:` block (`tier_table`, `archetypes` map) and `mods:` block (per-mod `package_id` + free-form `settings`) per `contracts/room-archetypes.md`; archetype validates `size`/`tier_target`/`stat_target`/`furniture` fields (`count`, `anchor`∈{wall,corner,center,free}, `linked_to`, `adjacent_to`, `separate`, `optional`, `links`, `at`)
+- [ ] T005 [P] Filter `obs.rooms` rows in `components/runtime/src/runtime/observe.py` — `state.rooms` is already projected (role/cells/impressiveness/beauty/cleanliness/temp/owners/at); add the >4000-cell/edge-touching skip to match bridge semantics
 - [ ] T006 [P] Implement `def_stats(def)` in `components/runtime/src/runtime/policy.py` — `defs.get` wrapper with per-poll cache exposing `size`, `cost`/`marketValue`, `beauty`, `linkableRange`, `coverEffectiveness` when present
 - [ ] T007 [P] Implement tier-profile resolution in `components/runtime/src/runtime/policy.py`: read live `defs.get(Space).scoreStages` → match to `mods.realistic_rooms_rewritten.settings` or vanilla → resolved `{rather_tight..extremely}` thresholds; inconclusive → vanilla + one logged `rooms.profile_fallback` event per run
-- [ ] T008 Register new fns/templates in `components/rimbrain/capability-catalog.yaml` — `space_score`, `space_tier`, `space_target`, `room_at`, `rooms_matching`, `room_stat`, `bed_demand`, `pawns_with_thought`, `plan_room`, `def_stats`; mark `state.rooms` space/wealth as `gap` with note
+- [ ] T008 Register new fns/templates in `components/rimbrain/capability-catalog.yaml` — `space_score`, `space_tier`, `space_target`, `room_at`, `room_role_at`, `rooms_matching`, `room_stat`, `bed_demand`, `pawns_with_thought`, `pawns_wounded`, `plan_room`, `def_stats`; mark `state.rooms` space/wealth as `gap` with note
+
+- [ ] T034 Implement contract lint in `components/runtime/src/runtime/templates.py::validate_pack` — a room goal whose `effect` predicates on `enclosed_at` alone (no role/stat predicate) is a load-time violation per `contracts/room-archetypes.md` error semantics
 
 **Checkpoint**: `rooms:`/`mods:` cfg validates; obs carries room rows; tier profile resolves vanilla under fixture defs
 
@@ -45,13 +47,13 @@
 ### Tests for User Story 1
 
 - [ ] T009 [P] [US1] Write `components/runtime/tests/test_rooms.py` — `plan_room` compiles the bedroom archetype (walls outline, perimeter door, floor fill, furniture cells); `linked_to` lands within link radius; unfit rect → null; `optional` furnishings skip without failing
-- [ ] T010 [P] [US1] Write contract tests in `components/runtime/tests/test_room_contract.py` — archetype schema validation (unknown def → load error, bad rule field → violation); effect predicates using `room_stat`/`rooms_matching` resolve over fixture obs
+- [ ] T010 [P] [US1] Write contract tests in `components/runtime/tests/test_room_contract.py` — archetype schema validation (unknown def → load error, bad rule field → violation); effect predicates using `room_stat`/`rooms_matching`/`room_role_at` resolve over fixture obs; an `enclosed_at`-only room-goal `effect` is rejected by lint (SC-2004); a synthetic archetype absent from shipped packs loads and compiles data-only (SC-2005)
 
 ### Implementation for User Story 1
 
 - [ ] T011 [US1] Implement `space_score(rect)` in `components/runtime/src/runtime/policy.py` — `1.4·standable + 0.5·passable` over `map.cell` rows (non-standable furnishings −0.9 each); cache per poll
-- [ ] T012 [US1] Implement `room_at(cell)`/`rooms_matching({role,min_cells,min_impressiveness})`/`room_stat(room,stat)` in `components/runtime/src/runtime/policy.py` over `obs.rooms`
-- [ ] T013 [US1] Implement `plan_room(rect, archetype_id)` in `components/runtime/src/runtime/policy.py` — compile walls outline + door + floor fill + furniture cells honoring `count`/`anchor`/`linked_to` (radius via `def_stats`)/`adjacent_to`/`separate`/`optional`; return `{ops, warnings}` or null on unfit; ≤36-region bound checked
+- [ ] T012 [US1] Implement `room_at(cell)`/`room_role_at(cell)`/`rooms_matching({role,min_cells,min_impressiveness})`/`room_stat(room,stat)` in `components/runtime/src/runtime/policy.py` over `obs.rooms`
+- [ ] T013 [US1] Implement `plan_room(rect, archetype_id)` in `components/runtime/src/runtime/policy.py` — compile walls outline + door + floor fill + furniture cells honoring `count`/`anchor`/`linked_to` (radius via `def_stats`)/`adjacent_to`/`separate`/`optional`; return `{ops, warnings}` or null on unfit; ≤36-region bound checked; existing-structure aware — impassable cells on the wall line count as placed, rect overlapping a different room's interior → null + warning (merge/split edge case)
 - [ ] T014 [US1] Add `rooms:` cfg + `bedroom` archetype to `components/rimbrain/packs/start-mode-v0/pack.yaml` — 4×6 footprint, wall/door/floor defs from existing `start.shelter` cfg, furniture `[Bed, Dresser(linked), EndTable(linked), StandingLamp, PlantPot(optional)]`, `stat_target.impressiveness: 40`
 - [ ] T015 [US1] Convert the `shelter`/`private-bedrooms` build steps in `packs/start-mode-v0/pack.yaml` to `build-layout` with `ops: "@fn:plan_room(...)"` + effect predicates on `rooms_matching` role+stat (replacing `enclosed_at`-only effects)
 
@@ -67,13 +69,15 @@
 
 ### Tests for User Story 2
 
-- [ ] T016 [P] [US2] Extend `components/runtime/tests/test_rooms.py` — `bed_demand()` counts residents−couples−valid bedrooms; goal `when` gates fire on deficit; completed goal re-arms zero ops
-- [ ] T017 [P] [US2] Material-delta test in `components/runtime/tests/test_rooms.py` — sum ops footprint of archetype path vs legacy `govern.expansion` geometry; assert ≥30% reduction (SC-2002)
+- [ ] T016 [P] [US2] Extend `components/runtime/tests/test_rooms.py` — `bed_demand()` counts residents−couples−valid bedrooms; goal `when` gates fire on deficit; completed goal re-arms zero ops; barracks→private conversion fixture asserts zero bedless ticks mid-transition
+- [ ] T017 [P] [US2] Material-delta test in `components/runtime/tests/test_rooms.py` — sum ops footprint of archetype path vs legacy `govern.expansion` geometry; assert ≥30% reduction; both paths' built bedrooms reach the declared impressiveness band in the fixture (equal mood outcome, SC-2002)
 
 ### Implementation for User Story 2
 
-- [ ] T018 [US2] Implement `bed_demand()` in `components/runtime/src/runtime/policy.py` — colonist rows + `state.pawn` bed assignment/partner fields vs `rooms_matching(role:Bedroom)` count
+- [ ] T018 [US2] Implement `bed_demand()` in `components/runtime/src/runtime/policy.py` — colonist rows + `state.pawn` bed assignment/partner fields vs `rooms_matching(role:Bedroom)` count; share the per-poll pawn-detail cache with `pawns_wounded`/`pawns_with_thought`
 - [ ] T019 [US2] Rewrite `private-bedrooms`/`expansion` goals in `packs/start-mode-v0/pack.yaml` — `when` on `bed_demand() > 0`, footprint from archetype, effect on role+stats; keep barracks-first ordering (early shared room → later private conversion)
+
+- [ ] T035 [US2] Implement the barracks→private-bedroom conversion path in `packs/start-mode-v0/pack.yaml` — `plan_room` over the partitioned footprint + `assign-job` bed reassignment ordered target-bed-first so no colonist is bedless mid-transition (spec US2 acc.4)
 - [ ] T020 [US2] Migrate `govern.expansion`/`start.shelter` geometry cfg in `packs/start-mode-v0/pack.yaml` to archetype references; keep old keys readable via the existing v0-path rewrite (no breaking change)
 
 **Checkpoint**: material-delta + demand tests green; sim bedroom count matches colonist demand
@@ -112,9 +116,10 @@
 
 ### Implementation for User Story 4
 
-- [ ] T026 [US4] Implement `pawns_with_thought(def)` in `components/runtime/src/runtime/policy.py` over `state.pawn` thoughts
-- [ ] T027 [US4] Add `dining_hall`/`hospital`/`kitchen`/`workshop` archetypes to `packs/start-mode-v0/pack.yaml` per research §6 (tables+chairs space-free, sterile floor + vitals-linked hospital, separated butcher in kitchen, tool-cabinet links ≤2 in workshop)
-- [ ] T028 [US4] Add standing goals/`options` for support rooms in `packs/start-mode-v0/pack.yaml` — `when` on `pawns_with_thought(AteWithoutTable)` / casualty recurrence cfg / kitchen need; `effect` on role+stat predicates
+- [ ] T026 [US4] Implement `pawns_with_thought(def)` in `components/runtime/src/runtime/policy.py` over `state.pawn` thoughts via the shared per-poll pawn-detail cache
+- [ ] T036 [US4] Implement `pawns_wounded()` in `components/runtime/src/runtime/policy.py` — count colonists with bleeding/unhealed/incapacitating health conditions from `state.pawn` detail (shared per-poll cache); backs the hospital `when` gate
+- [ ] T027 [US4] Add `dining_hall`/`hospital`/`kitchen`/`workshop` archetypes to `packs/start-mode-v0/pack.yaml` per research §6 (tables+chairs space-free, sterile floor + vitals-linked hospital, separated butcher in kitchen, tool-cabinet `links: 2` + `at: each_bench` seating in workshop — canonical fields per data-model.md, not the research §9 sketch names)
+- [ ] T028 [US4] Add standing goals/`options` for support rooms in `packs/start-mode-v0/pack.yaml` — `when` on `pawns_with_thought(AteWithoutTable)` / `pawns_wounded()` ≥ cfg threshold / kitchen need; `effect` on role+stat predicates
 
 **Checkpoint**: need-driven room goals fire in sim and verify on stats, not enclosure
 

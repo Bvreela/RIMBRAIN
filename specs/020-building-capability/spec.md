@@ -93,7 +93,7 @@ Support rooms appear when colony needs demand them: a dining hall once pawns eat
 
 ### Functional Requirements
 
-- **FR-2001**: Packs MUST be able to declare named room archetypes: footprint (w×h or cell count), wall/door/floor defs, and a furnishing list where each entry may carry placement rules (count, wall-anchored, linked-to with radius, adjacency, separate-room, optional).
+- **FR-2001**: Packs MUST be able to declare named room archetypes: footprint (w×h), wall/door/floor defs, and a furnishing list where each entry may carry placement rules (count, wall-anchored, linked-to with radius, adjacency, separate-room, optional).
 - **FR-2002**: The runtime MUST provide a layout capability that compiles an archetype + target rect into an ordered build op list (wall outline, door cell, floor fill, furnishing cells) honoring footprint fit, furnishing sizes, link radii, and standability — failing predictably when the rect can't fit.
 - **FR-2003**: Room verification MUST support predicates over observed rooms: enclosure, role, cell count, and the exposed stats (impressiveness, beauty, cleanliness, temperature) — goals verify on stats, not on blueprint placement.
 - **FR-2004**: The runtime MUST provide fns for space-score estimation from cell data, space-tier lookup against the live tier table, room lookup by cell/rect, bed demand vs valid bedrooms, and per-thought pawn counts for need triggers.

@@ -12,7 +12,7 @@ Ship combat as pack data on the landed decide-stage machinery. The Steward `comb
 
 ## Technical Context
 
-**Language/Version**: Python 3.13 runtime; YAML packs (schema v1); no C# bridge changes for v1 (LOS/cover RPC deferred)
+**Language/Version**: Python 3.13 runtime; YAML packs (schema v1); no C# bridge changes for v1 (LOS/cover RPC deferred; a `[bridge-gap]` on order-state/touch surfaces degrades the dependent options fail-closed and becomes a follow-up spec — never in-feature scope growth)
 
 **Primary Dependencies**: `policy.py` fn/selector registry, `select.py` `compile_actions`/`pawn_scope`, `phase.py` PhaseEngine standing-goal drive, `dispatch.py` single writer, `tasks.py` TaskLedger, bridge `steward.orders.*`/`ui.*`/`state.threats`/`state.pawn`/`map.*`/`defs.get` surface
 
@@ -79,7 +79,7 @@ components/rimbrain/
     └── combat-defense-v0/pack.yaml  # NEW fair-class defense pack (cfg + rules + pawn options)
 
 components/contracts/schemas/runtime/
-└── pack.schema.json      # + `combat:` cfg block + decide.select.pawn_scope option fields
+└── pack.schema.json      # + `combat:` cfg block (pawn_scope rides the permissive v1 `decide` block)
 ```
 
 **Structure Decision**: single-package extension; pack content is folder-per-pack per existing convention. No new component, no bridge change in v1.

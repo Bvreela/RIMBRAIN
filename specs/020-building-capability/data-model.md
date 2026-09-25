@@ -21,7 +21,7 @@ furniture:
   - {def: PlantPot, optional: true}
 ```
 
-Furnishing rule fields: `count`, `anchor` (wall/corner/center/free), `linked_to` (def within link radius), `adjacent_to`, `separate` (must be own room/dirty zone), `optional` (skip on failure without failing the room).
+Furnishing rule fields: `count`, `anchor` (wall/corner/center/free), `linked_to` (def within link radius), `adjacent_to`, `separate` (must be own room/dirty zone), `optional` (skip on failure without failing the room), `links` (max link targets — e.g. tool cabinet ≤2 benches), `at` (positional selector — e.g. `each_bench` chair placement). Climate/light needs (heater, lamp, vent) are ordinary furniture entries — mark `optional: true` so absence never fails the room.
 
 ### SpaceTierProfile (resolved cfg)
 
@@ -62,6 +62,7 @@ Resolution order: live def values → pack cfg override → vanilla defaults. De
 - `tier_target`/`stat_target` must reference resolvable tiers/stats.
 - `linked_to` targets must exist in the same archetype or resolve to an existing thing.
 - Door cells must sit on the room perimeter and remain reachable (`map.reachable`).
+- `plan_room` is existing-structure aware: impassable cells on the wall line count as placed; a rect overlapping a different room's interior fails compile (merge/split safety).
 - A room goal's `effect` MUST predicate on role/stats — `enclosed_at` alone is insufficient (blueprint-vs-finished).
 
 ## State transitions (per room goal)

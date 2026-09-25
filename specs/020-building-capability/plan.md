@@ -6,7 +6,7 @@
 
 ## Summary
 
-Make rooms declarative. Packs carry **archetypes** — footprint, wall/door/floor defs, furnishing lists with placement rules, stat targets — and the runtime compiles an archetype + rect into `ui.build_many` ops and verifies the built room by observed role + stats. A **space-tier profile** (vanilla or Realistic Rooms Rewritten's six thresholds + filth toggle) resolves from live `defs.get` `scoreStages` data, so tier-gated sizing stays correct with or without the mod. Housing becomes a standing goal driven by bed demand; support rooms (dining/hospital/kitchen/workshop) trigger off observed need signals.
+Make rooms declarative. Packs carry **archetypes** — footprint, wall/door/floor defs, furnishing lists with placement rules, stat targets — and the runtime compiles an archetype + rect into `ui.build_many` ops and verifies the built room by observed role + stats. A **space-tier profile** (vanilla or Realistic Rooms Rewritten's six thresholds + filth toggle) resolves from live `defs.get` `scoreStages` data, so tier-gated sizing stays correct with or without the mod. Housing becomes a standing goal driven by bed demand — including the barracks→private-bedroom conversion — and support rooms (dining/hospital/kitchen/workshop) trigger off observed need signals.
 
 ## Technical Context
 
@@ -26,7 +26,7 @@ Make rooms declarative. Packs carry **archetypes** — footprint, wall/door/floo
 
 **Constraints**: verifier-only success (role + stats, never blueprint placement); mod detection reads live def data, vanilla profile is the fail-safe; ≤36-region room bound enforced at compile
 
-**Scale/Scope**: one layout compiler fn (`plan_room`), ~8 fns/selectors, `rooms:`/`mods:` cfg blocks, archetype catalog in pack data, contract + quickstart
+**Scale/Scope**: one layout compiler fn (`plan_room`), ~11 fns/selectors, pack-validation lint, `rooms:`/`mods:` cfg blocks, archetype catalog in pack data, contract + quickstart
 
 ## Constitution Check
 
@@ -64,9 +64,11 @@ specs/020-building-capability/
 
 ```text
 components/runtime/src/runtime/
-├── policy.py               # + space_score, space_tier/target, room_at, room_stat,
-│                           #   bed_demand, pawns_with_thought, plan_room compiler
-└── (no other runtime changes — phase/select machinery reused)
+├── policy.py               # + space_score, space_tier/target, room_at, room_role_at,
+│                           #   room_stat, bed_demand, pawns_with_thought, pawns_wounded,
+│                           #   plan_room compiler, def_stats
+├── observe.py              # + rooms row filtering (>4000-cell / edge-touching skip)
+└── templates.py            # + contract lint (enclosed_at-only effect rejection)
 
 components/rimbrain/
 ├── capability-catalog.yaml    # + new fn/template entries

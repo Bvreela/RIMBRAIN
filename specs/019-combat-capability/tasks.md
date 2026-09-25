@@ -27,11 +27,11 @@
 
 **⚠ CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T005 Extend `components/contracts/schemas/runtime/pack.schema.json` with the optional `combat:` cfg block per `contracts/combat-capability.md` — positive-int radii (`engage_radius`, `overrun_radius`, `near_hostile`), tick windows (`release_ticks`, `prolonged_ticks`), `min_health` percent, `relief` {food,rest,recover}, `assault_duties`/`watch_lords`/`manhunter_mental` string lists, `delegate_order` string|null
+- [ ] T005 Extend `components/contracts/schemas/runtime/pack.schema.json` with the optional `combat:` cfg block per `contracts/combat-capability.md` — `rally_anchor` string, positive-int radii (`engage_radius`, `overrun_radius`, `near_hostile`), tick windows (`release_ticks`, `prolonged_ticks`), `min_health` percent, `relief` {food,rest,recover}, `allow_unarmed` bool, `engage_odds_floor` positive float, `power_overrides`/`option_weights` string→number maps, `chase_skill` 0-20, `assault_duties`/`watch_lords`/`manhunter_mental` string lists, `delegate_order` string|null
 - [ ] T006 [P] Implement threat classification fns in `components/runtime/src/runtime/policy.py`: `engaged_hostiles()`/`watching_hostiles()` per `research.md` §6 (in-Home via `map.cell`/`state.areas`, ≤`engage_radius` of rally, `lord` ∈ `assault_duties`, `mental` == `manhunter_mental` only while a colonist is outside Home, structures only when near); hostile exclusions: dead/downed/fogged/player-faction/berserk-colonist/slave-rebellion/prison-break/animal
 - [ ] T007 [P] Implement eligibility fns in `components/runtime/src/runtime/policy.py`: `draftable(id)`/`fighters()` per data-model — spawned ∧ ¬dead ∧ ¬downed ∧ ¬prisoner ∧ ¬slave ∧ ¬juvenile ∧ violence-capable ∧ has-drafter ∧ health ≥ `@cfg:combat.min_health` ∧ (armed ∨ cfg `allow_unarmed`)
-- [ ] T008 [P] Project steward order state into obs in `components/runtime/src/runtime/observe.py` + `order_state(order)` fn in `policy.py` — `{enabled, engaged, overrun, last}` from `steward.status`/`steward.orders.explain`; verify the surface exposes enough, else mark `[bridge-gap]` and return the explain summary verbatim
-- [ ] T009 Register combat templates in `components/rimbrain/capability-catalog.yaml` per contract: `move-pawn`→`ui.goto`, `cancel-job`→`ui.cancel_job`, `set-area`/`set-hostility`→`ui.set_policies`, `field-tend`/`capture`/`ingest-drug`→`ui.job`, `order-pawn`→`ui.order`, `press-gizmo`→`ui.press`, `animal-guard`→`ui.animal`, `rally-set`→`steward.orders.rally`, `order-run`→`steward.orders.run`, `combat-release`→`steward.orders.release` — all `status: implemented`, sealed methods only
+- [ ] T008 [P] Project steward order state into obs in `components/runtime/src/runtime/observe.py` + `order_state(order)` fn in `policy.py` — `{enabled, engaged, overrun, last}` from `steward.status`/`steward.orders.explain`; verify the surface exposes enough, else mark `[bridge-gap]` and return the explain summary verbatim; missing `order_state` fields read `null` → gates on them evaluate false (classification fns unaffected — they read `state.threats`)
+- [ ] T009 Register combat templates in `components/rimbrain/capability-catalog.yaml` per contract: `move-pawn`→`ui.goto`, `cancel-job`→`ui.cancel_job`, `set-area`/`set-hostility`→`ui.set_policies`, `field-tend`/`capture`/`ingest-drug`→`ui.job`, `designate-hunt`→`ui.designate`, `order-pawn`→`ui.order`, `press-gizmo`→`ui.press`, `animal-guard`→`ui.animal`, `rally-set`→`steward.orders.rally`, `order-run`→`steward.orders.run`, `combat-release`→`steward.orders.release` — all `status: implemented`, sealed methods only
 
 **Checkpoint**: fns resolve over fixture obs; pack with `combat:` block validates; catalog audit diff shows only new entries
 
@@ -54,7 +54,7 @@
 - [ ] T013 [US1] Implement `hostiles_in_home()`/`hostiles_within(cell,r)`/`nearest_fleeing(p)`/`safe_cell(p)` in `components/runtime/src/runtime/policy.py`
 - [ ] T014 [US1] Create `components/rimbrain/packs/combat-defense-v0/pack.yaml` — `class: fair`, `combat:` cfg defaults from contract, `capabilities.templates` for the T009 set + existing `draft-pawn`/`attack-target`/`strip-pawn`, rules: `enable-order` (steward.orders.set combat on + `rally-set` to anchor), `shelter-noncombatants` (`set-area` Home), `stand-down` (`ticks_since_hostile ≥ release_ticks` → `combat-release`), `chase-fleeing` (port existing universal rule)
 - [ ] T015 [US1] Wire `order_state` into the pack's `senses`/obs section and add rules gating on `order_state(combat).engaged` — pack reacts to the order's own lifecycle instead of duplicating it
-- [ ] T016 [US1] Verify engagement lifecycle events: `combat_engaged`/`combat_released` come from the steward ledger `[have]`; emit `combat.overrun`/`combat.prolonged` via pack rules reading `order_state` transitions (no new event machinery)
+- [ ] T016 [US1] Verify engagement lifecycle evidence: `combat_engaged`/`combat_released` surface via `order_state(combat).last` from the steward ledger; `combat.overrun`/`combat.prolonged` are decision-row markers emitted by pack rules on `order_state` transitions — not canonical event types, no event-map entries (contract §Evidence)
 
 **Checkpoint**: `python -m runtime loop --pack combat-defense-v0 --mode run --game sim` scripted raid passes lifecycle assertions; suite green vs T003 baseline
 
@@ -68,7 +68,7 @@
 
 ### Tests for User Story 2
 
-- [ ] T017 [P] [US2] Extend `components/runtime/tests/test_combat_capability.py` — option-compile fixtures: per-pawn gates prune (non-fighter sees only `shelter`), `q.pawn.<id>` criteria contain only eligible options, ≤20 bound at 15 colonists
+- [ ] T017 [P] [US2] Extend `components/runtime/tests/test_combat_capability.py` — option-compile fixtures: per-pawn gates prune (non-fighter sees only `shelter`), `q.pawn.<id>` criteria contain only eligible options, ≤20 bound at 15 colonists, `rally_cell` assigns distinct cells per fighter (FR-1909)
 - [ ] T018 [P] [US2] Fallback-equality test in `components/runtime/tests/test_combat_capability.py` — endpoint-down poll applies `priority_head` per pawn; invalid pick → `select.invalid` + fallback
 
 ### Implementation for User Story 2
@@ -77,7 +77,7 @@
 - [ ] T020 [US2] Implement threat-comparison fns in `components/runtime/src/runtime/policy.py`: `outranges(p,h)`/`outranged_by(p)`/`outrun_by(p)`/`in_range(p,h)`/`kite_cell(p)`/`block_cell(p)` — defs.get miss → null → gates false (conservative per contract)
 - [ ] T021 [US2] Implement `rally_cell(pawn)` in `components/runtime/src/runtime/policy.py` — distinct cover-preferring cells in rally rect (cover from `map.cell` things, spread cap 4, center bias 0.05 per OrderLogic), assignment state in `runstate.rule_state`
 - [ ] T022 [US2] Add `decide.select.pawn_scope` combat options to `combat-defense-v0/pack.yaml` per contract vocabulary — `retreat`/`relieve`/`shelter`/`hold-rally`/`attack-nearest`/`kite-step`/`melee-block`/`chase-fleeing` with `when` gates on `@fn:combat_mode()` + fit fns and `priority` = fit score
-- [ ] T023 [US2] Exclude manually-touched pawns from combat candidates — read touch state via `steward.orders` explain/status surface (T008); if no per-pawn surface exists, add `touched` to `steward.pawn`/status `[bridge-gap]` and gate options on it
+- [ ] T023 [US2] Exclude manually-touched pawns from combat candidates — read touch state via `steward.orders` explain/status surface (T008); if no per-pawn surface exists, mark `[bridge-gap]` (follow-up spec — no in-feature C#) and treat unreadable touch state as touched (pawn excluded — conservative under FR-1907; the delegate order still fights)
 
 **Checkpoint**: `pawn_scope` combat options compile in sim; fallback assignments match expected best-fit; bound holds
 
@@ -115,8 +115,8 @@
 
 ### Implementation for User Story 4
 
-- [ ] T029 [US4] Implement `free_beds(medical?)`/`casualty_ids()`/`pawns_needing_tend()` in `components/runtime/src/runtime/policy.py`; add `strip-downed`/`capture`/`rescue`/`field-tend` rules + options to `combat-defense-v0` with capacity gates
-- [ ] T030 [US4] Add engagement evidence — pack rule on release records duration/hostiles-handled/losses via decision rows (verify `improve`/`evolve` digest picks up the event types)
+- [ ] T029 [US4] Implement `free_beds(kind)` (kind ∈ `any`/`medical`/`prison`)/`casualty_ids()`/`pawns_needing_tend()` in `components/runtime/src/runtime/policy.py`; add `strip`/`capture`/`rescue-downed`/`field-tend` rules + options to `combat-defense-v0` (contract names) with `free_beds("prison")` capture gate
+- [ ] T030 [US4] Add engagement evidence — pack rule on release records duration/hostiles-handled/losses via decision rows (verify `improve`/`evolve` digest picks up the marker rows)
 
 **Checkpoint**: dev-harness raid leaves stripped hostiles + rescued colonists; evidence rows present in `decisions.jsonl`
 
