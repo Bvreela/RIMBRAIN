@@ -92,7 +92,7 @@ v0; additive to pack schema v1. Packs without `rooms:`/`mods:` are unaffected. A
   when: {field: "@fn:bed_demand()", op: gt, value: 0}
   effect: {field: "@fn:rooms_matching({role: Bedroom, min_impressiveness: 40})", op: not_empty}
   steps:
-    - {template: build-layout, params: {ops: "@fn:plan_room(@var:site.rect, bedroom)", stop_on_error: false}}
+    - {template: build-layout, params: {ops: "@fn:plan_room(@var:site.rect, bedroom).ops", stop_on_error: false}}
     - {template: roof-rect, params: {designator: Designator_AreaBuildRoof, rect: "@var:site.rect"}}
 ```
 

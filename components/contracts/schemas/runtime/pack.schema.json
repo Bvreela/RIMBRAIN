@@ -119,6 +119,149 @@
       "additionalProperties": true,
       "description": "v1 defense policy: trap/killbox/perimeter config the pack's goals reference."
     },
+    "rooms": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Room archetype catalog + tier profile (feature 020; room-archetypes/v0): {tier_table: auto|vanilla|realistic_rooms_rewritten, archetypes: {<id>: archetype}}. Archetypes compile to build-layout ops via plan_room; room goals verify on observed role/stat predicates.",
+      "properties": {
+        "tier_table": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "vanilla",
+            "realistic_rooms_rewritten"
+          ],
+          "description": "Resolution order for space-tier thresholds: auto = live defs.get(Space).scoreStages -> cfg -> vanilla; an explicit value forces that table."
+        },
+        "archetypes": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": true,
+            "anyOf": [
+              {
+                "required": [
+                  "size"
+                ]
+              },
+              {
+                "required": [
+                  "tier_target"
+                ]
+              }
+            ],
+            "properties": {
+              "size": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "w",
+                  "h"
+                ],
+                "properties": {
+                  "w": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "h": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                },
+                "description": "Interior footprint cells (w x h); the compiled room's walls surround this rect."
+              },
+              "tier_target": {
+                "type": "string",
+                "description": "Space-tier key (rather_tight|average|somewhat|quite|very|extremely) — footprint derived from the resolved tier table instead of size."
+              },
+              "stat_target": {
+                "type": "object",
+                "additionalProperties": true,
+                "description": "Verification targets: {<stat>: <min>} over state.rooms rows (impressiveness, beauty, cleanliness, ...)."
+              },
+              "wall": {
+                "type": "string",
+                "description": "Wall buildable def (e.g. Wall) — outline ops."
+              },
+              "door": {
+                "type": "string",
+                "description": "Door buildable def (e.g. Door)."
+              },
+              "floor": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "TerrainDef for interior fill (null = no floor ops)."
+              },
+              "roof": {
+                "type": "boolean",
+                "description": "Build roof over the interior (default true)."
+              },
+              "furniture": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "required": [
+                    "def"
+                  ],
+                  "properties": {
+                    "def": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "count": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "anchor": {
+                      "type": "string",
+                      "enum": [
+                        "wall",
+                        "corner",
+                        "center",
+                        "free"
+                      ]
+                    },
+                    "linked_to": {
+                      "type": "string",
+                      "description": "Furniture def this item must sit within linkableRange of."
+                    },
+                    "adjacent_to": {
+                      "type": "string",
+                      "description": "Furniture def this item must be orthogonally adjacent to."
+                    },
+                    "separate": {
+                      "type": "boolean",
+                      "description": "Keep this item non-adjacent to other furnishing cells."
+                    },
+                    "optional": {
+                      "type": "boolean",
+                      "description": "Skip silently when no placement satisfies the constraints."
+                    },
+                    "links": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "description": "Place one linked item per N anchor instances (e.g. links: 2 + at: each_bench = one cabinet per two benches)."
+                    },
+                    "at": {
+                      "type": "string",
+                      "description": "Placement selector relative to another furnishing (e.g. each_bench = adjacent to every bench instance)."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "mods": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Per-mod profiles (feature 020): {<key>: {package_id, settings}} — declared cfg consulted only after live detection; vanilla applies on any doubt."
+    },
     "pack_id": {
       "type": "string",
       "pattern": "^pack\\.[a-z0-9][a-z0-9._-]{0,63}$",

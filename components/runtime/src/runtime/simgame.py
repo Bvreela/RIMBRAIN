@@ -23,6 +23,140 @@ from __future__ import annotations
 
 from copy import deepcopy
 
+# Shared defs surface (feature 020): buildable defs for def_stats /
+# plan_room in sim + the vanilla Space scoreStages detection table.
+# Tests override defs["Space"] to emulate the modded tier profile.
+SIM_DEFS = {
+    "Gun_Revolver": {"stats": {"range": 26, "dps": 4.0, "warmup": 0.3,
+                               "cooldown": 1.6, "burst": 1,
+                               "is_melee": False}},
+    "MeleeWeapon_Gladius": {"stats": {"range": 2, "dps": 5.0,
+                                      "is_melee": True}},
+    "Wall": {"stats": {"cost": 5, "beauty": 0, "cover": 0.8}},
+    "Door": {"stats": {"cost": 5, "beauty": 0}},
+    "Bed": {"stats": {"size": [1, 2], "cost": 45, "beauty": 2,
+                      "linkable_range": 4.0}},
+    "DoubleBed": {"stats": {"size": [2, 2], "cost": 90, "beauty": 2,
+                            "linkable_range": 4.0}},
+    "Dresser": {"stats": {"size": [1, 1], "cost": 60, "beauty": 3,
+                          "linkable_range": 4.0}},
+    "EndTable": {"stats": {"size": [1, 1], "cost": 25, "beauty": 1,
+                           "linkable_range": 4.0}},
+    "StandingLamp": {"stats": {"size": [1, 1], "cost": 40, "beauty": 2}},
+    "PlantPot": {"stats": {"size": [1, 1], "cost": 15, "beauty": 1}},
+    "Carpet": {"stats": {"cost": 10, "beauty": 2}},
+    "Floor": {"stats": {"cost": 5, "beauty": 0}},
+    "Steel": {"stats": {"cost": 1}},
+    "Wood": {"stats": {"cost": 1}},
+    "Table2x2": {"stats": {"size": [2, 2], "cost": 30, "beauty": 1}},
+    "DiningChair": {"stats": {"size": [1, 1], "cost": 10, "beauty": 1}},
+    "HospitalBed": {"stats": {"size": [1, 2], "cost": 120, "beauty": 1,
+                              "linkable_range": 4.0}},
+    "VitalsMonitor": {"stats": {"size": [1, 1], "cost": 80, "beauty": 1,
+                                "linkable_range": 4.0}},
+    "FueledStove": {"stats": {"size": [2, 1], "cost": 50, "beauty": 0}},
+    "TableButcher": {"stats": {"size": [2, 2], "cost": 40, "beauty": -1}},
+    "SimpleWorkbench": {"stats": {"size": [2, 1], "cost": 60, "beauty": 0,
+                                  "linkable_range": 4.0}},
+    "ToolCabinet": {"stats": {"size": [1, 1], "cost": 90, "beauty": 0,
+                              "linkable_range": 4.0}},
+    "Stool": {"stats": {"size": [1, 1], "cost": 8, "beauty": 1}},
+    "Space": {"scoreStages": [
+        {"label": "rather tight", "minScore": 12.5},
+        {"label": "average-sized", "minScore": 29.0},
+        {"label": "somewhat spacious", "minScore": 55.0},
+        {"label": "quite spacious", "minScore": 70.0},
+        {"label": "very spacious", "minScore": 130.0},
+        {"label": "extremely spacious", "minScore": 349.5}]},
+}
+
+
+def derive_room_row(ops, rid: int = 1) -> dict:
+    """Pure room-row derivation from compiled archetype ops (feature
+    020): wall cells (rect outline / line segments) bound the interior;
+    role/stats follow contents. Shared by SimGame and the phase-test
+    stub so both exercise the same verification surface — deterministic,
+    never canned. Bare ops without wall geometry degrade to the legacy
+    canned Bedroom row."""
+    wall_cells: set[tuple[int, int]] = set()
+    furn: list[dict] = []
+    beds = 0
+    floor = False
+    for op in ops:
+        if not isinstance(op, dict):
+            continue
+        d = str(op.get("def") or "")
+        rect = op.get("rect")
+        if isinstance(rect, (list, tuple)) and len(rect) >= 4:
+            rx, rz, rw, rh = (int(v) for v in rect[:4])
+            if op.get("fill"):
+                floor = True
+            elif "wall" in d.lower():
+                wall_cells.update((rx + i, rz + j)
+                                  for i in range(rw) for j in range(rh))
+        line = op.get("line")
+        if isinstance(line, (list, tuple)) and len(line) == 2 \
+                and "wall" in d.lower():
+            a, b = line
+            if not (isinstance(a, (list, tuple))
+                    and isinstance(b, (list, tuple))
+                    and len(a) >= 2 and len(b) >= 2):
+                continue
+            ax, az = int(a[0]), int(a[1])
+            bx, bz = int(b[0]), int(b[1])
+            if ax == bx:
+                step = 1 if bz >= az else -1
+                wall_cells.update((ax, z) for z in range(az, bz + step,
+                                                         step))
+            else:
+                step = 1 if bx >= ax else -1
+                wall_cells.update((x, az) for x in range(ax, bx + step,
+                                                         step))
+        at = op.get("at")
+        if isinstance(at, (list, tuple)) and len(at) >= 2:
+            c = (int(at[0]), int(at[1]))
+            if "door" in d.lower():
+                continue
+            furn.append({"def": d, "cell": c})
+            if "bed" in d.lower():
+                beds += 1
+    if not wall_cells:
+        return {"role": "Bedroom", "beds": beds or 0, "problems": []}
+    xs = [c[0] for c in wall_cells]
+    zs = [c[1] for c in wall_cells]
+    x0, z0, x1, z1 = min(xs), min(zs), max(xs), max(zs)
+    interior = {(x, z) for x in range(x0 + 1, x1)
+                for z in range(z0 + 1, z1)}
+    defs = [f["def"].lower() for f in furn]
+    role = "None"
+    if any("hospitalbed" in d or "medicalbed" in d for d in defs):
+        role = "Hospital"
+    elif any("butcher" in d or "kitchen" in d for d in defs):
+        role = "Kitchen"
+    elif any("bench" in d or "smithy" in d or "tailoring" in d
+             for d in defs):
+        role = "Workshop"
+    elif any("table" in d and "butcher" not in d
+             and "end" not in d and "coffee" not in d for d in defs):
+        role = "DiningRoom"
+    elif any(d in ("horseshoespin", "dartsboard", "billiardstable")
+             for d in defs):
+        role = "RecRoom"
+    elif beds:
+        role = "Bedroom"
+    inside = [f for f in furn if f["cell"] in interior]
+    cells = len(interior)
+    beauty = len(inside) * 2
+    imp = 20 + cells * 0.5 + len(inside) * 3 + (5 if floor else 0)
+    return {
+        "id": f"room{rid}", "role": role, "cells": cells,
+        "outdoors": False, "temp": 21.0,
+        "impressiveness": round(imp, 1), "beauty": float(beauty),
+        "cleanliness": 1.0 if floor else -1.0,
+        "owners": [], "at": [x0 + 1, z0 + 1],
+        "rect": {"min": [x0 + 1, z0 + 1], "max": [x1 - 1, z1 - 1]},
+        "beds": beds, "problems": []}
+
 TEMPLATE_SURFACE = (
     "game.status", "game.list_saves", "game.save", "game.load",
     "state.summary", "state.pawns", "state.pawn", "state.storage",
@@ -118,12 +252,7 @@ class SimGame:
         self.rally = [44, 44, 13, 13]
         self.areas = [{"id": "Home", "rect": [40, 40, 21, 21]}]
         self._hostile_free = 0
-        self.defs = {
-            "Gun_Revolver": {"stats": {"range": 26, "dps": 4.0,
-                                       "warmup": 0.3, "cooldown": 1.6,
-                                       "burst": 1, "is_melee": False}},
-            "MeleeWeapon_Gladius": {"stats": {"range": 2, "dps": 5.0,
-                                              "is_melee": True}}}
+        self.defs = dict(SIM_DEFS)
         self.policies: dict[str, dict] = {}
         self.goto_log: list[tuple] = []
         self.presses: list[tuple] = []
@@ -170,6 +299,8 @@ class SimGame:
              "suspended": False, "managed": True}]
         self.stock_runs: list[str] = []
         self._pending: list[str] = []
+        self._room_batches: list[list[dict]] = []
+        self.pawn_beds: dict[str, int] = {}  # pawn id -> room row index
         self.writes: list[tuple] = []
         if established:
             self.zones = [{"label": "start.storage"},
@@ -205,6 +336,71 @@ class SimGame:
         return any(h.get("id") == pid and h.get("downed")
                    for h in self.hostiles)
 
+    @staticmethod
+    def _room_has_cell(r, t) -> bool:
+        rect = r.get("rect") if isinstance(r, dict) else None
+        if not isinstance(rect, dict):
+            return False
+        lo, hi = rect.get("min"), rect.get("max")
+        if not (isinstance(lo, (list, tuple)) and len(lo) >= 2
+                and isinstance(hi, (list, tuple)) and len(hi) >= 2):
+            return False
+        return lo[0] <= t[0] <= hi[0] and lo[1] <= t[1] <= hi[1]
+
+    @staticmethod
+    def _derive_room_row(ops):
+        """Pure room-row derivation from compiled ops — shared with the
+        test-stub StartSim so phase tests exercise the same feature-020
+        verification surface (role/stats from contents, not canned)."""
+        return derive_room_row(ops)
+
+    def _bed_queue(self) -> list[str]:
+        """Colonists needing a private bed, target-bed-first order:
+        bedless colonists first, then colonists sharing a room (barracks
+        dwellers) — reassignment never leaves anyone bedless mid-
+        transition (feature 020 US2 acc.4 / T035)."""
+        order = [c["id"] for c in self.pawns if c.get("id")]
+        owned = set(self.pawn_beds)
+        queue = [pid for pid in order if pid not in owned]
+        room_occ: dict[int, list[str]] = {}
+        for pid, ridx in self.pawn_beds.items():
+            room_occ.setdefault(ridx, []).append(pid)
+        queue += [pid for pid in order
+                  if pid not in queue
+                  and len(room_occ.get(self.pawn_beds.get(pid), [])) > 1]
+        return queue
+
+    def _assign_beds(self, ridx: int, n_beds: int) -> None:
+        """Atomically assign up to n_beds owners to room ridx from the
+        target-bed-first queue; the old room's owners list shrinks in
+        the same step, so nobody is bedless mid-transition."""
+        if ridx >= len(self.rooms):
+            return
+        room = self.rooms[ridx]
+        free = max(0, int(room.get("beds") or 0)
+                   - len(room.get("owners") or []))
+        queue = self._bed_queue()
+        for pid in queue[:min(max(0, n_beds), free)]:
+            prev = self.pawn_beds.get(pid)
+            if prev is not None and prev != ridx and prev < len(self.rooms):
+                self.rooms[prev]["owners"] = [
+                    o for o in self.rooms[prev].get("owners") or []
+                    if o != pid]
+            self.pawn_beds[pid] = ridx
+            owners = room.setdefault("owners", [])
+            if pid not in owners:
+                owners.append(pid)
+
+    def _materialize_room(self, ops: list) -> None:
+        """Derive a state.rooms row from compiled archetype ops (feature
+        020) — shared pure derivation + atomic owner assignment."""
+        row = derive_room_row(ops, rid=len(self.rooms) + 1)
+        self.rooms.append(row)
+        if row.get("role") == "Bedroom" and row.get("beds"):
+            # atomic target-bed-first assignment — conversion without a
+            # bedless tick (feature 020 US2 / T035)
+            self._assign_beds(len(self.rooms) - 1, row["beds"])
+
     def advance(self, iteration: int = 0) -> None:
         """Scripted deterministic evolution (pure function of
         state+iteration): pending write effects land (one-poll labor
@@ -224,6 +420,10 @@ class SimGame:
                 self.blueprints = []
                 self.rooms = [{"role": "Bedroom", "beds": 0,
                                "problems": []}]
+            elif p.startswith("room:"):
+                idx = int(p[5:])
+                if 0 <= idx < len(self._room_batches):
+                    self._materialize_room(self._room_batches[idx])
             elif p.startswith("roof:"):
                 _, xy = p.split(":")
                 x, z = (int(v) for v in xy.split(","))
@@ -367,7 +567,10 @@ class SimGame:
                 "drafted": pid in self.drafted,
                 "downed": self._downed(pid),
                 "equipment": list(prow.get("equipment") or []),
-                "apparel": list(prow.get("apparel") or [])}}
+                "apparel": list(prow.get("apparel") or []),
+                "bed": self.pawn_beds.get(pid),
+                "thoughts": list(prow.get("thoughts") or []),
+                "health": dict(prow.get("health") or {})}}
         if method == "map.find" and params.get("def") == "Fire":
             fires = self._state["map"]["fires"]
             cell = self._state["map"].get("fire_cell")
@@ -468,6 +671,7 @@ class SimGame:
                             + z["rect"][3]), None)
             return {"ok": True, "result": {
                 "roof": cell in self.roofed, "walkable": True,
+                "standable": True, "passable": True,
                 "fertility": self.fertility.get(cell, 1.0),
                 "terrain": self.terrain.get(cell, "Soil"),
                 "zone": zone}}
@@ -617,10 +821,19 @@ class SimGame:
                 self._pending.append("cut:" + ",".join(sorted(ids)))
             return {"ok": True, "result": {"applied": True}}
         if method == "ui.build_many":
-            self.blueprints.extend({"pos": [14, 14]} for _ in
-                                   params.get("ops", []))
+            ops = params.get("ops") or []
+            if isinstance(ops, list) and ops:
+                # feature 020: record the compiled ops; advance()
+                # materializes the room from its wall geometry/contents
+                self._room_batches.append(ops)
+                self._pending.append(
+                    f"room:{len(self._room_batches) - 1}")
+                return {"ok": True,
+                        "result": {"placed": len(ops), "failed": []}}
+            self.blueprints.extend({"pos": [14, 14]} for _ in ops)
             self._pending.append("shelter")
-            return {"ok": True, "result": {"placed": 2, "failed": []}}
+            return {"ok": True, "result": {"placed": len(ops),
+                                           "failed": []}}
         if method == "ui.build":
             if params.get("dry_run"):
                 return {"ok": True, "result": {"placed": [params.get("at")],
@@ -773,6 +986,18 @@ class SimGame:
                 prow.setdefault("apparel", []).append(thing)
                 self.armor = [a for a in self.armor
                               if a["id"] != target]
+            elif job == "LayDown" and prow is not None \
+                    and isinstance(params.get("target"), (list, tuple)) \
+                    and len(params.get("target")) >= 2:
+                # conversion reassignment (T035): the pawn takes the
+                # room's first free bed — atomic owner swap, no bedless
+                # tick (the pawn's old room loses it in the same step)
+                t = (int(params["target"][0]), int(params["target"][1]))
+                ridx = next((i for i, r in enumerate(self.rooms)
+                             if r.get("at") == [t[0], t[1]]
+                             or self._room_has_cell(r, t)), None)
+                if ridx is not None:
+                    self._assign_beds(ridx, 1)
             elif prow is not None:
                 prow["job"] = job
             return {"ok": True, "result": {"applied": True,

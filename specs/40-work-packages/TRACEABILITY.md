@@ -159,6 +159,26 @@ Suite evidence: 266/266 runtime tests green post-implementation (248 prior + 18.
 
 Suite evidence: `test_probe_live.py` (9), `test_paramspec.py` (14), `test_brains.py` (10), `test_packedit.py` (12); combined dashboard+runtime run 324/324 green (also fixed `api.probe_cache` returning a copy — `.clear()` callers got a no-op — and catalogued the 021 `upgrade_*`/`equip_pending` fns). Frozen parity: rebuilt `dist/rimbrain.exe` — bare exe spawns `overlay --setup` beside `dist/state|packs`, `run -y --mode sim` exits 2, `run --mode sim` headless run identical to dev.
 
+## Feature 020 — building / room capability (FR-2001..2009, SC-2001..2006)
+
+| Requirement | Evidence |
+|---|---|
+| FR-2001 declarative room archetypes | `rooms:` pack block (`pack.schema.json` `room_archetype` with `size`/`tier_target`/`stat_target`/`wall`/`door`/`floor`/`furniture` incl. `count`/`anchor`/`linked_to`/`adjacent_to`/`separate`/`optional`/`links`/`at`); `start-mode-v0` ships `bedroom`/`dining_hall`/`hospital`/`kitchen`/`workshop`; `test_room_contract.py::test_room_archetype_field_validation`, `test_shipped_pack_rooms_cfg_validates` |
+| FR-2002 deterministic `plan_room` compile | `policy._fn_plan_room` — walls as outline line segments (door cell excluded), perimeter door, floor fill, furniture honoring link radius (`def_stats.linkable_range`)/adjacency/separation/optionality; null on unfit rect/unknown def/region bound; existing-structure merge/split safety; `test_rooms.py::test_plan_room_*` (compile, unfit null, unknown def, optional skip, overlap/re-issue, region bound, determinism) |
+| FR-2003 space-tier profiles | `rooms.tier_table` + `mods.realistic_rooms_rewritten.settings`; `_tier_profile` resolution live `defs.get(Space).scoreStages` → cfg → vanilla with one `rooms.profile_fallback` event per run; `space_tier`/`space_target`; `test_rooms.py::test_space_tier_profile_vanilla_vs_modded`, `test_tier_cfg_override_honored`, `test_detection_failure_falls_back_to_vanilla_once` |
+| FR-2004 bedroom demand + right-sizing | `bed_demand()` (residents − couples − owner-assigned private bedrooms, per-poll pawn-detail cache); `expand-housing` demand-gated `plan_room` goals; `test_bed_demand_counts`, `test_material_delta_30pct_and_equal_mood` |
+| FR-2005 barracks → private conversion | atomic target-bed-first owner assignment in sim materialization + `assign-job` LayDown reassignment path; `private-bedrooms` goal; `test_conversion_zero_bedless_ticks` |
+| FR-2006 archetypes are pure pack data | archetype additions need data edits only; `test_synthetic_archetype_data_only` (workroom archetype absent from shipped packs loads + compiles); no runtime change |
+| FR-2007 idempotent re-issue | `ui.build_many` bridge semantics (same-blueprint/building skip); `plan_room` same-bounds re-issue compiles; `test_plan_room_existing_structure_merge_split_safety` |
+| FR-2008 housing as standing goals | `expand-housing`/`private-bedrooms`/`build-dining-room`/`build-hospital`/`build-workshop`/`enclose-kitchen` — `when` gates on `bed_demand`/`pawns_with_thought`/`pawns_wounded`/cookstation, `effect` on role+stat predicates; `test_dining_goal_fires_on_thought_and_verifies`, `test_hospital_goal_fires_on_wounded_and_verifies`, `test_kitchen_butcher_separate_placement` |
+| FR-2009 single-writer dispatch | room ops go through `build-layout`/`assign-job` templates on the existing dispatcher; no new dispatch authority; phase-engine sim run completes shelter via `plan_room` ops (`test_bedroom_builds_in_sim_and_verifies_role_stat`, full-suite phase tests) |
+| SC-2001 zero hand-written op coordinates | pack room goals pass `ops: "@fn:plan_room(...).ops"` — no coordinates in pack data; `test_bedroom_builds_in_sim_and_verifies_role_stat` |
+| SC-2002 ≥30% wall-material savings at equal mood | `test_material_delta_30pct_and_equal_mood` — tier-targeted 4×3-class bedroom (mod profile) vs legacy 7×7 expansion geometry, impressiveness ≥ legacy band |
+| SC-2003 correct profile selection | `test_space_tier_profile_vanilla_vs_modded` (29.0 vs 16.5 average thresholds, differing footprints), `test_tier_cfg_override_honored` |
+| SC-2004 role+stat verification only | `templates._room_goal_problems` lint rejects `enclosed_at`-only room-goal effects at load; `test_enclosed_at_only_room_goal_rejected`, `test_role_stat_effect_accepted`, `test_non_room_enclosed_at_goals_unaffected` |
+| SC-2005 data-only archetype addition | `test_synthetic_archetype_data_only` |
+| SC-2006 failed/undersized rects recorded | `plan_room` null on unfit rect → step `blocked`; `test_plan_room_unfit_rect_returns_null`; `rooms.plan_warning` decision events for non-fatal skips |
+
 ## Feature 019 — combat capability (FR-1901..1910, SC-1901..1906)
 
 | Requirement | Evidence |

@@ -142,6 +142,57 @@ Dev-class packs keep the scripted harness under `combat:` (checkpoint/
 spawn/rounds) and get the cfg surface via `dev_combat:` — see
 `dev-lab-v0` for the shape.
 
+## Rooms & archetypes (feature 020)
+
+Rooms are declared in the pack's `rooms:` block — **archetype data only**;
+the runtime compiles them to build ops and verifies them on observed
+role/stats. `plan_room(rect, archetype_id)` is the compile primitive
+(`ops:` of any `build-layout` step can be `"@fn:plan_room(@var:site.rect,
+<archetype>).ops"`), and room goals must verify with role/stat predicates
+(`room_role_at`/`rooms_matching`/`room_stat`) — an `enclosed_at`-only
+effect on a room goal is a load-time error (SC-2004).
+
+An archetype is:
+
+```yaml
+rooms:
+  tier_table: auto          # auto | vanilla | realistic_rooms_rewritten
+  archetypes:
+    bedroom:
+      size: {w: 4, h: 6}    # interior footprint — or tier_target: average
+      stat_target: {impressiveness: 40}
+      wall: Wall
+      door: Door
+      floor: Carpet         # TerrainDef; null = no floor ops
+      furniture:
+      - {def: Bed, count: 1, anchor: wall}
+      - {def: Dresser, linked_to: Bed}        # within linkable_range
+      - {def: EndTable, linked_to: Bed}
+      - {def: StandingLamp, count: 1}
+      - {def: PlantPot, optional: true}       # skip, never fails the room
+```
+
+Furnishing rules: `count`, `anchor` (`wall`/`corner`/`center`/`free`),
+`linked_to` (def within the item's link radius), `adjacent_to`,
+`separate` (keep ≥2 cells from other furnishing — butcher/stove),
+`optional`, `links` (one instance per N link targets — tool cabinet ≤2
+benches), `at` (`each_<def>` places one item per matching placed target —
+workshop stool per bench). `tier_target` sizes the footprint to the
+resolved space-tier profile instead of `size`.
+
+**Space-tier profiles (US3):** `tier_table: auto` reads the live
+`defs.get(Space).scoreStages` (modded thresholds win automatically),
+falls back to the declared `mods.realistic_rooms_rewritten.settings`,
+then vanilla — with one `rooms.profile_fallback` event per run when
+detection is inconclusive. `mods.*` are declared cfg only; live detection
+always wins. `space_tier(score)`/`space_target(tier)` expose the resolved
+table to goals.
+
+**Need-driven support rooms (US4):** `when` gates on `pawns_with_thought(
+AteWithoutTable)` (dining), `pawns_wounded()` ≥ `govern.hospital.
+need_threshold` (hospital), cookstation readiness (kitchen), a research
+bench (workshop) — effects verify role + the archetype's `stat_target`.
+
 ## Guided editor (feature 018)
 
 **Edit Brain** on the launcher's Setup screen opens the selected pack in a

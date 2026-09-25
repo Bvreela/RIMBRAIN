@@ -21,6 +21,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 
 import yaml
@@ -209,10 +210,64 @@ def _pred_problems(pred) -> list[str]:
     return out
 
 
+_ROOM_ROLE_FN_RE = re.compile(
+    r"@fn:(room_role_at|rooms_matching|room_stat|space_score|space_tier|"
+    r"space_target|bed_demand|pawns_with_thought|pawns_wounded)")
+_ROOM_GOAL_MARK_RE = re.compile(
+    r"@fn:plan_room\(|rooms\.archetypes|@cfg:rooms\.")
+
+
+def _effect_leaf_fields(pred, out: list[str]) -> list[str]:
+    """Leaf predicate `field` strings under {all/any/not} combinators."""
+    if isinstance(pred, dict):
+        for k in ("all", "any"):
+            for s in pred.get(k) or []:
+                _effect_leaf_fields(s, out)
+        if "not" in pred:
+            _effect_leaf_fields(pred["not"], out)
+        f = pred.get("field")
+        if isinstance(f, str):
+            out.append(f)
+    return out
+
+
+def _room_goal_problems(doc: dict) -> list[str]:
+    """Feature 020 contract lint (T034): a *room goal* — one whose steps
+    reference `plan_room`/`rooms.archetypes`/`rooms.*` cfg — must verify
+    on observed role/stat predicates. An `enclosed_at`-only effect is a
+    load-time violation (blueprints satisfy enclosure, not role); legacy
+    non-room goals using `enclosed_at` are untouched (scoped by the
+    plan_room/rooms markers)."""
+    problems: list[str] = []
+    goals = list(standing_goals_of(doc) or [])
+    for ph in phases_of(doc) or []:
+        if isinstance(ph, dict):
+            goals += list(ph.get("goals") or [])
+    for goal in goals:
+        if not isinstance(goal, dict):
+            continue
+        gid = goal.get("id")
+        steps = goal.get("steps") or []
+        blob = " ".join(str(s) for s in steps) if isinstance(steps, list) \
+            else str(steps)
+        if not _ROOM_GOAL_MARK_RE.search(blob + " " + str(goal)):
+            continue
+        fields = _effect_leaf_fields(goal.get("effect"), [])
+        has_enclosure = any("enclosed_at" in f for f in fields)
+        has_role_stat = any(_ROOM_ROLE_FN_RE.search(f) for f in fields)
+        if has_enclosure and not has_role_stat:
+            problems.append(
+                f"$.standing_goals.{gid}: room goal verifies on "
+                f"enclosed_at alone — add a role/stat predicate "
+                f"(room_role_at/rooms_matching/room_stat)")
+    return problems
+
+
 def validate_pack(doc: dict) -> list[str]:
     problems = _jsonschema_problems(doc)
     problems = _builtin_problems(doc) if problems is None else problems
-    return (problems + _fastevolve_problems(doc))[:25]
+    return (problems + _fastevolve_problems(doc)
+            + _room_goal_problems(doc))[:25]
 
 
 def _hash_of(doc: dict) -> str:
