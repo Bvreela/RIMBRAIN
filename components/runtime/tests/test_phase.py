@@ -244,6 +244,9 @@ class StartSim:
             return {"ok": True, "result": {
                 "enabled": {"scorer": True, "stock": True},
                 "pawns": [], "stock": [dict(j) for j in self.stock_jobs]}}
+        if method == "steward.orders.explain":
+            # readable-empty: steward surface is up, nobody is touched
+            return {"ok": True, "result": {}}
         if method == "steward.stock.set":
             row = next((j for j in self.stock_jobs
                         if j["kind"] == params.get("kind")

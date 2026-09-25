@@ -47,13 +47,15 @@ capabilities:
         rect: {type: array, items: {type: integer}}
     require: [rect]
   - id: combat-release
-    method: steward.orders.release
-    description: Release the combat order — undraft + restore duties.
+    method: steward.orders.set
+    description: Release the combat order — disable it; the mod undrafts +
+      restores duties first when the order is engaged.
     params_schema:
       type: object
       required: [id]
       properties:
         id: {type: string}
+        enabled: {type: boolean}
     require: [id]
   - id: draft-pawn
     method: ui.draft
@@ -162,10 +164,25 @@ combat:
   overrun_radius: 5
   near_hostile: 30
   release_ticks: 600
+  # hostile-free hysteresis: stand-down/release also need this many
+  # consecutive polls with a CONFIRMED-empty threats read — a flickered
+  # or failed threats surface can stall ticks_since_hostile's window
+  # but can't manufacture this streak
+  release_polls: 5
   prolonged_ticks: 36000
   min_health: 30
   relief: {food: 30, rest: 25}
-  allow_unarmed: false
+  # direct_command: per-pawn options (select tier) own the engagement —
+  # the delegate order stays off, rules draft/stand-down the squad, and
+  # Laya (or priority_head fallback) picks each pawn's action. Flip to
+  # false to return to steward-delegated combat (US1 default path).
+  direct_command: true
+  allow_unarmed: true
+  # think-pause: when hostiles are up and a poll's rules+decide+step
+  # window overran this budget, the game freezes while the brain thinks
+  # — pawns standing under fire during multi-second polls is deadlier
+  # than the pause itself (select picks are ~ms; bridge RPCs are not)
+  pause_over_ms: 1000
   engage_odds_floor: 0.4
   option_weights:
     combat-retreat: 100
@@ -175,6 +192,9 @@ combat:
     combat-chase: 50
     combat-kite: 40
     combat-move: 20
+  # weapon range bands for range_class() — short/medium/long gates on
+  # close-distance vs strike options (melee = no ranged weapon)
+  range_bands: {short: 12, medium: 30}
   chase_skill: 6
   power_overrides: {}
   assault_duties: [AssaultColony, PrisonerAssaultColony, Breaching,
@@ -189,8 +209,11 @@ combat:
 rules:
 - id: combat-arm
   when:
-    field: "@fn:living_hostiles()"
-    op: not_empty
+    all:
+    - field: "@fn:living_hostiles()"
+      op: not_empty
+    - field: "@cfg:combat.direct_command"
+      op: falsy
   cooldown: {polls: 5}
   try:
   - template: order-set
@@ -200,20 +223,26 @@ rules:
     params: {id: combat, enabled: true}
 - id: combat-rally-place
   when:
-    field: "@fn:engaged_hostiles()"
-    op: not_empty
+    all:
+    - field: "@fn:engaged_hostiles()"
+      op: not_empty
+    - field: "@cfg:combat.direct_command"
+      op: falsy
   cooldown: {polls: 60}
   try:
   - template: rally-set
     params: {rect: "@fn:rally_rect()"}
 - id: combat-force-run
   when:
-    any:
-    - field: "@fn:combat_mode()"
-      op: eq
-      value: overrun
-    - field: "@fn:hostiles_in_home()"
-      op: not_empty
+    all:
+    - any:
+      - field: "@fn:combat_mode()"
+        op: eq
+        value: overrun
+      - field: "@fn:hostiles_in_home()"
+        op: not_empty
+    - field: "@cfg:combat.direct_command"
+      op: falsy
   cooldown: {polls: 5}
   try:
   - template: order-run
@@ -221,15 +250,62 @@ rules:
 - id: combat-release
   when:
     all:
+    - field: "@fn:hostile_free_polls()"
+      op: gte
+      value: "@cfg:combat.release_polls"
     - field: "@fn:ticks_since_hostile()"
       op: gte
       value: "@cfg:combat.release_ticks"
     - field: "@fn:order_state().enabled"
       op: truthy
+    - field: "@cfg:combat.direct_command"
+      op: falsy
   cooldown: {polls: 20}
   try:
   - template: combat-release
-    params: {id: combat}
+    params: {id: combat, enabled: false}
+# direct_command lifecycle: release a stale delegate order, draft the
+# squad while hostiles are engaged, stand everyone down after the
+# hostile-free window — per-pawn options do the actual fighting
+- id: combat-order-off
+  when:
+    all:
+    - field: "@cfg:combat.direct_command"
+      op: truthy
+    - field: "@fn:order_state().enabled"
+      op: truthy
+  cooldown: {polls: 30}
+  try:
+  - template: combat-release
+    params: {id: combat, enabled: false}
+- id: combat-draft-squad
+  for_each: draftable
+  when:
+    all:
+    - field: "@cfg:combat.direct_command"
+      op: truthy
+    - field: "@fn:living_hostiles()"
+      op: not_empty
+  cooldown: {polls: 30}
+  try:
+  - template: draft-pawn
+    params: {pawn: "@var:it.id", drafted: true}
+- id: combat-stand-down
+  for_each: colonists
+  when:
+    all:
+    - field: "@cfg:combat.direct_command"
+      op: truthy
+    - field: "@fn:hostile_free_polls()"
+      op: gte
+      value: "@cfg:combat.release_polls"
+    - field: "@fn:ticks_since_hostile()"
+      op: gte
+      value: "@cfg:combat.release_ticks"
+  cooldown: {polls: 20}
+  try:
+  - template: draft-pawn
+    params: {pawn: "@var:it.id", drafted: false}
 - id: combat-shelter-overmatch
   # US3: odds below combat.engage_odds_floor -> pull colonists into the
   # Home area instead of feeding the engagement (fleeing beats losing)
@@ -308,13 +384,18 @@ rules:
 # Options are exceptions — the delegate order stays the base executor.
 decide:
   select:
-    cadence_polls: 5
+    cadence_polls: 1                    # combat tempo — every poll
     rung: shadow
+    pawn_instructions: "combat: pick this pawn's action — strike an enemy in weapon range, close distance, kite, retreat, or hold at rally. Nearest threats first; never mix melee into a ranged firing line."
     pawn_scope:
       # all colonists — hurt pawns aren't draftable yet still need the
       # retreat exception; aggressive options gate on draftable() and
       # every option respects the manual-touch interlock
       for_each: colonists
+      context:                          # resolved per pawn, per poll
+        me: "@fn:combat_card(@var:it.id)"          # weapon, range class, hp, pos
+        enemies: "@fn:hostile_cards(@var:it.id)"   # nearest-first target board
+        squad: "@fn:squad_card()"                  # doctrine class, mode, counts
       options:
       - id: combat-retreat
         label: retreat to safety
@@ -353,17 +434,19 @@ decide:
         params: {pawn: "@var:it.id", drafted: false}
         priority: "@cfg:combat.option_weights.combat-relief"
       - id: combat-focus
-        label: focus nearest hostile
-        template: attack-target
-        when:
+        label: squad focus-fire    # whole squad on one shared target;
+        template: attack-target   # melee pawns engage only when no
+        when:                     # ranged squad exists (no friendly fire)
           all:
           - field: "@fn:draftable(@var:it.id)"
             op: truthy
+          - field: "@fn:fighter_engages(@var:it.id)"
+            op: truthy
           - field: "@fn:engaged_hostiles()"
             op: not_empty
-        needs: "@fn:nearest_hostile(@var:it.pos)"
+        needs: "@fn:focus_target()"
         params: {pawn: "@var:it.id",
-                 target: "@fn:nearest_hostile(@var:it.pos)"}
+                 target: "@fn:focus_target()"}
         priority: "@cfg:combat.option_weights.combat-focus"
       - id: combat-kite
         label: kite the threat
@@ -406,6 +489,8 @@ decide:
           all:
           - field: "@fn:draftable(@var:it.id)"
             op: truthy
+          - field: "@fn:fighter_engages(@var:it.id)"
+            op: truthy
           - field: "@fn:skill_of(@var:it.id, 'shooting')"
             op: gte
             value: "@cfg:combat.chase_skill"
@@ -416,6 +501,76 @@ decide:
         params: {pawn: "@var:it.id",
                  target: "@fn:nearest_fleeing(@var:it.pos)"}
         priority: "@cfg:combat.option_weights.combat-chase"
+      - id: combat-strike
+        # per-target attack: Laya picks WHICH hostile — priority is
+        # distance-weighted (nearest first). Melee strike from any
+        # distance (the order paths+swings); ranged only in band.
+        label: strike
+        for_each: living_hostiles
+        template: attack-target
+        when:
+          all:
+          - field: "@fn:draftable(@var:it.id)"
+            op: truthy
+          - field: "@fn:fighter_engages(@var:it.id)"
+            op: truthy
+          - not:
+              field: "@fn:touched(@var:it.id)"
+              op: truthy
+          - any:
+            - field: "@fn:range_class(@var:it.id)"
+              op: eq
+              value: melee
+            - field: "@fn:in_range(@var:it.id, @var:target.id)"
+              op: truthy
+        params: {pawn: "@var:it.id", target: "@var:target.id"}
+        priority: "@fn:sub(100, @fn:dist_to(@var:it.id, @var:target.id))"
+      - id: combat-close
+        # move into weapon band of a target — melee pawns use strike
+        # instead; ranged pawns close when the target sits out of range
+        label: close distance on
+        for_each: living_hostiles
+        template: move-pawn
+        when:
+          all:
+          - field: "@fn:draftable(@var:it.id)"
+            op: truthy
+          - field: "@fn:fighter_engages(@var:it.id)"
+            op: truthy
+          - not:
+              field: "@fn:touched(@var:it.id)"
+              op: truthy
+          - field: "@fn:range_class(@var:it.id)"
+            op: ne
+            value: melee
+          - not:
+              field: "@fn:in_range(@var:it.id, @var:target.id)"
+              op: truthy
+        needs: "@fn:pos_of(@var:target.id)"
+        params: {pawn: "@var:it.id", cell: "@fn:pos_of(@var:target.id)"}
+        priority: "@fn:sub(90, @fn:dist_to(@var:it.id, @var:target.id))"
+      - id: combat-shelter
+        # benched fighters (draftable but not the squad's engage class)
+        # get a decision: hold a safe cell instead of drifting into the
+        # firing line (ui.goto needs drafted — undrafted civilians are
+        # covered by the combat-shelter-overmatch set-area rule)
+        label: shelter in Home
+        template: move-pawn
+        when:
+          all:
+          - field: "@fn:draftable(@var:it.id)"
+            op: truthy
+          - not:
+              field: "@fn:fighter_engages(@var:it.id)"
+              op: truthy
+          - field: "@fn:engaged_hostiles()"
+            op: not_empty
+          - not:
+              field: "@fn:touched(@var:it.id)"
+              op: truthy
+        needs: "@fn:safe_cell(@var:it.id)"
+        params: {pawn: "@var:it.id", cell: "@fn:safe_cell(@var:it.id)"}
+        priority: "@cfg:combat.option_weights.combat-move"
       - id: combat-move
         label: take rally position
         template: move-pawn

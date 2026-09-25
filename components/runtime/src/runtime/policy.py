@@ -23,6 +23,7 @@ The engine knows no RimWorld def names, phase ids, or strategy orderings.
 
 from __future__ import annotations
 
+import json
 import re
 
 _FN_RE = re.compile(r"^@fn:(\w+)\((.*)\)$", re.S)
@@ -271,8 +272,15 @@ class Ctx:
     def rpc(self, method, params=None):
         if self.game is None:
             return {}
-        r = self.game.rpc(method, params or {})
-        return r.get("result") if r.get("ok") else {}
+        # Per-poll memoized reads: every fn/candidate in a poll evaluates
+        # against one consistent snapshot (batch semantics) instead of
+        # re-hitting the bridge. A new Ctx per poll refreshes the cache.
+        key = (method, json.dumps(params or {}, sort_keys=True,
+                                  default=str))
+        if key not in self.cache:
+            r = self.game.rpc(method, params or {})
+            self.cache[key] = r.get("result") if r.get("ok") else {}
+        return self.cache[key]
 
 
 def _things(res) -> list:
@@ -1181,6 +1189,11 @@ def _fn_nearest_hostile(ctx, cell):
 
 def _hostile_rows(ctx):
     res = ctx.rpc("state.threats")
+    # A threats read is only "confirmed" when the surface actually
+    # answered — an RPC failure collapses to {} like an empty board,
+    # and stand-down gates must not count that as hostile-free.
+    ctx.state["_threats_read_ok"] = isinstance(res, dict) and (
+        "hostiles" in res or "enemies" in res)
     hostiles = res.get("hostiles") or res.get("enemies") or [] \
         if isinstance(res, dict) else []
     if isinstance(hostiles, dict):
@@ -1255,7 +1268,8 @@ _COMBAT_CFG_KEYS = ("rally_anchor", "engage_radius", "overrun_radius",
                     "min_health", "relief", "allow_unarmed",
                     "engage_odds_floor", "power_overrides",
                     "option_weights", "chase_skill", "assault_duties",
-                    "watch_lords", "manhunter_mental", "delegate_order")
+                    "watch_lords", "manhunter_mental", "delegate_order",
+                    "range_bands", "direct_command")
 
 _ASSAULT_DEFAULT = ("AssaultColony", "PrisonerAssaultColony",
                     "Breaching", "Sapper", "Escort", "Kidnap", "Steal",
@@ -1489,14 +1503,23 @@ def _pawn_touched(ctx, pid):
         if not isinstance(st, dict) or not st:
             ctx.cache["touch_surface"] = "absent"
         else:
-            ctx.cache["touch_surface"] = _order_explain(
-                ctx, str(_combat_cfg(ctx).get("delegate_order")
-                         or "combat"))
+            oid = str(_combat_cfg(ctx).get("delegate_order")
+                      or "combat")
+            r = ctx.game.rpc("steward.orders.explain",
+                             {"id": oid}) if ctx.game is not None else {}
+            # ok+{} = readable empty (nobody touched); not-ok = the
+            # surface can't answer -> conservative exclusion
+            ctx.cache["touch_surface"] = (
+                r.get("result") if r.get("ok") else None)
     surf = ctx.cache["touch_surface"]
     if surf == "absent":
         return False
-    if not surf:
+    if surf is None or not isinstance(surf, dict):
         return True
+    # a disabled delegate order claims nobody — only an ENABLED order's
+    # hands_off list blocks pawns (direct_command packs release it)
+    if surf.get("enabled") is False:
+        return False
     for r in (surf.get("hands_off") or []):
         if isinstance(r, dict) and str(r.get("thing")) == str(pid):
             return True
@@ -1559,6 +1582,69 @@ def _fn_draftable(ctx, pawns=None):
 
 def _fn_fighters(ctx):
     return _fn_draftable(ctx)
+
+
+def _fn_ranged_fighters(ctx):
+    """Draftable ids carrying ranged weapons — the firing squad."""
+    return [c["id"] for c in _colonist_rows(ctx)
+            if _draftable(ctx, c)
+            and (_weapon_of(ctx, c) or {}).get("class") == "ranged"]
+
+
+def _fn_melee_fighters(ctx):
+    """Draftable ids without a ranged weapon (melee or unarmed)."""
+    return [c["id"] for c in _colonist_rows(ctx)
+            if _draftable(ctx, c)
+            and (_weapon_of(ctx, c) or {}).get("class") != "ranged"]
+
+
+def _squad_class(ctx):
+    """The colony's engagement doctrine: 'ranged' when ranged-armed
+    colonists match or outnumber melee-able ones, else 'melee'. Armament
+    of living colonists only — dispatchability (touched/downed) never
+    flips the doctrine mid-fight. Doctrine gates MELEE engagement only
+    (melee screening a firing line = friendly fire); ranged fighters
+    always support from distance — see fighter_engages."""
+    living = [c for c in _colonist_rows(ctx)
+              if isinstance(c, dict) and c.get("id")
+              and not c.get("dead") and not c.get("downed")
+              and not _is_downed(ctx, c)]
+    if not living:
+        return None
+    ranged = sum(1 for c in living
+                 if (_weapon_of(ctx, c) or {}).get("class") == "ranged")
+    return "ranged" if ranged * 2 >= len(living) else "melee"
+
+
+def _fn_squad_class(ctx):
+    return _squad_class(ctx)
+
+
+def _fn_melee_swarm(ctx):
+    """True under melee doctrine — chase/melee rules fire only then."""
+    return _squad_class(ctx) == "melee"
+
+
+def _fn_fighter_engages(ctx, p):
+    """Engagement gate: a ranged fighter always engages — shooters
+    support from range whenever a fight is on; benching them while
+    melee dies is losing. A melee fighter engages only under melee
+    doctrine (squad_class == melee): in a ranged squad they would
+    screen the firing line and eat friendly fire."""
+    pid = p.get("id") if isinstance(p, dict) else p
+    mine = "ranged" if (_weapon_of(ctx, pid) or {}).get("class") \
+        == "ranged" else "melee"
+    if mine == "ranged":
+        return True
+    return _squad_class(ctx) == "melee"
+
+
+def _fn_focus_target(ctx):
+    """The squad's shared target: living hostile nearest home_center
+    (dist_home fallback when positions are unavailable)."""
+    obs = ctx.obs or {}
+    cell = obs.get("home_center") or (obs.get("map") or {}).get("home")
+    return _fn_nearest_hostile(ctx, cell)
 
 
 def _fn_order_state(ctx, order=None):
@@ -1633,6 +1719,28 @@ def _fn_ticks_since_hostile(ctx):
     return ctx.tick - last if last is not None else 10 ** 9
 
 
+def _fn_hostile_free_polls(ctx):
+    """Consecutive polls with a CONFIRMED-empty living-hostiles read —
+    flicker hysteresis for stand-down/release gates. A living hostile
+    resets the streak AND records the sighting tick (short-circuited
+    predicates can skip ticks_since_hostile — last_hostile_tick must
+    stay honest wherever this fn evaluates first); a failed/absent
+    threats read just doesn't count (holds, not resets — one bad RPC
+    shouldn't undo a clean stretch, but it must never count toward
+    standing pawns down)."""
+    if _fn_living_hostiles(ctx):
+        ctx.state["hostile_free_polls"] = 0
+        ctx.state["last_hostile_tick"] = ctx.tick
+    elif ctx.state.get("_threats_read_ok") \
+            and ctx.state.get("_hfp_poll") != ctx.poll:
+        # once per poll — `when` gates re-evaluate per candidate and a
+        # poll is the unit that means something, not predicate hits
+        ctx.state["_hfp_poll"] = ctx.poll
+        ctx.state["hostile_free_polls"] = \
+            int(ctx.state.get("hostile_free_polls") or 0) + 1
+    return int(ctx.state.get("hostile_free_polls") or 0)
+
+
 def _fn_hostiles_in_home(ctx):
     return [h for h in _fn_living_hostiles(ctx)
             if not _is_friendly(ctx, h)
@@ -1693,7 +1801,9 @@ def _fn_need_of(ctx, pid, need):
 
 def _fn_weapon_stats(ctx, thing):
     """Weapon stats {class, range, dps, warmup, cooldown, burst} via
-    defs.get — None on any miss (gates evaluate false, conservative)."""
+    defs.get — None on any miss (gates evaluate false, conservative).
+    Pawn rows carry display labels ("pump shotgun (normal 87%)"), not
+    defNames — fall back to defs.search on the stripped label."""
     d = thing.get("def") or thing.get("weapon") \
         if isinstance(thing, dict) else thing
     if not d:
@@ -1702,7 +1812,24 @@ def _fn_weapon_stats(ctx, thing):
     key = ("weapon_stats", d)
     if key in ctx.cache:
         return ctx.cache[key]
+    # cross-poll memo (runstate vars): a transient defs.* failure must
+    # not flip a known weapon's class mid-engagement — squad purity
+    # gates read this every poll
+    pc = ctx.persist.get("weapon_stats") if isinstance(
+        ctx.persist, dict) else None
+    if isinstance(pc, dict) and d in pc:
+        ctx.cache[key] = pc[d]
+        return pc[d]
     res = ctx.rpc("defs.get", {"def": d})
+    if not res:
+        q = re.sub(r"\s*\(.*$", "", d).strip()
+        hits = ctx.rpc("defs.search", {"query": q})
+        hit = next((h for h in (hits or [])
+                    if isinstance(h, dict)
+                    and h.get("type") == "ThingDef"
+                    and h.get("def")), None)
+        if hit:
+            res = ctx.rpc("defs.get", {"def": hit["def"]})
     stats = {}
     if isinstance(res, dict):
         st = res.get("stats") if isinstance(res.get("stats"), dict) \
@@ -1711,19 +1838,23 @@ def _fn_weapon_stats(ctx, thing):
         v0 = verbs[0] if isinstance(verbs, list) and verbs \
             and isinstance(verbs[0], dict) else {}
         melee = st.get("is_melee", v0.get("is_melee"))
+        if melee is None and st.get("ranged") is not None:
+            melee = not bool(st.get("ranged"))
         if melee is None:
             melee = "melee" in d.lower() or "meleeweapon" in d.lower()
         stats = {
             "class": "melee" if melee else "ranged",
             "range": _num(st.get("range", v0.get("range"))),
             "dps": _num(st.get("dps") or st.get("dps_ranged")
-                        or st.get("melee_dps")),
+                        or st.get("melee_dps") or st.get("damage")),
             "warmup": _num(v0.get("warmup", st.get("warmup"))),
             "cooldown": _num(v0.get("cooldown", st.get("cooldown"))),
             "burst": _num(v0.get("burst", st.get("burst")))}
         if stats["range"] is None and not melee:
             stats = None
     ctx.cache[key] = stats or None
+    if isinstance(ctx.persist, dict):
+        ctx.persist.setdefault("weapon_stats", {})[d] = ctx.cache[key]
     return ctx.cache[key]
 
 
@@ -1731,6 +1862,15 @@ def _pawn_weapon(ctx, pid, row=None):
     w = (row or {}).get("weapon") if isinstance(row, dict) else None
     if w is None and ctx.game is not None:
         w = _pawn_detail(ctx, pid).get("weapon")
+    # cross-poll memory: a transient obs/detail miss must not read as
+    # "unarmed" mid-engagement — that flips squad-class gates
+    lw = (ctx.persist.setdefault("last_weapon", {})
+          if isinstance(ctx.persist, dict) else None)
+    if w:
+        if lw is not None:
+            lw[pid] = w
+    elif lw is not None:
+        w = lw.get(pid)
     return w
 
 
@@ -1786,6 +1926,95 @@ def _fn_in_range(ctx, p, h):
         return False
     d = _dist(_pos_of(ctx, p), _pos_of(ctx, h))
     return d is not None and d <= pw["range"]
+
+
+def _fn_dist_to(ctx, a, b):
+    """Cell distance between two pawns/rows/cells (None when either
+    position is unknown — gates evaluate false, conservative)."""
+    d = _dist(_pos_of(ctx, a), _pos_of(ctx, b))
+    return round(d, 1) if d is not None else None
+
+
+def _fn_pos_of(ctx, x):
+    return _pos_of(ctx, x)
+
+
+def _fn_label_of(ctx, x):
+    """Display name for a pawn/hostile row or id."""
+    if isinstance(x, dict):
+        return x.get("name") or x.get("label") or x.get("id")
+    if isinstance(x, str):
+        for r in (_colonist_rows(ctx) + _hostile_rows(ctx)):
+            if isinstance(r, dict) and r.get("id") == x:
+                return r.get("name") or x
+    return x
+
+
+def _fn_range_class(ctx, p):
+    """Weapon range band from combat.range_bands {short, medium} (max
+    cells per band; above medium = long). No ranged weapon -> melee."""
+    ws = _weapon_of(ctx, p)
+    if not ws or ws.get("class") == "melee" or not ws.get("range"):
+        return "melee"
+    bands = _combat_cfg(ctx).get("range_bands") or {}
+    r = float(ws["range"])
+    if r <= float(bands.get("short", 12)):
+        return "short"
+    if r <= float(bands.get("medium", 30)):
+        return "medium"
+    return "long"
+
+
+def _fn_combat_card(ctx, p):
+    """Per-pawn selector context card: id/name/pos, weapon + range
+    class, health, drafted/touched — the structured row a fast
+    decision endpoint reads before picking (feature 019 select)."""
+    row = p if isinstance(p, dict) else \
+        next((c for c in _colonist_rows(ctx) if c.get("id") == p), {})
+    pid = row.get("id", p) if isinstance(row, dict) else p
+    ws = _weapon_of(ctx, pid) or {}
+    det = _pawn_detail(ctx, pid) if ctx.game is not None else {}
+    return {"id": pid, "name": _fn_label_of(ctx, row),
+            "pos": _pos_of(ctx, pid),
+            "weapon": _pawn_weapon(ctx, pid, row),
+            "weapon_class": ws.get("class") or "melee",
+            "range_class": _fn_range_class(ctx, pid),
+            "range": ws.get("range"),
+            "health": _fn_health_of(ctx, pid),
+            "drafted": bool(row.get("drafted") or det.get("drafted")),
+            "touched": _pawn_touched(ctx, pid),
+            "engages": _fn_fighter_engages(ctx, pid)}
+
+
+def _fn_hostile_cards(ctx, p=None):
+    """Living hostiles sorted nearest-first relative to pawn `p`
+    (or home when p is None): {id, name, kind, pos, dist, health,
+    range_class} — the target side of the combat decision matrix."""
+    ppos = _pos_of(ctx, p) if p is not None else _fn_pos(ctx,
+        ctx.obs.get("home_center") or _dig(ctx.obs, "map.home"))
+    out = []
+    for h in _fn_living_hostiles(ctx):
+        d = _dist(ppos, _pos_of(ctx, h))
+        ws = _weapon_of(ctx, h) or {}
+        out.append({"id": h.get("id"), "name": _fn_label_of(ctx, h),
+                    "kind": h.get("kind"), "pos": _pos_of(ctx, h),
+                    "dist": round(d, 1) if d is not None
+                    else h.get("dist_home"),
+                    "health": h.get("health"),
+                    "range_class": _fn_range_class(ctx, h)})
+    out.sort(key=lambda r: r["dist"]
+             if isinstance(r["dist"], (int, float)) else 1e9)
+    return out
+
+
+def _fn_squad_card(ctx):
+    """Squad-level decision context: doctrine class, combat mode,
+    headcounts, shared focus target."""
+    return {"class": _fn_squad_class(ctx), "mode": _fn_combat_mode(ctx),
+            "fighters": len(_fn_fighters(ctx)),
+            "draftable": len(_fn_draftable(ctx)),
+            "living_hostiles": len(_fn_living_hostiles(ctx)),
+            "focus_target": _fn_focus_target(ctx)}
 
 
 def _fn_enemy_mix(ctx):
@@ -2297,8 +2526,14 @@ FN = {
     "engaged_hostiles": _fn_engaged_hostiles,
     "watching_hostiles": _fn_watching_hostiles,
     "draftable": _fn_draftable, "fighters": _fn_fighters,
+    "ranged_fighters": _fn_ranged_fighters,
+    "melee_fighters": _fn_melee_fighters,
+    "fighter_engages": _fn_fighter_engages,
+    "melee_swarm": _fn_melee_swarm, "squad_class": _fn_squad_class,
+    "focus_target": _fn_focus_target,
     "order_state": _fn_order_state, "combat_mode": _fn_combat_mode,
     "ticks_since_hostile": _fn_ticks_since_hostile,
+    "hostile_free_polls": _fn_hostile_free_polls,
     "hostiles_in_home": _fn_hostiles_in_home,
     "hostiles_within": _fn_hostiles_within,
     "nearest_fleeing": _fn_nearest_fleeing,
@@ -2310,6 +2545,10 @@ FN = {
     "enemy_mix": _fn_enemy_mix, "enemy_max_range": _fn_enemy_max_range,
     "threat_power": _fn_threat_power, "manhunters": _fn_manhunters,
     "touched": _pawn_touched,
+    "dist_to": _fn_dist_to, "pos_of": _fn_pos_of,
+    "label_of": _fn_label_of, "range_class": _fn_range_class,
+    "combat_card": _fn_combat_card, "hostile_cards": _fn_hostile_cards,
+    "squad_card": _fn_squad_card,
     "free_beds": _fn_free_beds, "casualty_ids": _fn_casualty_ids,
     "pawns_needing_tend": _fn_pawns_needing_tend,
     "kite_cell": _fn_kite_cell, "block_cell": _fn_block_cell,
@@ -2384,6 +2623,16 @@ def _sel_fighters(ctx):
     return [c for c in _colonist_rows(ctx) if c.get("id") in ids]
 
 
+def _sel_ranged(ctx):
+    ids = set(_fn_ranged_fighters(ctx))
+    return [c for c in _colonist_rows(ctx) if c.get("id") in ids]
+
+
+def _sel_melee(ctx):
+    ids = set(_fn_melee_fighters(ctx))
+    return [c for c in _colonist_rows(ctx) if c.get("id") in ids]
+
+
 def _sel_engaged(ctx):
     return _fn_engaged_hostiles(ctx)
 
@@ -2408,6 +2657,8 @@ _SELECTORS = {
     "forbidden_items": _sel_forbidden,
     "fighters": _sel_fighters,
     "draftable": _sel_fighters,
+    "ranged_fighters": _sel_ranged,
+    "melee_fighters": _sel_melee,
     "engaged_hostiles": _sel_engaged,
     "watching_hostiles": _sel_watching,
     "hostiles_in_home": lambda c: _fn_hostiles_in_home(c),

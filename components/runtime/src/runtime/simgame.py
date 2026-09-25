@@ -294,7 +294,7 @@ class SimGame:
         if o is None:
             return
         self.drafted.clear()
-        o.update({"engaged": False, "overrun": False,
+        o.update({"enabled": False, "engaged": False, "overrun": False,
                   "acting_on": None, "last": "combat_released",
                   "summary": "released"})
         self._hostile_free = 0
@@ -666,12 +666,20 @@ class SimGame:
                      "dist_home": 40})
             return {"ok": True, "result": {"fired": params.get("def")}}
         if method == "dev.spawn_pawn":
+            cell = params.get("cell")
+            pos = ([int(cell[0]), int(cell[1])]
+                   if isinstance(cell, (list, tuple)) and len(cell) >= 2
+                   else [20 + len(self.hostiles), 20])
+            hx, hz, hw, hh = (self.areas[0]["rect"] if self.areas
+                              else (0, 0, 0, 0))
+            cx, cz = hx + hw // 2, hz + hh // 2
             self.hostiles.append(
                 {"id": f"pawn-{len(self.hostiles)}",
                  "kind": params.get("kind"),
                  "faction": params.get("faction"),
-                 "pos": [20 + len(self.hostiles), 20],
-                 "dist_home": 40})
+                 "pos": pos,
+                 "dist_home": round(((pos[0] - cx) ** 2
+                                     + (pos[1] - cz) ** 2) ** 0.5)})
             return {"ok": True,
                     "result": [{"id": self.hostiles[-1]["id"]}]}
         if method == "state.factions":
@@ -689,8 +697,10 @@ class SimGame:
                 oid, {"enabled": False, "engaged": False,
                       "overrun": False, "last": None,
                       "hands_off": [], "summary": "standing by"})
-            if "enabled" in params:
-                o["enabled"] = bool(params["enabled"])
+            if params.get("enabled") is False:
+                self._order_release(oid)
+            elif "enabled" in params:
+                o["enabled"] = True
             if isinstance(params.get("summary"), str):
                 o["summary"] = params["summary"]
             return {"ok": True, "result": {"id": oid,

@@ -179,6 +179,35 @@ def observe(game, cfg: dict | None = None, *,
     return obs
 
 
+def observe_combat(game, combat: dict | None = None) -> dict:
+    """Lean per-poll obs for combat engage loops: status + enriched
+    roster/fires (base), live areas, home anchor, and the delegate-order
+    projection. Skips storage/rooms/stocks/items/blueprints/site/beds/
+    cooking sections the engage rules never read — polls stay cheap so
+    ticks go to dispatching actions, not watching (feature 019)."""
+    obs = _base_observe(game)
+    for name, rpc in (("areas", "state.areas"),
+                      ("base", "state.base")):
+        r = game.rpc(rpc)
+        obs[name] = r.get("result") if r.get("ok") else {}
+    base = obs.get("base")
+    if isinstance(base, dict) and base.get("home_center"):
+        obs["home_center"] = base["home_center"]
+    oid = (combat or {}).get("delegate_order")
+    if oid:
+        st = game.rpc("steward.status")
+        st = st.get("result") if st.get("ok") else {}
+        row = next((o for o in ((st or {}).get("orders") or [])
+                    if isinstance(o, dict)
+                    and str(o.get("id")) == str(oid)), None)
+        ex = game.rpc("steward.orders.explain", {"id": oid})
+        ex = ex.get("result") if ex.get("ok") else {}
+        obs["orders"] = {str(oid): {**(row or {}),
+                                   "explain": ex if isinstance(ex, dict)
+                                   else {}}}
+    return obs
+
+
 # Back-compat name during the startmode -> PhaseEngine migration.
 observe_start = observe
 

@@ -96,7 +96,8 @@ def ctx(hostiles=(), pawns=(), obs=None, cfg=None, **kw):
     c = policy.Ctx(
         cfg={"combat": {"engage_radius": 40, "overrun_radius": 5,
                         "near_hostile": 30, "min_health": 30,
-                        "release_ticks": 600, "prolonged_ticks": 36000,
+                        "release_ticks": 600, "release_polls": 5,
+                        "prolonged_ticks": 36000,
                         "chase_skill": 6, "engage_odds_floor": 0.4,
                         "relief": {"food": 30, "rest": 25},
                         "option_weights": {},
@@ -356,6 +357,11 @@ def test_sim_delegate_combat_lifecycle(tmp_path, monkeypatch):
     d = Dispatcher(game, sink=records.append,
                    clock=lambda: "2026-01-01T00:00:00Z")
     d.load_pack("combat-defense-v0")
+    # delegated mode: combat.direct_command=false keeps the steward
+    # order lifecycle (the pack's default is Laya-driven direct command);
+    # short release window so the quiet-then-release fires in 45 iters
+    d.pack["pack"]["combat"]["direct_command"] = False
+    d.pack["pack"]["combat"]["release_ticks"] = 100
     ledger = TaskLedger(tmp_path / "state" / "tasks.jsonl",
                         sink=records.append)
     run(d, game, ledger, d.pack["pack"], iterations=45)
@@ -441,9 +447,10 @@ def test_pawn_scope_fallback_is_priority_head(tmp_path):
     row = rows[0]
     assert row["fallback"] and row["shadow"]
     assert sent and sent[0][0] == "attack-target"
-    # combat-focus (60) outranks combat-move (20) for a healthy fighter
-    assert row["applied"] == "pawn.a.combat-focus"
-    assert sent[0][1]["pawn"] == "a"
+    # combat-strike (distance-weighted ~74 at dist 25) outranks
+    # combat-focus (60) — nearest-hostile strike is the priority head
+    assert row["applied"] == "pawn.a.combat-strike.h1"
+    assert sent[0][1] == {"pawn": "a", "target": "h1"}
 
 
 def test_pawn_scope_retreat_suppression_and_offer():
@@ -629,3 +636,216 @@ def test_strip_suppressed_while_hostiles_in_home():
     fired = policy.run_rules(_pack_rules("combat-strip-field"),
                              sink2, cc2, source="rule")
     assert fired and sink2.calls[0][1]["things"] == ["d1"]
+
+
+# -- squad doctrine ------------------------------------------------------------
+
+def test_squad_doctrine_majority_class():
+    """Doctrine gates melee engagement only: ranged doctrine when
+    shooters field >= half the living squad, melee swarm otherwise —
+    but ranged fighters ALWAYS engage (support from range; benching a
+    shooter while melee dies is losing). Melee benches only under
+    ranged doctrine (screening a firing line = friendly fire)."""
+    defs = {"Gun_Revolver": {"stats": {"range": 26, "is_melee": False}}}
+    # 1 ranged + 3 unarmed -> melee doctrine: melee swarm AND the
+    # shooter supports — ranged never sits out a fight
+    cc, _ = ctx(hostiles=[h(pos=(45, 45))],
+                pawns=[c(id="gun", weapon="Gun_Revolver"),
+                       c(id="m1", weapon=None), c(id="m2", weapon=None),
+                       c(id="m3", weapon=None)],
+                defs=defs,
+                orders={"combat": {"enabled": True}})
+    assert policy.resolve("@fn:squad_class()", cc) == "melee"
+    assert policy.resolve("@fn:fighter_engages('m1')", cc) is True
+    assert policy.resolve("@fn:fighter_engages('gun')", cc) is True
+    # 2 ranged + 1 melee -> ranged doctrine: melee screens nothing
+    cc2, _ = ctx(hostiles=[h(pos=(45, 45))],
+                 pawns=[c(id="g1", weapon="Gun_Revolver"),
+                        c(id="g2", weapon="Gun_Revolver"),
+                        c(id="m1", weapon=None)],
+                 defs=defs,
+                 orders={"combat": {"enabled": True}})
+    assert policy.resolve("@fn:squad_class()", cc2) == "ranged"
+    assert policy.resolve("@fn:fighter_engages('m1')", cc2) is False
+    assert policy.resolve("@fn:fighter_engages('g1')", cc2) is True
+    # downed shooter can't hold the line -> melee doctrine
+    cc3, _ = ctx(hostiles=[h(pos=(45, 45))],
+                 pawns=[c(id="gun", weapon="Gun_Revolver", downed=True),
+                        c(id="m1", weapon=None), c(id="m2", weapon=None)],
+                 defs=defs,
+                 orders={"combat": {"enabled": True}})
+    assert policy.resolve("@fn:squad_class()", cc3) == "melee"
+
+
+# -- decision matrix (Laya select path) -----------------------------------------
+
+def test_option_for_each_target_matrix():
+    """Pawn-scope options with for_each expand per living hostile —
+    one candidate per (pawn, target), distance-weighted nearest-first,
+    and the label carries the target name."""
+    from runtime import select as sel_mod, templates
+    p = templates.load_pack("combat-defense-v0")["pack"]
+    defs = {"Gun_Revolver": {"stats": {"range": 26, "is_melee": False}}}
+    pawns = [c(id="p1", pos=(50, 50), weapon="Gun_Revolver")]
+    hostiles = [h(id="h1", pos=(58, 52)), h(id="h2", pos=(90, 90))]
+    cc, game = ctx(hostiles=hostiles, pawns=pawns, defs=defs,
+                   pawn_detail={"p1": {"drafted": True}},
+                   orders={"combat": {"enabled": True}})
+    cc.cfg = {"combat": dict(p.get("combat") or {})}
+
+    class _E:
+        def goal_sources(self):
+            return []
+
+    cands = sel_mod.compile_actions(p, _E(), cc, cc.obs)
+    ids = [x["id"] for x in cands if x["scope"] == "pawn"]
+    assert "pawn.p1.combat-strike.h1" in ids
+    assert "pawn.p1.combat-close.h2" in ids          # h2 out of range
+    # h1 in range -> strike offered; h2 out of range -> close offered
+    assert "pawn.p1.combat-strike.h2" not in ids
+    assert "pawn.p1.combat-close.h1" not in ids
+    strike = next(x for x in cands if x["id"].endswith("strike.h1"))
+    assert strike["dispatch"] == {"template": "attack-target",
+                                  "params": {"pawn": "p1", "target": "h1"}}
+    # nearest-first: strike on h1 (dist ~8) outranks close on h2 (~56)
+    near = next(x for x in cands if "h1" in x["id"])
+    far = next(x for x in cands if "h2" in x["id"])
+    assert near["priority"] > far["priority"]
+
+
+def test_pawn_context_resolves_per_pawn():
+    """pawn_scope.context resolvers produce the combat card + the
+    nearest-first enemy board per pawn question."""
+    from runtime import select as sel_mod, templates
+    p = templates.load_pack("combat-defense-v0")["pack"]
+    sel = templates.decide_of(p).get("select")
+    assert sel["pawn_scope"]["context"]["me"].startswith("@fn:combat_card")
+    defs = {"Gun_Revolver": {"stats": {"range": 26, "is_melee": False}}}
+    pawns = [c(id="p1", pos=(50, 50), weapon="Gun_Revolver")]
+    hostiles = [h(id="h1", pos=(58, 52)), h(id="h2", pos=(90, 90))]
+    cc, game = ctx(hostiles=hostiles, pawns=pawns, defs=defs,
+                   pawn_detail={"p1": {"drafted": True}},
+                   orders={"combat": {"enabled": True}})
+    cc.cfg = {"combat": dict(p.get("combat") or {})}
+
+    class _E:
+        def goal_sources(self):
+            return []
+
+    cands = sel_mod.compile_actions(p, _E(), cc, cc.obs)
+    qs = sel_mod.build_questions(cands, cc.obs, sel, None, ctx=cc)
+    q = qs["q.pawn.p1"]["context"]
+    assert q["me"]["weapon"] == "Gun_Revolver"
+    assert q["me"]["range_class"] == "medium"        # 26 > short 12
+    assert q["me"]["engages"] is True
+    assert [e["id"] for e in q["enemies"]] == ["h1", "h2"]  # nearest-first
+    assert q["enemies"][0]["dist"] < q["enemies"][1]["dist"]
+    assert q["squad"]["class"] == "ranged"
+    assert q["squad"]["focus_target"] == "h1"
+
+
+def test_range_class_bands():
+    """range_class maps weapon range to melee/short/medium/long via
+    combat.range_bands (pack-owned thresholds)."""
+    defs = {"Gun_Short": {"stats": {"range": 10, "is_melee": False}},
+            "Gun_Med": {"stats": {"range": 26, "is_melee": False}},
+            "Gun_Long": {"stats": {"range": 45, "is_melee": False}},
+            "MeleeKnife": {"stats": {"is_melee": True, "range": 0}}}
+    cc, _ = ctx(pawns=[c(id="s", weapon="Gun_Short"),
+                       c(id="m", weapon="Gun_Med"),
+                       c(id="l", weapon="Gun_Long"),
+                       c(id="k", weapon="MeleeKnife"),
+                       c(id="u", weapon=None)],
+                defs=defs)
+    rc = lambda pid: policy.resolve(f"@fn:range_class('{pid}')", cc)
+    assert rc("s") == "short"
+    assert rc("m") == "medium"
+    assert rc("l") == "long"
+    assert rc("k") == "melee"
+    assert rc("u") == "melee"
+
+
+def test_direct_command_lifecycle(tmp_path, monkeypatch):
+    """direct_command=true: no order-set/force-run; rules draft the
+    squad, per-pawn options (fallback head) fight, stand-down after the
+    quiet window (Laya-driven path, caller=None -> shadow+fallback)."""
+    import sys
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[3]
+    for p in ("components/runtime/src", "components/contracts/src"):
+        if str(root / p) not in sys.path:
+            sys.path.insert(0, str(root / p))
+    from runtime.dispatch import Dispatcher
+    from runtime.loop import run
+    from runtime.simgame import SimGame
+    from runtime.tasks import TaskLedger
+
+    monkeypatch.setenv("RIMBRAIN_STATE_DIR", str(tmp_path / "state"))
+    game = SimGame(established=True)
+    game.rpc("dev.incident", {"def": "Raid"})
+    records: list[dict] = []
+    d = Dispatcher(game, sink=records.append,
+                   clock=lambda: "2026-01-01T00:00:00Z")
+    d.load_pack("combat-defense-v0")
+    assert d.pack["pack"]["combat"]["direct_command"] is True
+    ledger = TaskLedger(tmp_path / "state" / "tasks.jsonl",
+                        sink=records.append)
+    run(d, game, ledger, d.pack["pack"], iterations=45)
+
+    issued = [e.get("payload", {}).get("template_id") for e in records
+              if e.get("event_type") == "action.issued"]
+    assert "order-set" not in issued          # delegate order never armed
+    assert "order-run" not in issued
+    assert "draft-pawn" in issued             # rules draft the squad
+    assert not [h for h in game.hostiles
+                if not h.get("downed") and not h.get("dead")]
+    assert not game.drafted                   # stood down after release
+
+
+def test_stand_down_flicker_hysteresis():
+    """A flickered or failed threats read must not stand pawns down:
+    hostile_free_polls counts only consecutive CONFIRMED-empty reads —
+    a bad RPC holds the streak, a living hostile resets it."""
+    from runtime import templates
+    rules = [r for r in (templates.load_pack("combat-defense-v0")["pack"]
+                       .get("rules") or [])
+             if r["id"] == "combat-stand-down"]
+    assert rules
+    cc, game = ctx(hostiles=[h(id="h1")], pawns=[c(id="p1")],
+                   cfg={"direct_command": True})
+    shared = cc.state
+    fail = {"on": False}
+    orig = game._rpc
+    def flaky(m, p):
+        return None if fail["on"] and m == "state.threats" \
+            else orig(m, p)
+    game._rpc = flaky
+
+    def poll(n, tick):
+        c2 = policy.Ctx(cfg=cc.cfg, obs=cc.obs, game=game,
+                        state=shared, tick=tick, poll=n)
+        sink = _Sink()
+        fired = policy.run_rules(rules, sink, c2, source="rule")
+        return fired, sink
+
+    out, _ = poll(0, 1000)              # h1 alive: streak 0, last=1000
+    assert not out
+    game.hostiles = []
+    for n in range(1, 5):               # clean reads 1..4 — below streak
+        out, sink = poll(n, 1000 + n * 200)
+        assert not out, f"stand-down fired at streak {n}"
+    fail["on"] = True                   # bad read: holds, doesn't count
+    out, _ = poll(5, 2000)
+    assert not out
+    assert policy.resolve("@fn:hostile_free_polls()",
+                          cc) == 4      # still 4 — didn't increment
+    fail["on"] = False
+    out, sink = poll(6, 2200)           # streak 5 -> stand-down fires
+    assert out
+    assert sink.calls == [("draft-pawn", {"pawn": "p1",
+                                          "drafted": False})]
+    # flicker: hostile pops back mid-window -> streak resets
+    game.hostiles = [h(id="h1")]
+    out, _ = poll(7, 2400)
+    assert not out
+    assert shared["hostile_free_polls"] == 0

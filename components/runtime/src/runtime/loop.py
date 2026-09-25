@@ -137,6 +137,15 @@ def run(dispatcher: Dispatcher, game, ledger, pack: dict, *,
         st = game.rpc("game.status")
         prev_speed = st.get("result") if st.get("ok") else None
         game.rpc("game.speed", {"speed": speed})
+    # Combat think-pause: when hostiles are up and the previous poll's
+    # rules+decide+step window exceeded combat.pause_over_ms, freeze the
+    # game for this poll's decision window. Laya picks are ~ms but the
+    # live RPC+rules pass is seconds — pawns standing under fire while
+    # the brain thinks is the deadly part, not the endpoint latency.
+    pause_over_ms = (pack.get("combat") or {}).get("pause_over_ms")
+    prev_think_ms = [0.0]
+    combat_paused = [False]
+    resume_speed = [None]
     # BIGbrain calls pause the colony while a reply is in flight —
     # plan (planstage) and improve (evolve reflect) tiers only; the
     # fastbrain select caller stays unpaused (~ms local round-trip).
@@ -255,6 +264,19 @@ def run(dispatcher: Dispatcher, game, ledger, pack: dict, *,
                     cfg=pack, obs=obs, game=game,
                     state=rs.rule_state, persist=rs.vars,
                     tick=tick, poll=i, decisions=decisions)
+                _think_start = time.monotonic()
+                if pause_over_ms is not None \
+                        and prev_think_ms[0] > float(pause_over_ms):
+                    _lh = policy.FN.get("living_hostiles")
+                    if _lh is not None and _lh(rule_ctx):
+                        _st = game.rpc("game.status")
+                        resume_speed[0] = (_st.get("result") or {}) \
+                            .get("speed")
+                        game.rpc("game.speed", {"speed": 0})
+                        combat_paused[0] = True
+                        dispatcher._emit("combat.think_pause", {
+                            "tick": tick, "poll": i,
+                            "prev_think_ms": round(prev_think_ms[0], 1)})
                 policy.run_rules(
                     templates.rules_of(pack),
                     dispatcher, rule_ctx, source="rule")
@@ -290,6 +312,16 @@ def run(dispatcher: Dispatcher, game, ledger, pack: dict, *,
                             e["event_type"], e["payload"]))
                 out = engine.step(dispatcher, game, obs, tick, poll=i,
                                   select_out=select_out)
+                prev_think_ms[0] = (time.monotonic() - _think_start) \
+                    * 1000.0
+                if combat_paused[0]:
+                    game.rpc("game.speed", {"speed": (
+                        resume_speed[0] if resume_speed[0] is not None
+                        else (speed if speed is not None else 1))})
+                    combat_paused[0] = False
+                    dispatcher._emit("combat.think_resume", {
+                        "tick": tick, "poll": i,
+                        "think_ms": round(prev_think_ms[0], 1)})
             outcomes.append({"iteration": i, "reconcile": reconcile,
                              **out})
             # FR-1401: reflection pass — failure/near-failure/cadence
@@ -374,6 +406,9 @@ def run(dispatcher: Dispatcher, game, ledger, pack: dict, *,
                 game.advance(i)
     finally:
         dispatcher._emit = _orig_emit
+        if combat_paused[0]:
+            game.rpc("game.speed", {"speed": (
+                resume_speed[0] if resume_speed[0] is not None else 1)})
         if prev_speed is not None:
             game.rpc("game.speed",
                      {"speed": prev_speed.get("speed", 0)})
