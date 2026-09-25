@@ -13,12 +13,24 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import time
 
 from . import simgame as _simgame
 from .bridgeclient import BridgeClient
 from .dispatch import Dispatcher
 
 SOURCE = "rimbrainagent.runtime.loop"
+
+# --fresh wipes these session-scoped files between runs. Canonical
+# evidence is deliberately kept: events.jsonl is the run record and
+# mutations.jsonl carries pending lineage rows that boundary() must
+# still see (a fresh session should still install a gated candidate).
+_SESSION_FILES = (
+    "brain_reset.request", "brain_status.json", "runstate.json",
+    "startmode.json", "fastevolve.json", "locks.json",
+    "select_authority.json", "planning.json", "planning.md",
+    "actions.md", "decisions.jsonl", "feed.md",
+    "tasks.jsonl", "cursor.json")
 
 
 def _fixed_clock() -> str:
@@ -38,7 +50,8 @@ def run(dispatcher: Dispatcher, game, ledger, pack: dict, *,
         live_mutate: bool = False, mutate_resolver=None,
         mutate_chat=None, stop_on_complete: bool = False,
         scripted: bool = False, stage: str | None = None,
-        select_caller: bool = False) -> dict:
+        select_caller: bool = False, fast_evolve: bool = False,
+        started_at: float | None = None) -> dict:
     """The unified phase run (feature 017; FR-1401). One loop for the
     whole colony lifecycle: observe -> brain-reset -> vitals ->
     reconcile -> reflex -> pack rules -> phase step -> views -> reflect.
@@ -57,6 +70,10 @@ def run(dispatcher: Dispatcher, game, ledger, pack: dict, *,
     from .dispatch import wire_sink
 
     state_dir = ledger._path.parent
+    # `started_at` marks this process's start — request files older than
+    # it are leftovers from a previous session and refused by
+    # poll_request (run-1 pack hijack). None = unguarded (tests/direct
+    # callers construct their own state dirs).
     rs_path = state_dir / "runstate.json"
     rs = RunState.load(rs_path)
     if not rs.vars and not rs.completed \
@@ -74,6 +91,13 @@ def run(dispatcher: Dispatcher, game, ledger, pack: dict, *,
     # wrap the composed sink so every envelope (dispatch + ledger +
     # engine) lands in PassState before onward emission.
     mut = None
+    fe = None
+    if fast_evolve:
+        # feature 021: day-scoped PassState + retry controller; the
+        # session lives in state/fastevolve.json outside RunState so a
+        # reload wipe doesn't erase the day's attempt budget
+        from . import fastevolve as _fe
+        fe = _fe.FastEvolve(pack, state_dir, clock=clock)
     if live_mutate and (pack.get("mutate") or {}):
         from . import evolve as _mut
         # T038: the reflection pass state lives under RunState ownership —
@@ -82,10 +106,13 @@ def run(dispatcher: Dispatcher, game, ledger, pack: dict, *,
         if mut is None:
             mut = rs.improve_state["evolve"] = _mut.PassState(
                 pack["mutate"])
+    if fe is not None or mut is not None:
         _prev_emit = getattr(dispatcher, "_sink", None) or sink
 
-        def _msink(env, _prev=_prev_emit, _ps=mut):
-            _ps.note(env)
+        def _msink(env, _prev=_prev_emit):
+            # fe.note delegates to the current day's PassState, so the
+            # tap survives rollovers/pack swaps without rebinding
+            (fe.note if fe is not None else mut.note)(env)
             if _prev is not None:
                 _prev(env)
 
@@ -129,7 +156,8 @@ def run(dispatcher: Dispatcher, game, ledger, pack: dict, *,
             # namespaces tombstoned, runstate dropped, goals re-derive
             # from the colony as-observed. Honored only under
             # --live-brain; scored runs never set the flag.
-            req = brain.poll_request(state_dir, live_brain)
+            req = brain.poll_request(state_dir, live_brain,
+                                     started_at=started_at)
             if req is not None:
                 err = None
                 dropped = 0
@@ -159,24 +187,27 @@ def run(dispatcher: Dispatcher, game, ledger, pack: dict, *,
                         engine.decisions = decisions
                     # FR-1402: a swapped pack carries its own mutate:
                     # policy — rebuild the pass state (or drop it).
-                    if live_mutate and not want_unload:
+                    if fe is not None:
+                        # swapped pack carries its own fastevolve: cfg —
+                        # rebuild the controller (DayState reloads from
+                        # disk, so the day's budget survives)
+                        fe = (None if want_unload else
+                              _fe.FastEvolve(pack, state_dir,
+                                             clock=clock))
+                        if (fe is not None
+                                and not _fe.can_reload_pack(pack)):
+                            # swapped pack can't serve retries — surface
+                            # it now instead of at the next refused load
+                            fe._emit(dispatcher._sink,
+                                     "fastevolve.pack_unfit",
+                                     {"pack": dispatcher._pack_file,
+                                      "missing": "game.load"})
+                    elif live_mutate and not want_unload:
                         rs.improve_state.pop("evolve", None)
                         mut = (_mut.PassState(pack["mutate"])
                                if pack.get("mutate") else None)
                         if mut is not None:
                             rs.improve_state["evolve"] = mut
-                        if mut is not None:
-                            _prev_emit = getattr(
-                                dispatcher, "_sink", None)
-
-                            def _msink2(env, _prev=_prev_emit,
-                                        _ps=mut):
-                                _ps.note(env)
-                                if _prev is not None:
-                                    _prev(env)
-
-                            dispatcher._sink = _msink2
-                            ledger._sink = _msink2
                     elif want_unload:
                         mut = None
                 status = {"ok": err is None,
@@ -251,30 +282,59 @@ def run(dispatcher: Dispatcher, game, ledger, pack: dict, *,
                              **out})
             # FR-1401: reflection pass — failure/near-failure/cadence
             # triggers over the run's own event stream; never raises.
-            if mut is not None:
-                mut.note_outcome(out)
-                mut.note_decisions(decisions)
-                try:
-                    _mut.maybe_trigger(
-                        mut, dispatcher=dispatcher, ledger=ledger,
-                        pack_loaded=dispatcher._pack
-                        or {"pack": pack, "hash": ""},
-                        pack=pack, pack_id=dispatcher._pack_file,
-                        state_dir=state_dir, tick=tick, poll=i,
-                        fair=getattr(dispatcher, "_fair", True),
-                        emit=dispatcher._sink or (lambda e: None),
-                        clock=clock,
+            # Feature 021: fast-evolve owns this stage — its day-failure
+            # triggers drive the pass, generic cadence never fires here.
+            watcher = fe if fe is not None else mut
+            if watcher is not None:
+                watcher.note_outcome(out)
+                watcher.note_decisions(decisions)
+                if fe is not None:
+                    reinit = fe.tick(
+                        dispatcher, game, ledger, pack, obs,
+                        tick=tick, poll=i, emit=dispatcher._sink,
+                        pack_id=dispatcher._pack_file,
                         resolver=mutate_resolver, chat=mutate_chat)
-                except Exception as exc:
-                    dispatcher._emit("system.error", {
-                        "text": f"evolve.maybe_trigger: {exc}"[:200]})
+                    if reinit and reinit.get("reinit"):
+                        # save-scum retry = brain-reset wipe: fresh
+                        # RunState/tasks/phases; day evidence stays in
+                        # fe.day_ps (outside RunState ownership)
+                        rs_path.unlink(missing_ok=True)
+                        (state_dir / "startmode.json") \
+                            .unlink(missing_ok=True)
+                        ledger.reset_ns("start.", "govern.", "phase.",
+                                        "combat.", tick=tick)
+                        rs.reset()
+                        pack = dispatcher._pack["pack"]
+                        engine = PhaseEngine(
+                            pack, ledger, runstate=rs, sink=sink,
+                            clock=clock, scripted=scripted, only=stage)
+                        engine.decisions = decisions
+                        continue
+                else:
+                    try:
+                        _mut.maybe_trigger(
+                            mut, dispatcher=dispatcher, ledger=ledger,
+                            pack_loaded=dispatcher._pack
+                            or {"pack": pack, "hash": ""},
+                            pack=pack, pack_id=dispatcher._pack_file,
+                            state_dir=state_dir, tick=tick, poll=i,
+                            fair=getattr(dispatcher, "_fair", True),
+                            emit=dispatcher._sink or (lambda e: None),
+                            clock=clock,
+                            resolver=mutate_resolver, chat=mutate_chat)
+                    except Exception as exc:
+                        dispatcher._emit("system.error", {
+                            "text": f"evolve.maybe_trigger: {exc}"[:200]})
             views.write_views(
                 state_dir,
                 views.phase_snapshot(
                     engine, ledger, obs,
                     events_path=state_dir / "events.jsonl",
-                    mutate_view=(mut.view() if mut is not None
-                                 else None))
+                    mutate_view=((fe.day_ps.view() if fe is not None
+                                  else mut.view())
+                                 if watcher is not None else None),
+                    fastevolve_view=(fe.view() if fe is not None
+                                     else None))
                 if engine is not None else {"mode": "run",
                                             "phase": "brain",
                                             "state": "unloaded",
@@ -329,9 +389,12 @@ def _dev_off(game):
 
 
 def main(argv: list[str] | None = None) -> int:
+    started_at = time.time()  # session start: stale-request watermark
     p = argparse.ArgumentParser(prog="runtime.loop", description=__doc__)
     p.add_argument("--pack", default="core-survival-v0")
     p.add_argument("--mode", choices=["run", "cycle", "improve",
+                                      # feature 021: daily retry play mode
+                                      "fastevolve",
                                       # deprecated aliases (FR-1422)
                                       "sim", "live", "start", "combat"],
                    default="run")
@@ -368,6 +431,14 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--no-hold", action="store_true",
                    help="run: stop at init completion instead of "
                         "holding under the pack's standing goals")
+    p.add_argument("--scored", action="store_true",
+                   help="declare a scored episode (eval harness) — "
+                        "play-only modes like fastevolve are refused")
+    p.add_argument("--fresh", action="store_true",
+                   help="wipe session-scoped state before starting "
+                        "(runstate, ledger, fast-evolve session, views, "
+                        "stale brain requests) — canonical events and "
+                        "mutation lineage are kept")
     args = p.parse_args(argv)
     # deprecated mode aliases -> the FR-1422 surface
     alias = {"start": ("run", "live", None),
@@ -386,6 +457,8 @@ def main(argv: list[str] | None = None) -> int:
             and args.pack == "core-survival-v0":
         args.pack = "start-mode-v0"  # the colony pack
     if args.mode == "cycle" and args.pack == "core-survival-v0":
+        args.pack = "start-mode-v0"
+    if args.mode == "fastevolve" and args.pack == "core-survival-v0":
         args.pack = "start-mode-v0"
     if args.mode == "improve" and args.pack == "core-survival-v0":
         args.pack = "improve-v0"  # the mode's own module
@@ -412,14 +485,46 @@ def main(argv: list[str] | None = None) -> int:
                        "tooling; run with --dev (development only)",
             "retryable": False}}))
         return 2
-    if args.live_mutate and not (args.mode == "run"
-                                 and args.game == "live"):
+    if args.mode == "fastevolve" and args.scored:
+        print(json.dumps({"ok": False, "error": {
+            "code": "loop.fastevolve_scored",
+            "message": "fast-evolve is an unscored play mode; scored "
+                       "episodes never enable it",
+            "retryable": False}}))
+        return 2
+    if args.mode == "fastevolve" and not args.fair:
+        # FR-2107: the scoped save/load grant exists only inside fair
+        # protections — --dev would re-open dev.* alongside them
+        print(json.dumps({"ok": False, "error": {
+            "code": "loop.fastevolve_requires_fair",
+            "message": "--mode fastevolve requires fair protections "
+                       "(save/load is scoped-granted; dev.* stays refused)",
+            "retryable": False}}))
+        return 2
+    if args.live_mutate and not (
+            (args.mode == "run" and args.game == "live")
+            or args.mode == "fastevolve"):
         print(json.dumps({"ok": False, "error": {
             "code": "loop.live_mutate_requires_live",
             "message": "--live-mutate only applies to "
-                       "--mode run --game live (which also needs --live)",
+                       "--mode run --game live (which also needs --live) "
+                       "or --mode fastevolve",
             "retryable": False}}))
         return 2
+
+    if args.fresh:
+        # before TaskLedger()/EventStore() — both load their files
+        # eagerly at construction, so the wipe must happen first
+        from .store import state_dir as _fresh_dir
+        wiped = []
+        for name in _SESSION_FILES:
+            try:
+                (_fresh_dir() / name).unlink()
+                wiped.append(name)
+            except OSError:
+                pass
+        if wiped:
+            print(json.dumps({"ok": True, "fresh": wiped}))
 
     store = None
     if not args.no_store or args.mode in ("improve", "cycle"):
@@ -472,8 +577,9 @@ def main(argv: list[str] | None = None) -> int:
                 dev_prev = _dev_off(game)
             dispatcher = Dispatcher(
                 game, game_tick=0 if args.game == "sim" else None,
-                clock=clock, fair=args.fair)
-            if args.live_mutate:
+                clock=clock, fair=args.fair,
+                allow_save_load=args.mode == "fastevolve")
+            if args.live_mutate or args.mode == "fastevolve":
                 # feature 016 boundary: revert a regressed promotion, then
                 # install a pending candidate — before load_pack, so the
                 # run always starts on a validated, immutable pack file.
@@ -482,6 +588,20 @@ def main(argv: list[str] | None = None) -> int:
                 _mut_boundary(args.pack, _state_dir(), emit=sink,
                               fair=args.fair)
             dispatcher.load_pack(args.pack)
+            if args.mode == "fastevolve":
+                from .fastevolve import can_reload_pack
+            if args.mode == "fastevolve" and not can_reload_pack(
+                    dispatcher.pack["pack"]):
+                # a pack without game.load burns every retry attempt on
+                # a refused load — fail fast instead (live smoke found
+                # this the hard way via a mid-run pack swap)
+                print(json.dumps({"ok": False, "error": {
+                    "code": "loop.fastevolve_no_load",
+                    "message": f"pack '{args.pack}' declares no "
+                               "game.load template — fast-evolve "
+                               "retries can't reload the day anchor",
+                    "retryable": False}}))
+                return 2
             from .tasks import TaskLedger
             ledger = ledger or TaskLedger()
             if args.stage in ("plan", "reflect"):
@@ -535,10 +655,12 @@ def main(argv: list[str] | None = None) -> int:
                 speed=3 if args.game == "live" else None,
                 live_brain=args.live_brain,
                 live_mutate=args.live_mutate,
+                fast_evolve=args.mode == "fastevolve",
                 stop_on_complete=args.no_hold,
                 scripted=args.stage == "combat",
                 stage=args.stage,
-                select_caller=args.game == "live")
+                select_caller=args.game == "live",
+                started_at=started_at)
         print(json.dumps({"ok": True, **result}, default=str))
         return 0
     except Exception as exc:  # fail closed at the boundary

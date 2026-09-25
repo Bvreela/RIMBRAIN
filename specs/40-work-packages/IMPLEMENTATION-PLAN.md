@@ -194,6 +194,26 @@ Error clusters, reviewer proposals, human gates, signed release, monitored cohor
 
 Judge tier, bounded numeric autopromotion, community benchmark index, general spatial planner. Each needs a separate mini-spec, simpler baseline comparison, and kill criterion.
 
+## Feature queue — SDD features (016+)
+
+Sequencing constraint recorded 2026-09-24: the feature-numbered specs
+(`specs/NNN-*`) execute in this order, each landing on main before the
+next finishes implementation:
+
+1. **016 live pack mutation** — landed (`e82dbc1`).
+2. **017 unified phase engine** — landed (`abff975`).
+3. **019 combat capability** — spec in progress.
+4. **020 building capability** — spec in progress.
+5. **021 fast-evolve** — spec drafted; plan/tasks pending.
+6. **018 guided launcher UI** — **implements last.** The setup screen
+   exposes every run type the runtime supports (fair run, cycle, stage
+   debug entries, and play-option modes like 021's fast-evolve), so it
+   is gated until the mode/flag surface is final — i.e. until the
+   features above are implemented and tested. Its declarative
+   parameter spec (018 FR-002) is generated from that final surface,
+   not snapshotted early. No 018 implementation work before the gate
+   clears.
+
 ## Definition of work-package done
 
 - requirements and contracts unchanged or approved by ADR;

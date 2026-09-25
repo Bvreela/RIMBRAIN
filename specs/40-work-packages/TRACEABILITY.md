@@ -31,6 +31,7 @@
 | UR-BRN-019..023 | Runtime, RimBrain, Dashboard | feature 015 | `brain_reset.request`/`brain_status.json` channel (refresh/swap/unload, fail-closed); `ledger.reset_ns` tombstones; `test_brain_reset_unload_reload_loop` (5 cycles: refresh → unload → reload → swap → durable replay); live reset via overlay channel dropped 28 tasks and re-derived cleanly |
 | UR-BRN-024 | Runtime, RimBrain | feature 015 | `wind_path`/`obstructions`/`wind_obstructions`/`turbine_site`/`turbine_site_blocked`/`find_defs`/`pos`/`terrain_at`/`zone_at` fns; `clear-vegetation`+`lay-floor` templates; `govern.power.wind` cfg owns corridor geometry/kinds/designator/suppression; `run_steps` evaluates `when`/`needs` per `for_each` candidate; `test_turbine_sited_cleared_and_windpath_suppressed` (site veto, cut-designation, corridor flooring) |
 | UR-ARC-009 | Runtime, Dashboard, RimBrain, Contracts | feature 015 | `rimbrain.py` unified launcher (`run`/`loop`/`overlay`; bare `run` = fair live-brain start pass); `runtime/_root.py` `repo_root()`/`bundle_root()` split; templates/dispatch/store/registry/eventmap frozen-aware; `tools/rimbrain.spec` + `tools/build-exe.ps1` → `dist/rimbrain.exe` with writable `state/ packs/ profiles/` beside it; sim smoke + lifecycle loop identical frozen vs dev |
+| UR-RL-007 | Runtime, RimBrain | feature 021, ADR-020 | `fastevolve.py` day-session controller; `Dispatcher(allow_save_load=)` scoped grant; `evolve.promote_candidate` shared mid-run install; `fastevolve:` pack section + schema/validator; `test_fastevolve.py` (24) |
 | UR-VIEW-001..004 | Runtime | feature 013 (T163..T166) | `views.py` planning/actions renders + `decisions.jsonl` per-poll records wired into start/combat/loop; live start run rendered real goals/matrix; fail-open render test |
 | UR-DAT-001..003 | Runtime, Contracts | WP-101 | durability/torn-tail/atomic Windows tests |
 | UR-DAT-004..005 | Runtime, Lab | WP-104, WP-202, WP-500 | complete decision projection; unchosen-label check |
@@ -111,3 +112,21 @@ No requirement moves to `IMPLEMENTED` from code presence alone.
 
 Suite evidence: 239/239 green at Phase 5 checkpoint; focused evolve/planstage/select suites green per phase.
 
+## Feature 021 — fast-evolve play mode (FR-2101..2112; ADR-020)
+
+| Requirement | Evidence |
+|---|---|
+| FR-2101 `fastevolve` play option, non-default, scored-refused | `loop.main` `--mode fastevolve`; `loop.fastevolve_scored`/`loop.fastevolve_requires_fair`/`loop.live_requires_confirmation`; `test_fastevolve.py` CLI cases |
+| FR-2102 durable day session | `fastevolve.DayState` -> `state/fastevolve.json` (outside RunState); `test_daystate_roundtrip` |
+| FR-2103 autosave anchor via `game.list_saves` | `fastevolve.AutosaveTracker` (pattern filter, earliest day-start match wins, stale fallback bounded by `max_anchor_age_days`); tracker tests |
+| FR-2104 dual trigger sources, all pack data | `fastevolve.check_day_triggers` — `fail_when`/`near_when` via `policy.check` + `evolve.check_triggers` under `triggers.use_mutate`; `test_use_mutate_*` |
+| FR-2105 pause -> reflect -> mid-run promote -> reload -> reinit | `FastEvolve.tick` orchestration; `evolve.promote_candidate(mid_run=True)` + `load_pack` rebind; loop reinit = brain-reset wipe; `test_failure_trigger_evolves_and_reloads`, `test_pause_during_evolve`, `test_midrun_promotion_installs_and_rebinds` |
+| FR-2106 <=2 reloads/day, exhausted days evolve-only | `DayState.reloads_used`/`exhausted`; `test_two_reloads_then_exhausted`, `test_zero_reload_budget_evolves_only` |
+| FR-2107 scoped save/load grant, single writer | `Dispatcher(allow_save_load=)` lifts only `game.save`/`game.load`; `dev.*` stays refused; `test_fair_grant_is_scoped` |
+| FR-2108 mid-run promotion integrity | `evolve.promote_candidate` (revalidate, parent backup, `mid_run` lineage row, `mutation.promoted`); hash rebind; `test_midrun_promotion_installs_and_rebinds` |
+| FR-2109 canonical events + status view | six `fastevolve.*` events -> feed narration; `planning.json` `fastevolve` block + overlay `fe:` tag; `test_event_sequence_and_planning_block` |
+| FR-2110 retry policy is pack data | `fastevolve:` pack section + `pack.schema.json` property + `templates._fastevolve_problems` validation; `test_invalid_predicate_fails_pack_load` |
+| FR-2111 deterministic sim exercise | `SimGame` named save/load + `game.list_saves` `{name, modified}` + `sim_autosave` hook + `game.pause`/`game.speed`; `test_simgame_save_load_roundtrip` |
+| FR-2112 failure-triggered-only passes | `run()` bypasses generic per-poll `maybe_trigger` under `fast_evolve`; only `FastEvolve.tick` invokes the pass; `test_no_trigger_is_inert` |
+
+Suite evidence: 266/266 runtime tests green post-implementation (248 prior + 18..24 fast-evolve cases).

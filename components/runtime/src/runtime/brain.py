@@ -20,24 +20,33 @@ REQUEST = "brain_reset.request"
 STATUS = "brain_status.json"
 
 
-def poll_request(state_dir: Path, enabled: bool) -> dict | None:
+def poll_request(state_dir: Path, enabled: bool,
+                 started_at: float | None = None) -> dict | None:
     """Consume a pending reset request. Returns None when absent.
 
     When the channel is disabled the file is still consumed and a refusal
     is written — an unanswered request must not linger into a later run
-    that does enable it.
+    that does enable it. A request whose file predates ``started_at``
+    (the run's launch time) is a leftover from a previous session — it
+    is consumed and refused the same way, never honored.
     """
     req_path = state_dir / REQUEST
     if not req_path.is_file():
         return None
     try:
         raw = req_path.read_text(encoding="utf-8").strip()
+        mtime = req_path.stat().st_mtime
     except OSError:
-        raw = ""
+        raw, mtime = "", None
     try:
         req_path.unlink()
     except OSError:
         pass
+    if started_at is not None and mtime is not None \
+            and mtime < started_at:
+        write_status(state_dir, ok=False,
+                     error="stale request predates this run — ignored")
+        return None
     if not enabled:
         write_status(state_dir, ok=False,
                      error="live-brain channel disabled (launch with --live-brain)")

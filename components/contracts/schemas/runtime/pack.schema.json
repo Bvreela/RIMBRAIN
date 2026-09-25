@@ -344,6 +344,11 @@
       "type": "object",
       "additionalProperties": true,
       "description": "Live-mutation trigger policy (feature 016; FR-1402/1412): goals_per_pass cadence, on_failure / near_failure thresholds, cooldown_polls, max_passes_per_run, max_ops. Absent = no in-run reflection passes even under --live-mutate."
+    },
+    "fastevolve": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Fast-evolve play-mode policy (feature 021; ADR-020): max_reloads_per_day retry budget, autosave_pattern anchor filter, saves_poll_every scan throttle, max_anchor_age_days fallback bound, pause_during_evolve, max_passes_per_day, triggers {use_mutate, fail_when, near_when} colony predicates. Absent = fastevolve defaults still apply under --mode fastevolve."
     }
   },
   "$defs": {

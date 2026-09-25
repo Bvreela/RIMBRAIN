@@ -762,15 +762,17 @@ def maybe_trigger(ps: PassState, *, dispatcher, ledger, pack_loaded: dict,
                   poll: int, fair: bool, emit, clock=None,
                   resolver=None, chat=None,
                   usage_tracker=None,
-                  force: bool = False) -> dict | None:
+                  force: bool | str = False) -> dict | None:
     """One reflection pass when a trigger fires; None when nothing fired.
     ``force`` runs a pass unconditionally (the ``--stage reflect``
-    debug entry). Never raises — a pass failure is an event, not a
-    crash."""
+    debug entry); a string force supplies the reason verbatim (the
+    fast-evolve day triggers, feature 021). Never raises — a pass
+    failure is an event, not a crash."""
     resolver = resolver or resolve_role
     chat = chat or openai_compat_chat
-    reason, evidence = ("manual", {}) if force \
-        else check_triggers(ps, pack, poll)
+    reason, evidence = ((force, {}) if isinstance(force, str)
+                        else ("manual", {}) if force
+                        else check_triggers(ps, pack, poll))
     if reason is None:
         return None
     seq = [max(getattr(dispatcher, "_events", 0),
@@ -907,7 +909,42 @@ def boundary(pack_id: str, state_dir: Path, *, emit=None, clock=None,
                     and r.get("state") == "pending"), None)
     if not pending:
         return out
-    cand_path = Path(pending.get("candidate_path") or "")
+    ep_score = improve.score(
+        episode_metrics(_events_after(state_dir, 0)), weights)
+    res = promote_candidate(
+        Path(pending.get("candidate_path") or ""), pending, pack_id,
+        state_dir, fair=fair, baseline_score=ep_score,
+        events_offset=_event_count(state_dir), emit=emit, clock=clock,
+        episode_boundary=True)
+    if not res.get("ok"):
+        out["rejected"].append(pending["candidate_id"])
+        return out
+    out["promoted"] = pending["candidate_id"]
+    return out
+
+
+def promote_candidate(cand_path: Path, pending: dict, pack_id: str,
+                      state_dir: Path, *, fair: bool = True,
+                      mid_run: bool = False, baseline_score=None,
+                      events_offset=None, episode_boundary: bool = False,
+                      emit=None, clock=None) -> dict:
+    """Install a pending candidate over the target pack file — the shared
+    install half of :func:`boundary` (ADR-020). Re-validate -> parent
+    backup -> atomic write -> `promoted` lineage row -> `mutation.promoted`.
+
+    ``mid_run=True`` is the fast-evolve retry path: same gate and lineage,
+    marked ``mid_run: true``; the episode-score auto-revert stays a
+    boundary() concern. The caller MUST ``load_pack`` after a mid-run
+    install so the dispatcher's recorded hash rebinds (pack_drift stays
+    sound)."""
+    state_dir = Path(state_dir)
+    seq = [0]
+
+    def _emit(t, payload):
+        if emit is not None:
+            seq[0] += 1
+            emit(mutation_event(t, payload, seq[0], clock))
+
     violations = []
     doc = None
     if not cand_path.is_file():
@@ -925,8 +962,7 @@ def boundary(pack_id: str, state_dir: Path, *, emit=None, clock=None,
             "candidate_id": pending.get("candidate_id"),
             "gate": "boundary", "violations": violations})
         _mark_lineage(state_dir, pending["candidate_id"], "rejected")
-        out["rejected"].append(pending["candidate_id"])
-        return out
+        return {"ok": False, "violations": violations}
     target = templates.pack_path(pack_id)
     parent_hash = templates.current_hash(pack_id) or ""
     parent_backup = (templates.packs_dir() / "candidates" /
@@ -935,20 +971,19 @@ def boundary(pack_id: str, state_dir: Path, *, emit=None, clock=None,
     if target.is_file():
         parent_backup.parent.mkdir(parents=True, exist_ok=True)
         parent_backup.write_bytes(target.read_bytes())
-    ep_score = improve.score(
-        episode_metrics(_events_after(state_dir, 0)), weights)
     write_atomic(target, cand_path.read_bytes())
     lineage = dict(pending)
     lineage.update({"state": "promoted", "parent_hash": parent_hash,
                     "parent_path": str(parent_backup),
-                    "baseline_score": ep_score,
-                    "events_offset": _event_count(state_dir)})
+                    "baseline_score": baseline_score,
+                    "events_offset": events_offset,
+                    "mid_run": mid_run})
     _mark_lineage(state_dir, pending["candidate_id"], "promoted")
     _append_lineage(state_dir, lineage)
     _emit("mutation.promoted", {
         "candidate_id": pending["candidate_id"],
         "pack_hash": templates.current_hash(pack_id) or "",
-        "parent_hash": parent_hash, "episode_boundary": True,
-        "baseline_score": ep_score})
-    out["promoted"] = pending["candidate_id"]
-    return out
+        "parent_hash": parent_hash, "episode_boundary": episode_boundary,
+        "mid_run": mid_run, "baseline_score": baseline_score})
+    return {"ok": True, "candidate_id": pending["candidate_id"],
+            "parent_hash": parent_hash}

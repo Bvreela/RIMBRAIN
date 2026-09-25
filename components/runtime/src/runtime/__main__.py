@@ -24,7 +24,9 @@ def main(argv: list[str] | None = None) -> int:
     sp.add_argument("role"); sp.add_argument("--live", action="store_true")
     sp = sub.add_parser("loop", help="unified run loop (sim deterministic)")
     sp.add_argument("--pack", default="core-survival-v0")
-    sp.add_argument("--mode", choices=["run", "cycle", "improve"],
+    sp.add_argument("--mode", choices=["run", "cycle", "improve",
+                                       "fastevolve",
+                                       "sim", "live", "start", "combat"],
                     default="run")
     sp.add_argument("--game", choices=["sim", "live"], default="sim")
     sp.add_argument("--stage", default=None,
@@ -46,6 +48,12 @@ def main(argv: list[str] | None = None) -> int:
                     help="do not persist events to state/events.jsonl")
     sp.add_argument("--live-brain", action="store_true",
                     help="honor brain-reset requests mid-run")
+    sp.add_argument("--live-mutate", action="store_true",
+                    help="run the reflection pass mid-run (feature 016)")
+    sp.add_argument("--scored", action="store_true",
+                    help="declare a scored episode (eval harness)")
+    sp.add_argument("--fresh", action="store_true",
+                    help="wipe session-scoped state before starting")
     sp.add_argument("--no-hold", action="store_true",
                     help="start mode: stop at start.completed")
     sp = sub.add_parser("plan", help="planner/review loop (sim deterministic)")
@@ -86,6 +94,9 @@ def main(argv: list[str] | None = None) -> int:
                           + ([] if args.fair else ["--dev"])
                           + (["--no-store"] if args.no_store else [])
                           + (["--live-brain"] if args.live_brain else [])
+                          + (["--live-mutate"] if args.live_mutate else [])
+                          + (["--scored"] if args.scored else [])
+                          + (["--fresh"] if args.fresh else [])
                           + (["--no-hold"] if args.no_hold else []))
     elif args.cmd == "plan":
         from . import planloop as _pl

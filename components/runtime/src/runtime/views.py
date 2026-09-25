@@ -194,6 +194,15 @@ def write_planning(state_dir: str | Path, snapshot: dict) -> None:
                   f"pending candidate: "
                   f"`{mv.get('pending_candidate') or '—'}`",
                   f"active lineage: `{mv.get('active_lineage') or '—'}`"]
+    fv = snapshot.get("fastevolve")
+    if fv:
+        lines += ["", "## Fast-evolve", "",
+                  f"day: {fv.get('day')}  "
+                  f"anchor: `{fv.get('anchor') or '—'}`",
+                  f"reloads: {fv.get('reloads_used', 0)}/"
+                  f"{fv.get('max_reloads', 0)}  "
+                  f"passes: {fv.get('passes_used', 0)}"
+                  + ("  **EXHAUSTED**" if fv.get("exhausted") else "")]
     write_atomic(d / "planning.md",
                  "\n".join(lines).encode() + b"\n")
 
@@ -268,7 +277,7 @@ def start_snapshot(mode, ledger, obs, events_path=None,
 
 
 def phase_snapshot(engine, ledger, obs, events_path=None,
-                   mutate_view=None) -> dict:
+                   mutate_view=None, fastevolve_view=None) -> dict:
     """Planning snapshot for the unified phase run (feature 017;
     FR-1428): current phase, per-phase step/goal rows with live
     `holds`, standing goals — same semantics as start_snapshot."""
@@ -277,6 +286,8 @@ def phase_snapshot(engine, ledger, obs, events_path=None,
         latest_plan=latest_plan_summary(events_path) if events_path
         else None, mutate_view=mutate_view)
     snap["mode"] = "run"
+    if fastevolve_view is not None:
+        snap["fastevolve"] = fastevolve_view
     snap["phase"] = next(
         (p.get("id") for p in engine.phases
          if p.get("id") and not engine._done(p["id"])), None)

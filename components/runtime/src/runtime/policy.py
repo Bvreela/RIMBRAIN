@@ -947,6 +947,124 @@ def _fn_arm_weapon(ctx, weapon_kinds):
     return (m or {}).get("weapon")
 
 
+def _def_rank(d, defs):
+    """Index of `d` in the pack's ordered defs (best-first); unlisted
+    or absent gear ranks worst."""
+    try:
+        return list(defs or []).index(d)
+    except ValueError:
+        return len(defs or [])
+
+
+def _pawn_equipped_def(ctx, pid):
+    """Def name of the pawn's equipped weapon. The pawn-row `weapon`
+    field is a label/id, not a def — only pawn detail's `equipment`
+    rows carry one."""
+    det = _pawn_detail(ctx, pid)
+    eq = det.get("equipment") or []
+    return eq[0].get("def") if eq and isinstance(eq[0], dict) else None
+
+
+def _pawn_apparel_defs(ctx, pid):
+    det = _pawn_detail(ctx, pid)
+    return [a["def"] for a in (det.get("apparel") or [])
+            if isinstance(a, dict) and a.get("def")]
+
+
+def _upgrade_match(ctx, weapon_kinds):
+    """Best (pawn, loose-weapon) upgrade pair: per weapon group (pack
+    order = preference), the loose instance of the best-ranked def goes
+    to the highest-skill colonist whose equipped weapon ranks worse.
+    Equip auto-drops the old weapon, so upgrades cascade one pair per
+    call — the repeat.while loop drains the cascade."""
+    key = ("upgrade_match", str(weapon_kinds))
+    if key in ctx.cache:
+        return ctx.cache[key]
+    match = None
+    rows = [c for c in _colonist_rows(ctx) if c.get("id")]
+    for grp in weapon_kinds or []:
+        defs = grp.get("defs") or []
+        avail = None
+        for rank, d in enumerate(defs):
+            loose = _find_loose_defs(ctx, [d])
+            if loose:
+                avail = (rank, loose[0].get("id"))
+                break
+        if avail is None:
+            continue
+        skill = grp.get("skill") or ""
+        cands = sorted(rows,
+                       key=lambda c: -_skill(ctx, c["id"], skill))
+        for c in cands:
+            if _is_downed(ctx, c):
+                continue
+            if _def_rank(_pawn_equipped_def(ctx, c["id"]),
+                         defs) > avail[0]:
+                match = {"pawn": c["id"], "weapon": avail[1]}
+                break
+        if match:
+            break
+    ctx.cache[key] = match
+    return match
+
+
+def _armor_match(ctx, armored_skill, armor_defs):
+    """Best loose armor (defs best-first) goes to the highest-skilled
+    `armored_skill` colonist whose worn armor ranks worse — melee
+    specialists get the best protection first."""
+    key = ("armor_match", armored_skill, str(armor_defs))
+    if key in ctx.cache:
+        return ctx.cache[key]
+    match = None
+    avail = None
+    for rank, d in enumerate(armor_defs or []):
+        loose = _find_loose_defs(ctx, [d])
+        if loose:
+            avail = (rank, loose[0].get("id"))
+            break
+    if avail is not None:
+        rows = [c for c in _colonist_rows(ctx) if c.get("id")]
+        cands = sorted(
+            rows,
+            key=lambda c: -_skill(ctx, c["id"], armored_skill or ""))
+        for c in cands:
+            if _is_downed(ctx, c):
+                continue
+            cur = min((_def_rank(d, armor_defs)
+                       for d in _pawn_apparel_defs(ctx, c["id"])),
+                      default=len(armor_defs or []))
+            if cur > avail[0]:
+                match = {"pawn": c["id"], "apparel": avail[1]}
+                break
+    ctx.cache[key] = match
+    return match
+
+
+def _fn_upgrade_pawn(ctx, weapon_kinds):
+    return (_upgrade_match(ctx, weapon_kinds) or {}).get("pawn")
+
+
+def _fn_upgrade_weapon(ctx, weapon_kinds):
+    return (_upgrade_match(ctx, weapon_kinds) or {}).get("weapon")
+
+
+def _fn_upgrade_armor_pawn(ctx, armored_skill, armor_defs):
+    return (_armor_match(ctx, armored_skill, armor_defs) or {}) \
+        .get("pawn")
+
+
+def _fn_upgrade_armor(ctx, armored_skill, armor_defs):
+    return (_armor_match(ctx, armored_skill, armor_defs) or {}) \
+        .get("apparel")
+
+
+def _fn_equip_pending(ctx, weapon_kinds, armored_skill, armor_defs):
+    """Seasonal review work remains: a better loose weapon for some
+    colonist, or better loose armor for a worse-armored one."""
+    return bool(_upgrade_match(ctx, weapon_kinds)
+                or _armor_match(ctx, armored_skill, armor_defs))
+
+
 def _fn_arm_pending(ctx, weapon_kinds, armor_defs):
     """Arming work remains: an unarmed colonist with a weapon available,
     or loose armor left to wear."""
@@ -1232,9 +1350,12 @@ def _fn_letters(ctx, choice_only=False):
     return out
 
 
-def _fn_rank_site(ctx, w=9, h=9, w_items=2.0, w_home=1.0):
+def _fn_rank_site(ctx, w=9, h=9, w_items=2.0, w_home=1.0,
+                  w_fertile=0.0, fertile_step=4):
     """Score open rects by weighted distance to the item cluster and
-    home center — deterministic; weights arrive as arguments."""
+    home center plus sampled soil fertility — deterministic; weights
+    arrive as arguments. A zero ``w_fertile`` keeps the pure-proximity
+    ranking (and zero map.cell calls)."""
     rects = ctx.obs.get("open_rects") or []
     if isinstance(rects, dict):
         rects = rects.get("rects") or []
@@ -1256,11 +1377,33 @@ def _fn_rank_site(ctx, w=9, h=9, w_items=2.0, w_home=1.0):
                     or rect.get("cell") or [0, 0])
         return rect
 
+    step = max(1, int(fertile_step or 4))
+
+    def _fertility(rect):
+        """Mean map.cell fertility over a coarse grid inside the
+        candidate rect — live RPCs, so the step controls the spend."""
+        x0, z0 = _cell(rect)[0], _cell(rect)[1]
+        fsum = n = 0
+        for x in range(int(x0), int(x0) + int(w), step):
+            for z in range(int(z0), int(z0) + int(h), step):
+                res = ctx.rpc("map.cell", {"cell": [x, z]})
+                f = res.get("fertility") if isinstance(res, dict) \
+                    else None
+                if isinstance(f, (int, float)):
+                    fsum += f
+                    n += 1
+        return fsum / n if n else 0.0
+
+    use_fertility = bool(w_fertile) and ctx.game is not None
+
     def score(rect):
         x, z = _cell(rect)[0], _cell(rect)[1]
-        return float(w_items) * -((x - cx) ** 2 + (z - cz) ** 2) ** 0.5 \
+        s = float(w_items) * -((x - cx) ** 2 + (z - cz) ** 2) ** 0.5 \
             + float(w_home) * -((x - home[0]) ** 2
                                 + (z - home[1]) ** 2) ** 0.5
+        if use_fertility:
+            s += float(w_fertile) * _fertility(rect)
+        return s
 
     best = max(rects, key=score)
     cell = _cell(best)
@@ -1302,6 +1445,11 @@ FN = {
     "weapons_avail": _fn_weapons_avail,
     "arm_pawn": _fn_arm_pawn, "arm_weapon": _fn_arm_weapon,
     "arm_pending": _fn_arm_pending,
+    "upgrade_pawn": _fn_upgrade_pawn,
+    "upgrade_weapon": _fn_upgrade_weapon,
+    "upgrade_armor_pawn": _fn_upgrade_armor_pawn,
+    "upgrade_armor": _fn_upgrade_armor,
+    "equip_pending": _fn_equip_pending,
     "living_hostiles": _fn_living_hostiles,
     "armed_ids": _fn_armed_ids, "drafted_ids": _fn_drafted_ids,
     "nearest_hostile": _fn_nearest_hostile,

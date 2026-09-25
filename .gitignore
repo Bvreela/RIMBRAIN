@@ -42,3 +42,6 @@ coverage/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Generated pack candidates + parent backups (runtime lineage artifacts)
+components/rimbrain/packs/candidates/
