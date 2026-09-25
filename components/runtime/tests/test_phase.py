@@ -57,6 +57,7 @@ class StartSim:
         self.anchors: dict[str, dict] = {}
         self.saves: dict[str, dict] = {}   # name -> state snapshot
         self.hostiles: list[dict] = []     # live hostile pawns
+        self.guests: list[dict] = []       # non-colonist pawns (pod crashes)
         self.drafted: set[str] = set()
         # colonists with jobs/skills (universal idle rule + arming)
         self.pawns = [{"id": f"c{i}", "name": f"P{i}", "faction": "Player",
@@ -432,7 +433,8 @@ class StartSim:
                 self.hostiles.append(
                     {"id": f"raider-{len(self.hostiles)}", "kind": "Pirate",
                      "pos": [20 + len(self.hostiles), 20],
-                     "dist_home": 40})
+                     "dist_home": 40,
+                     "lord": "LordJob_AssaultColony"})
             return {"ok": True, "result": {"fired": params.get("def")}}
         if method == "dev.spawn_pawn":
             self.hostiles.append(
@@ -440,7 +442,8 @@ class StartSim:
                  "kind": params.get("kind"),
                  "faction": params.get("faction"),
                  "pos": [20 + len(self.hostiles), 20],
-                 "dist_home": 40})
+                 "dist_home": 40,
+                 "lord": params.get("lord", "LordJob_AssaultColony")})
             return {"ok": True,
                     "result": [{"id": self.hostiles[-1]["id"]}]}
         if method == "state.factions":
@@ -468,21 +471,37 @@ class StartSim:
                     params.get("target"))
                 self.armor = [a for a in self.armor
                               if a["id"] != params.get("target")]
+            elif job == "Rescue":
+                # carrying a guest pawn to a bed: it leaves the map
+                # surface (no pos while held) until healed
+                g = next((x for x in self.guests
+                          if x.get("id") == params.get("target")), None)
+                if g is not None:
+                    g["carried_by"] = params.get("pawn")
+                    g.pop("pos", None)
+                if pawn is not None:
+                    pawn["job"] = job
             elif pawn is not None:
                 pawn["job"] = job  # fallback idle-correction jobs land here
             return {"ok": True, "result": {"applied": True}}
         if method == "state.pawns":
-            return {"ok": True, "result": [
-                {**p, "drafted": p["id"] in self.drafted}
-                for p in self.pawns]}
+            rows = [{**p, "drafted": p["id"] in self.drafted}
+                    for p in self.pawns]
+            if (params or {}).get("filter") == "all":
+                rows += [dict(g) for g in self.guests]
+                rows += [{**h, "hostile": True}
+                         for h in self.hostiles if not h.get("dead")]
+            return {"ok": True, "result": rows}
         if method == "state.pawn":
             pid = params.get("pawn")
+            g = next((x for x in self.guests if x.get("id") == pid), {})
             return {"ok": True, "result": {
                 "id": pid,
                 "skills": self.skills.get(pid, {}),
                 "drafted": pid in self.drafted,
-                "downed": any(h.get("id") == pid and h.get("downed")
-                              for h in self.hostiles)}}
+                "downed": g.get("downed") or any(
+                    h.get("id") == pid and h.get("downed")
+                    for h in self.hostiles)}}
         if method == "state.research":
             return {"ok": True, "result": dict(self.research)}
         if method == "ui.set_research":
@@ -955,3 +974,32 @@ def test_site_ranking_applies_anchor_offset(rig):
     ctx = policy.Ctx(cfg=cfg, obs=obs, game=game)
     s = policy.FN["rank_site"](ctx, 9, 9, 2.0, 1.0)
     assert s["min"] == [39, 44]
+
+
+def test_site_ranking_reuses_ruin_walls(rig):
+    """Wall-reuse: a candidate whose plan_room wall ring overlaps
+    standing walls outranks bare ground; the site nudges (within
+    wall_margin) to maximize the overlap."""
+    _d, game, _l, cfg, _e = rig
+    obs = observe_start(game)
+    obs["open_rects"] = [{"min": [30, 30]}, {"min": [80, 80]}]
+    obs["home_center"] = [30, 30]
+    obs["items"] = []
+    # ruin column two cells west of the near candidate's wall ring
+    # (ring west edge at x=29; walls at x=27 -> best nudge dx=-2)
+    game.built = [{"id": f"w{i}", "def": "Wall", "pos": [27, 29 + i]}
+                  for i in range(11)]
+    ctx = policy.Ctx(cfg=cfg, obs=obs, game=game)
+    s = policy.FN["rank_site"](ctx, 9, 9, 2.0, 1.0, 0.0, 4,
+                               4.0, 4, ["Wall"])
+    assert s["min"] == [28, 30] and s["reused_walls"] == 11
+
+
+def test_site_ranking_walls_zero_weight_is_pure_proximity(rig):
+    _d, game, _l, cfg, _e = rig
+    obs = observe_start(game)
+    obs["open_rects"] = [{"min": [30, 30]}]
+    game.built = [{"id": "w0", "def": "Wall", "pos": [29, 29]}]
+    ctx = policy.Ctx(cfg=cfg, obs=obs, game=game)
+    s = policy.FN["rank_site"](ctx, 9, 9, 2.0, 1.0)
+    assert "reused_walls" not in s and s["min"] == [30, 30]

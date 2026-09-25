@@ -70,7 +70,14 @@ def test_plan_room_compiles_bedroom_deterministic():
     zs = [c[1] for c in cells]
     assert (max(xs) - min(xs), max(zs) - min(zs)) == (5, 7)
     door = next(o for o in ops if o["def"] == "Door")
-    assert door["at"] in ([12, 16], [10, 16], [11, 16], [13, 16])
+    # door sits in the bottom wall ring (z-1) where the bottom line
+    # splits around dx — never over a top-edge wall cell
+    assert door["at"] in ([12, 9], [10, 9], [11, 9], [13, 9])
+    bottom = [o for o in walls if o["line"][0][1] == 9]
+    covered = {c for o in bottom for c in
+               range(o["line"][0][0], o["line"][1][0] + 1)}
+    assert 12 not in covered            # door cell left open
+    assert covered | {door["at"][0]} == set(range(9, 15))
     floor = next(o for o in ops if o["def"] == "Carpet")
     assert floor["rect"] == [10, 10, 4, 6] and floor["fill"] is True
     furn = [o for o in ops if o["def"] in ("Bed", "Dresser", "EndTable",

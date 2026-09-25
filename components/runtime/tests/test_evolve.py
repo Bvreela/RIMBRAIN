@@ -292,6 +292,83 @@ def test_reflect_rules_only_no_findings_degrades():
     assert r["error"]["code"] == "evolve.rules_only_noop"
 
 
+def _chat_429(*a, **kw):
+    return {"ok": False, "error": {"code": "client.http",
+                                   "message": "HTTP 429 from x",
+                                   "retryable": True,
+                                   "details": {"status": 429}}}
+
+
+def test_reflect_endpoint_429_reports_status_and_identity():
+    ps = evolve.PassState(copy.deepcopy(MINI["mutate"]))
+    r = evolve.reflect(ps, {}, _loaded(), MINI, "near_failure",
+                       resolver=_resolver_endpoint, chat=_chat_429)
+    assert not r["ok"] and r["degraded"]
+    assert r["status"] == 429 and r["retryable"]
+    assert r["endpoint_id"] == "test-ep" and r["model"] == "m-test"
+
+
+def test_reflect_endpoint_down_uses_declared_remediation():
+    """Endpoint error still yields a (degraded) proposal when a pack
+    defect-pattern remediation compiles — the pass does useful work."""
+    pack = copy.deepcopy(MINI)
+    pack["improve"] = {"defect_patterns": [{
+        "id": "refusal-burst", "event_type": "action.refused",
+        "group_by": "payload.template_id", "min_count": 1,
+        "remediation": {"ops": [{"op": "set_cfg",
+                                 "path": "govern.goals.keep.retry_polls",
+                                 "value": 7}]}}]}
+    ps = evolve.PassState(copy.deepcopy(MINI["mutate"]))
+    ps.note(_env("action.refused", {"template_id": "ping"}))
+    r = evolve.reflect(ps, {}, _loaded(pack), pack, "near_failure",
+                       resolver=_resolver_endpoint, chat=_chat_429)
+    assert r["ok"] and r["degraded"]
+    assert r["endpoint_error"] == "HTTP 429 from x"
+    assert r["proposal"]["mutations"] == [
+        {"op": "set", "path": "govern.goals.keep.retry_polls",
+         "value": 7}]
+
+
+def test_degraded_streak_backs_off_cooldown():
+    """Consecutive degraded passes multiply cooldown (x2..x16)."""
+    cfg = copy.deepcopy(MINI["mutate"])
+    cfg["cooldown_polls"] = 10
+    ps = evolve.PassState(cfg)
+    ps.last_pass_poll = 100
+    ps.degraded_streak = 2              # cooldown -> 40
+    ps.passes = 1
+    # a firing trigger inside the extended window stays suppressed
+    ps.note(_transition("govern.keep", "failed", seq=1))
+    assert evolve.check_triggers(ps, MINI, 110) == (None, {})  # 10 < 40
+    reason, ev = evolve.check_triggers(ps, MINI, 141)
+    assert reason == "failure" and ev["tasks"] == ["govern.keep"]
+
+
+def test_maybe_trigger_degraded_event_carries_diagnostics(tmp_path):
+    events = []
+
+    def emit(e):
+        events.append(e)
+
+    cfg = copy.deepcopy(MINI["mutate"])
+    ps = evolve.PassState(cfg)
+    ps.note(_env("action.refused", {"template_id": "ping"}, 1))
+    ps.note(_env("action.refused", {"template_id": "ping"}, 2))
+    ps.note(_env("action.refused", {"template_id": "ping"}, 3))
+    _maybe(ps, poll=10, state_dir=tmp_path, emit=emit,
+           resolver=_resolver_endpoint, chat=_chat_429)
+    deg = next(e for e in events if e["event_type"] == "mutation.degraded")
+    p = deg["payload"]
+    assert p["reason"] == "near_failure"
+    assert p["status"] == 429 and p["retryable"]
+    assert p["endpoint_id"] == "test-ep" and p["model"] == "m-test"
+    assert p["streak"] == 1 and p["action"] == "no change applied"
+    assert "ping" in p["evidence"]["refusals"]
+    trig = next(e for e in events
+                if e["event_type"] == "mutation.triggered")
+    assert trig["payload"]["evidence"]["refusals"]
+
+
 # -- gate ------------------------------------------------------------------------
 
 def _proposal(ops, pack=None):

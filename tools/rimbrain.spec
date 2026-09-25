@@ -47,10 +47,15 @@ pyz = PYZ(a.pure)
 exe = EXE(
     pyz,
     a.scripts,
+    [],
+    exclude_binaries=True,      # onedir: no _MEI extraction at launch —
+    name="rimbrain",            # onefile's temp-dir unpack raced AV locks
+    console=True,               # and died mid-import; onedir removes the
+    upx=False,                  # whole failure class (and starts faster)
+)
+coll = COLLECT(
+    exe,
     a.binaries,
     a.datas,
-    [],
-    name="rimbrain",
-    console=True,
-    upx=False,
+    name="rimbrain",            # dist/rimbrain/rimbrain.exe + _internal/
 )

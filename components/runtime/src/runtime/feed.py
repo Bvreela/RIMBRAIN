@@ -14,6 +14,23 @@ from pathlib import Path
 from .store import write_atomic
 
 
+def _ev_brief(ev: dict) -> str:
+    """Compact evidence summary for mutation trigger/degraded rows."""
+    bits = []
+    for k, label in (("tasks", "failed"), ("requeued", "requeued"),
+                     ("refusals", "refused"), ("defects", "defects")):
+        v = ev.get(k)
+        if v:
+            bits.append(f"{label}: {','.join(map(str, list(v)[:4]))}")
+    if ev.get("blocked_polls"):
+        bits.append(f"blocked {ev['blocked_polls']} polls")
+    if ev.get("escalations"):
+        bits.append(f"{ev['escalations']} escalations")
+    if ev.get("terminal_goals"):
+        bits.append(f"{ev['terminal_goals']} goals terminal")
+    return "; ".join(bits)
+
+
 def render_event(env: dict) -> str:
     """One-line narrative for a canonical envelope (deterministic)."""
     t = env.get("event_type", "?")
@@ -76,18 +93,23 @@ def render_event(env: dict) -> str:
                 f"{p.get('verify_failure_rate', 0):.0%}, tasks done "
                 f"{p.get('task_completion_rate', 0):.0%}.")
     if t == "mutation.triggered":
+        bits = _ev_brief(p.get('evidence') or {})
         return (f"Reflecting: `{p.get('reason')}` trigger at poll "
-                f"{p.get('poll')} — {p.get('evidence')}.")
+                f"{p.get('poll')}"
+                + (f" — {bits}." if bits else "."))
     if t == "mutation.proposed":
-        return (f"Mutation `{p.get('mutation_id')}` proposed by "
-                f"{p.get('model', '?')} — {p.get('op_count')} op(s)"
+        ops = "; ".join(p.get("ops") or []) \
+            or f"{p.get('op_count')} op(s)"
+        return (f"Mutation `{p.get('mutation_id')}` proposed: {ops}"
                 + (" [degraded]" if p.get("degraded") else "."))
     if t == "mutation.candidate":
         return (f"Mutation candidate `{p.get('candidate_id')}` written "
                 f"for `{p.get('target_pack')}` — promotes next run.")
     if t == "mutation.rejected":
+        ops = "; ".join(p.get("ops") or [])
         return (f"Mutation refused at gate `{p.get('gate')}` — "
-                f"{'; '.join(p.get('violations') or [])}.")
+                f"{'; '.join(p.get('violations') or [])}."
+                + (f" Tried: {ops}." if ops else ""))
     if t == "mutation.promoted":
         return (f"Mutation `{p.get('candidate_id')}` promoted — pack "
                 f"{str(p.get('pack_hash'))[:12]} (parent "
@@ -97,8 +119,16 @@ def render_event(env: dict) -> str:
                 f"baseline {p.get('baseline_score')} — restored parent "
                 f"{str(p.get('pack_hash'))[:12]}.")
     if t == "mutation.degraded":
-        return (f"Mutation degraded: {p.get('detail')} "
-                f"(trigger `{p.get('reason')}`).")
+        brief = _ev_brief(p.get("evidence") or {})
+        detail = (f"HTTP {p['status']}" if p.get("status")
+                  else p.get("detail"))
+        streak = p.get("streak") or 0
+        return (f"Mutation degraded ({p.get('reason')})"
+                + (f" on {brief}" if brief else "")
+                + f": {detail} — no change applied"
+                + (f" ({streak} in a row, backoff ×"
+                   f"{1 << min(streak, 4)})" if streak > 1 else "")
+                + ".")
     if t == "mutation.noop":
         return (f"Mutation pass: no change — {p.get('rationale') or ''}"
                 .rstrip())

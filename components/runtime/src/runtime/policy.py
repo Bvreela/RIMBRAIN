@@ -412,6 +412,16 @@ def _fn_find_def(ctx, d):
     return None
 
 
+def _fn_first_def(ctx, defs):
+    """First def in the pack's ordered `defs` known to defs.get — the
+    build-param counterpart to plan_room's preference lists, for
+    templates that take a single `def` (modded games rename/omit)."""
+    for d in (defs if isinstance(defs, (list, tuple)) else [defs]):
+        if d and _def_known(ctx, d):
+            return d
+    return None
+
+
 def _fn_find_defs(ctx, defs):
     """All thing rows matching any def in `defs` (map.find per def,
     merged). `find_def` returns the first id; this keeps rows so `pos`
@@ -1252,11 +1262,21 @@ def _fn_dialogs(ctx):
 
 
 def _fn_fleeing_ids(ctx, window=3, rise=5):
-    """Hostiles whose dist_home is rising over recent polls (routed)."""
+    """Hostiles whose dist_home is rising over recent polls (routed).
+    Fogged rows are skipped — routing can't be verified on a pawn the
+    colony can't see, and dormant clusters produce false flee trends.
+    Non-pawn rows are skipped — a structure can't flee, so any trend is
+    HomeCenter drift. Only engaged hostiles count (seen-engaged set or
+    still engage-classified): a dormant-hive insect wandering away from
+    the colony is presence, not a routed attacker — chasing it wakes
+    the hive."""
     trend = ctx.state.setdefault("dist_trend", {})
+    seen = ctx.state.get("seen_engaged") or {}
     out = []
     for h in _hostile_rows(ctx):
-        if not isinstance(h, dict) or not h.get("id"):
+        if not isinstance(h, dict) or not h.get("id") or h.get("fogged"):
+            continue
+        if not _is_pawn_hostile(h):
             continue
         d = h.get("dist_home")
         if not isinstance(d, (int, float)):
@@ -1264,7 +1284,10 @@ def _fn_fleeing_ids(ctx, window=3, rise=5):
         hist = trend.setdefault(h["id"], [])
         hist.append(d)
         del hist[:-int(window or 3)]
-        if len(hist) >= int(window or 3) and hist[-1] > hist[0] + float(rise or 5):
+        if len(hist) >= int(window or 3) \
+                and hist[-1] > hist[0] + float(rise or 5) \
+                and (h["id"] in seen
+                     or _engage_kind(ctx, h) == "engage"):
             out.append(h["id"])
     return out
 
@@ -1412,10 +1435,19 @@ def _is_friendly(ctx, h):
         or h.get("colonist") is True
 
 
+def _is_pawn_hostile(h):
+    """Pawn hostile rows carry name/kind (+ lord/mental/weapon/health
+    keys even when null); non-pawn hostiles — hives, turrets, crashed
+    ship parts — are ThingHandle rows with def/label only. A hostile
+    that isn't a pawn can never advance on the colony."""
+    return bool("kind" in h or "name" in h or "lord" in h
+                or "mental" in h or h.get("pawn"))
+
+
 def _is_structure(ctx, h):
     k = str(h.get("kind") or h.get("def") or "").lower()
-    return bool(h.get("structure")) or "turret" in k \
-        or "building" in k or "mortar" in k
+    return bool(h.get("structure")) or not _is_pawn_hostile(h) \
+        or "turret" in k or "building" in k or "mortar" in k
 
 
 def _colonist_outside_home(ctx):
@@ -1439,7 +1471,9 @@ def _engage_kind(ctx, h):
     if _in_home(ctx, pos) is True:
         return "engage"
     lord = str(h.get("lord") or "")
-    if lord and lord in (cfg.get("watch_lords") or ["LordJob_Siege"]):
+    lord_short = lord[8:] if lord.startswith("LordJob_") else lord
+    wl = cfg.get("watch_lords") or ["LordJob_Siege"]
+    if lord and (lord in wl or lord_short in wl):
         return "watch"                       # siege/staging lords
     mental = str(h.get("mental") or "")
     if mental and mental == str(cfg.get("manhunter_mental")
@@ -1451,11 +1485,17 @@ def _engage_kind(ctx, h):
     if d is None:
         dh = h.get("dist_home")
         d = float(dh) if isinstance(dh, (int, float)) else None
+    ad = cfg.get("assault_duties") or list(_ASSAULT_DEFAULT)
+    if lord:
+        # scripted duty: only an assault lord means attack. Dormant
+        # mech clusters, ceremonies, exit-map marches are presence,
+        # not threat — drafting for them freezes the colony forever.
+        return "engage" if (lord in ad or lord_short in ad) else "watch"
     if _is_structure(ctx, h):
-        return "engage" if (d is not None and d <= er) else "watch"
-    if lord and lord in (cfg.get("assault_duties")
-                         or list(_ASSAULT_DEFAULT)):
-        return "engage"
+        # static hostiles can't advance; they only threaten exposed
+        # colonists (a dormant turret can't shoot through walls)
+        return "engage" if (d is not None and d <= er
+                            and _colonist_outside_home(ctx)) else "watch"
     if d is not None and d <= er:
         return "engage"
     return "watch"
@@ -1463,9 +1503,14 @@ def _engage_kind(ctx, h):
 
 def _fn_engaged_hostiles(ctx):
     """Living hostile rows the colony should fight now."""
-    return [h for h in _fn_living_hostiles(ctx)
-            if not _is_friendly(ctx, h)
-            and _engage_kind(ctx, h) == "engage"]
+    out = [h for h in _fn_living_hostiles(ctx)
+           if not _is_friendly(ctx, h)
+           and _engage_kind(ctx, h) == "engage"]
+    seen = ctx.state.setdefault("seen_engaged", {})
+    for h in out:
+        if h.get("id"):
+            seen[h["id"]] = ctx.tick
+    return out
 
 
 def _fn_watching_hostiles(ctx):
@@ -1650,11 +1695,12 @@ def _fn_fighter_engages(ctx, p):
 
 
 def _fn_focus_target(ctx):
-    """The squad's shared target: living hostile nearest home_center
-    (dist_home fallback when positions are unavailable)."""
+    """The squad's shared target: engaged hostile nearest home_center
+    (dist_home fallback when positions are unavailable). Watching
+    hostiles are never focus-fire targets."""
     obs = ctx.obs or {}
     cell = obs.get("home_center") or (obs.get("map") or {}).get("home")
-    return _fn_nearest_hostile(ctx, cell)
+    return _fn_nearest_engaged(ctx, cell)
 
 
 def _fn_order_state(ctx, order=None):
@@ -1721,24 +1767,27 @@ def _fn_combat_mode(ctx):
 
 
 def _fn_ticks_since_hostile(ctx):
-    """Game ticks since a living hostile was last observed — 10**9 when
-    none has ever been seen (release window already satisfied)."""
-    if _fn_living_hostiles(ctx):
+    """Game ticks since a hostile needing engagement was last observed —
+    10**9 when none has ever been seen (release window already
+    satisfied). Engaged-tracked, not living-tracked: dormant watching
+    hostiles (sleeping mech clusters, distant staging) must not hold
+    stand-down/release gates hostage forever."""
+    if _fn_engaged_hostiles(ctx):
         ctx.state["last_hostile_tick"] = ctx.tick
     last = ctx.state.get("last_hostile_tick")
     return ctx.tick - last if last is not None else 10 ** 9
 
 
 def _fn_hostile_free_polls(ctx):
-    """Consecutive polls with a CONFIRMED-empty living-hostiles read —
-    flicker hysteresis for stand-down/release gates. A living hostile
+    """Consecutive polls with a CONFIRMED-empty engaged-hostiles read —
+    flicker hysteresis for stand-down/release gates. An engaged hostile
     resets the streak AND records the sighting tick (short-circuited
     predicates can skip ticks_since_hostile — last_hostile_tick must
     stay honest wherever this fn evaluates first); a failed/absent
     threats read just doesn't count (holds, not resets — one bad RPC
     shouldn't undo a clean stretch, but it must never count toward
     standing pawns down)."""
-    if _fn_living_hostiles(ctx):
+    if _fn_engaged_hostiles(ctx):
         ctx.state["hostile_free_polls"] = 0
         ctx.state["last_hostile_tick"] = ctx.tick
     elif ctx.state.get("_threats_read_ok") \
@@ -1749,6 +1798,35 @@ def _fn_hostile_free_polls(ctx):
         ctx.state["hostile_free_polls"] = \
             int(ctx.state.get("hostile_free_polls") or 0) + 1
     return int(ctx.state.get("hostile_free_polls") or 0)
+
+
+def _fn_nearest_engaged(ctx, cell):
+    """Nearest living hostile the colony should actually fight —
+    engage-classified rows only, so defense rules never pick dormant /
+    watching hostiles (sleeping mech clusters, distant staging)."""
+    p = _fn_pos(ctx, cell)
+    best, best_d = None, None
+    for h in _fn_engaged_hostiles(ctx):
+        if not h.get("id"):
+            continue
+        hp = _fn_pos(ctx, h)
+        if p is not None and hp is not None:
+            d = (hp[0] - p[0]) ** 2 + (hp[1] - p[1]) ** 2
+        else:
+            d = h.get("dist_home")
+            if not isinstance(d, (int, float)):
+                continue
+        if best_d is None or d < best_d:
+            best, best_d = h.get("id"), d
+    return best
+
+
+def _fn_targetable_hostiles(ctx):
+    """Living hostiles a squad could legitimately be ordered onto —
+    unfogged and non-friendly. Watching-but-visible raiders stay
+    targetable; dormant sleeping clusters (fogged) never are."""
+    return [h for h in _fn_living_hostiles(ctx)
+            if not _is_friendly(ctx, h) and not h.get("fogged")]
 
 
 def _fn_hostiles_in_home(ctx):
@@ -2115,6 +2193,64 @@ def _fn_pawns_needing_tend(ctx):
     return out
 
 
+def _all_pawn_rows(ctx):
+    """state.pawns {filter: all} — every spawned pawn: colonists as
+    briefs, guests/crash-survivors/hostiles as handles {id, kind, pos,
+    faction, hostile, dead, downed}. Cached per ctx like the other
+    row pools."""
+    if "all_pawns" in ctx.cache:
+        return ctx.cache["all_pawns"]
+    res = ctx.rpc("state.pawns", {"filter": "all"})
+    rows = res if isinstance(res, list) \
+        else ((res.get("pawns") or []) if isinstance(res, dict) else [])
+    out = [p for p in rows if isinstance(p, dict)]
+    ctx.cache["all_pawns"] = out
+    return out
+
+
+def _fn_rescuees(ctx, include_hostile=False):
+    """Downed non-colonist pawns still lying on the map — pod-crash
+    survivors, downed wanderers/visitors/animals. A pawn already being
+    carried has no `pos` and drops out; hostiles stay out unless asked
+    for (a hostile wants `capture`, not `rescue`)."""
+    out = []
+    for p in _all_pawn_rows(ctx):
+        if not p.get("id") or p.get("dead"):
+            continue
+        if p.get("faction") == "Player" or p.get("kind") == "Colonist":
+            continue
+        if p.get("hostile") and not include_hostile:
+            continue
+        if not p.get("pos"):
+            continue  # carried/held — already en route to a bed
+        det = _pawn_detail(ctx, p["id"]) if ctx.game is not None else {}
+        race = det.get("race")
+        if isinstance(race, str) and race and race != "Human":
+            continue  # downed animal — Rescue has no valid bed target
+        if _is_downed(ctx, p):
+            out.append(p)
+    return out
+
+
+def _fn_carriers(ctx):
+    """Able-bodied colonist ids for carry jobs (rescue, haul-to-bed) —
+    draftable minus the weapon requirement: a porter needs hands, not
+    a gun."""
+    drafted = set(_fn_drafted_ids(ctx))
+    out = []
+    for c in _colonist_rows(ctx):
+        if not isinstance(c, dict) or not c.get("id"):
+            continue
+        if c["id"] in drafted or c.get("dead") or c.get("downed") \
+                or c.get("juvenile") or _is_downed(ctx, c):
+            continue
+        det = _pawn_detail(ctx, c["id"]) if ctx.game is not None else {}
+        if det.get("dead") or det.get("downed"):
+            continue
+        out.append(c["id"])
+    return out
+
+
 def _fn_kite_cell(ctx, pawn):
     """Step away from the nearest engaged hostile along the pawn-hostile
     vector, biased home — None when the pawn lacks range+speed edge
@@ -2422,11 +2558,16 @@ def _fn_letters(ctx, choice_only=False):
 
 
 def _fn_rank_site(ctx, w=9, h=9, w_items=2.0, w_home=1.0,
-                  w_fertile=0.0, fertile_step=4):
+                  w_fertile=0.0, fertile_step=4,
+                  w_walls=0.0, wall_margin=4, wall_defs=None):
     """Score open rects by weighted distance to the item cluster and
     home center plus sampled soil fertility — deterministic; weights
     arrive as arguments. A zero ``w_fertile`` keeps the pure-proximity
-    ranking (and zero map.cell calls)."""
+    ranking (and zero map.cell calls). ``w_walls`` rewards candidates
+    whose plan_room wall ring (the ±1 band around the site rect)
+    overlaps existing ``wall_defs`` buildings — the site is nudged up
+    to ``wall_margin`` cells to maximize the overlap, so ruins get
+    absorbed into the first shelter instead of built beside."""
     rects = ctx.obs.get("open_rects") or []
     if isinstance(rects, dict):
         rects = rects.get("rects") or []
@@ -2466,6 +2607,47 @@ def _fn_rank_site(ctx, w=9, h=9, w_items=2.0, w_home=1.0,
         return fsum / n if n else 0.0
 
     use_fertility = bool(w_fertile) and ctx.game is not None
+    wall_defs = [str(d) for d in (wall_defs or [])]
+    use_walls = bool(w_walls) and ctx.game is not None and wall_defs
+    reuse = {}  # id(rect) -> (shared_wall_cells, nudge)
+
+    def _site_cell(rect):
+        cell = list(_cell(rect))[:2]
+        off = rect.get("anchor_off") if isinstance(rect, dict) else None
+        if isinstance(off, (list, tuple)) and len(off) >= 2:
+            cell = [cell[0] + off[0], cell[1] + off[1]]
+        return cell
+
+    def _ring(x, z):
+        x0, x1, z0, z1 = x - 1, x + int(w), z - 1, z + int(h)
+        return ({(cx, z0) for cx in range(x0, x1 + 1)}
+                | {(cx, z1) for cx in range(x0, x1 + 1)}
+                | {(x0, cz) for cz in range(z0 + 1, z1)}
+                | {(x1, cz) for cz in range(z0 + 1, z1)})
+
+    def _reuse(rect):
+        """(count, nudge): wall cells standing on the candidate's
+        wall ring, over nudges within wall_margin — one map.find
+        fetch per def, ring tests stay in-memory."""
+        cell = _site_cell(rect)
+        near = [cell[0] + int(w) // 2, cell[1] + int(h) // 2]
+        radius = int(w) + int(h) + int(wall_margin or 0)
+        walls = set()
+        for d in wall_defs:
+            for t in _things(ctx.rpc("map.find", {"def": d,
+                                                  "near": near,
+                                                  "radius": radius})):
+                p = t.get("pos") if isinstance(t, dict) else None
+                if isinstance(p, (list, tuple)) and len(p) >= 2:
+                    walls.add((int(p[0]), int(p[1])))
+        m = int(wall_margin or 0)
+        best_n, best_nudge = 0, (0, 0)
+        for dx in range(-m, m + 1):
+            for dz in range(-m, m + 1):
+                n = len(_ring(cell[0] + dx, cell[1] + dz) & walls)
+                if n > best_n:
+                    best_n, best_nudge = n, (dx, dz)
+        return best_n, best_nudge
 
     def score(rect):
         x, z = _cell(rect)[0], _cell(rect)[1]
@@ -2474,16 +2656,23 @@ def _fn_rank_site(ctx, w=9, h=9, w_items=2.0, w_home=1.0,
                                 + (z - home[1]) ** 2) ** 0.5
         if use_fertility:
             s += float(w_fertile) * _fertility(rect)
+        if use_walls:
+            n, nudge = _reuse(rect)
+            reuse[id(rect)] = (n, nudge)
+            s += float(w_walls) * n
         return s
 
-    best = max(rects, key=score)
-    cell = _cell(best)
-    off = best.get("anchor_off") if isinstance(best, dict) else None
-    if isinstance(off, (list, tuple)) and len(off) >= 2:
-        cell = [cell[0] + off[0], cell[1] + off[1]]
-    return {"min": list(cell)[:2],
-            "rect": [int(cell[0]), int(cell[1]), int(w), int(h)],
-            "score": score(best)}
+    s_best, best = max(((score(r), r) for r in rects),
+                       key=lambda t: t[0])
+    cell = _site_cell(best)
+    n, nudge = reuse.get(id(best), (0, (0, 0)))
+    cell = [cell[0] + nudge[0], cell[1] + nudge[1]]
+    out = {"min": list(cell)[:2],
+           "rect": [int(cell[0]), int(cell[1]), int(w), int(h)],
+           "score": s_best}
+    if use_walls:
+        out["reused_walls"] = n
+    return out
 
 
 # -- feature 020: room archetypes -----------------------------------------
@@ -2923,8 +3112,14 @@ def _edge_of(cell, x, z, w, h):
 _ROT_OF_EDGE = {"north": "N", "south": "S", "west": "W", "east": "E"}
 
 
-def _dist(a, b):
-    return ((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2) ** 0.5
+def _first_known(ctx, cand):
+    """First def in `cand` known to defs.get — `cand` may be a scalar or
+    a preference list (modded games rename/omit defs; order = pack
+    preference, mirrors stuff_preference)."""
+    for d in (cand if isinstance(cand, (list, tuple)) else [cand]):
+        if d and _def_known(ctx, d):
+            return d
+    return None
 
 
 def _find_placement(ctx, rule, arch, interior, used, targets, optional):
@@ -3010,18 +3205,17 @@ def _plan_room(ctx, rect, archetype_id):
     if w > 50 or h > 50 or w * h > 2500:
         return None  # ~36 map-region bound (data-model)
     warnings = []
-    wall = a.get("wall") or "Wall"
-    door = a.get("door") or "Door"
-    floor = a.get("floor")
+    wall = _first_known(ctx, a.get("wall") or "Wall")
+    door = _first_known(ctx, a.get("door") or "Door")
+    floor = _first_known(ctx, a.get("floor")) if a.get("floor") else None
     stuff = a.get("stuff")
     if stuff is None:
         prefs = a.get("stuff_preference")
         if isinstance(prefs, list) and prefs:
             stuff = _fn_stuff(ctx, prefs)
-    for d in (wall, door):
-        if d and not _def_known(ctx, d):
-            return None
-    if floor and not _def_known(ctx, floor):
+    if not wall or not door:
+        return None
+    if a.get("floor") and not floor:
         return None
     # existing-structure awareness: overlapping a different room's
     # interior fails compile (merge/split safety); full containment is
@@ -3043,17 +3237,17 @@ def _plan_room(ctx, rect, archetype_id):
             warnings.append(f"subdivides_room:{r.get('id')}")
         else:
             return None
-    # door on the bottom edge, reachable from outside
+    # door on the bottom edge (rot S), reachable from outside
     dx = x + w // 2
-    dz = z + h
+    dz = z - 1
     if ctx.game is not None:
-        outside = ctx.rpc("map.cell", {"cell": [dx, dz + 1]})
+        outside = ctx.rpc("map.cell", {"cell": [dx, dz - 1]})
         walk = outside.get("walkable") if isinstance(outside, dict) \
             else None
         if walk is False:
             alt = None
             for i in range(w):
-                c = ctx.rpc("map.cell", {"cell": [x + i, dz + 1]})
+                c = ctx.rpc("map.cell", {"cell": [x + i, dz - 1]})
                 if not isinstance(c, dict) or c.get("walkable") is False:
                     continue
                 alt = x + i
@@ -3085,24 +3279,34 @@ def _plan_room(ctx, rect, archetype_id):
         ops.append(fop)
     used = set()
     placed = []  # (def, cell) — link/adjacency/at targets resolve here
+    aliases = {}  # declared def (or list member) -> resolved def
+    declared = {}  # resolved def -> first declared name (each_ match)
     for rule in a.get("furniture") or []:
         if not isinstance(rule, dict):
             continue
-        d = rule["def"]
+        d = _first_known(ctx, rule["def"])
         optional = bool(rule.get("optional"))
-        if not _def_known(ctx, d):
+        if not d:
             if optional:
-                warnings.append(f"skip:unknown_def:{d}")
+                warnings.append(f"skip:unknown_def:{rule['def']}")
                 continue
             return None
+        cands = (rule["def"] if isinstance(rule["def"], (list, tuple))
+                 else [rule["def"]])
+        declared.setdefault(str(d), str(cands[0]))
+        for cand in cands:
+            aliases[str(cand)] = d
         targets = [c for (dd, c) in placed
                    if rule.get("linked_to")
-                   and str(dd) == str(rule["linked_to"])]
+                   and str(dd) == aliases.get(
+                       str(rule["linked_to"]), str(rule["linked_to"]))]
         at_sel = rule.get("at")
         if at_sel and str(at_sel).startswith("each_"):
             name = str(at_sel)[5:]
             tgt = [c for (dd, c) in placed
-                   if name.lower() in str(dd).lower()]
+                   if name.lower() in str(dd).lower()
+                   or name.lower() in declared.get(
+                       str(dd), str(dd)).lower()]
             if not tgt:
                 if optional:
                     warnings.append(f"skip:no_target:{d}")
@@ -3134,8 +3338,8 @@ def _plan_room(ctx, rect, archetype_id):
             n = max(1, -(-len(targets) // links))
         cnt = 0
         while cnt < n:
-            res = _find_placement(ctx, rule, a, (x, z, w, h), used,
-                                  targets, optional)
+            res = _find_placement(ctx, {**rule, "def": d}, a,
+                                  (x, z, w, h), used, targets, optional)
             if res is None:
                 if optional:
                     warnings.append(f"skip:unplaceable:{d}")
@@ -3297,6 +3501,7 @@ FN = {
     "ids": _fn_ids, "anchor": _fn_anchor,
     "find_kind": _fn_find_kind, "find_def": _fn_find_def,
     "find_defs": _fn_find_defs, "find_defs_in": _fn_find_defs_in,
+    "first_def": _fn_first_def,
     "checker_cells": _fn_checker_cells,
     "pos": _fn_pos,
     "wind_path": _fn_wind_path, "obstructions": _fn_obstructions,
@@ -3371,6 +3576,8 @@ FN = {
     "squad_card": _fn_squad_card,
     "free_beds": _fn_free_beds, "casualty_ids": _fn_casualty_ids,
     "pawns_needing_tend": _fn_pawns_needing_tend,
+    "rescuees": _fn_rescuees, "carriers": _fn_carriers,
+    "nearest_engaged": _fn_nearest_engaged,
     "kite_cell": _fn_kite_cell, "block_cell": _fn_block_cell,
     "rally_cell": _fn_rally_cell, "rally_rect": _rally_rect,
 }
@@ -3480,10 +3687,12 @@ _SELECTORS = {
     "ranged_fighters": _sel_ranged,
     "melee_fighters": _sel_melee,
     "engaged_hostiles": _sel_engaged,
+    "targetable_hostiles": lambda c: _fn_targetable_hostiles(c),
     "watching_hostiles": _sel_watching,
     "hostiles_in_home": lambda c: _fn_hostiles_in_home(c),
     "manhunters": lambda c: _fn_manhunters(c),
     "casualties": _sel_casualties,
+    "rescuees": lambda c: _fn_rescuees(c),
 }
 
 

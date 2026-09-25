@@ -478,6 +478,30 @@ entries:
   - state.threats
   domains:
   - combat
+- id: nearest_engaged
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.threats
+  - state.areas
+  - steward.status
+  domains:
+  - combat
+- id: first_def
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - defs.get
+  domains:
+  - construction
+  - defs_meta
+- id: targetable_hostiles
+  kind: selector
+  status: implemented
+  bridge_methods:
+  - state.threats
+  domains:
+  - combat
 - id: dialogs
   kind: fn
   status: implemented
@@ -685,7 +709,9 @@ entries:
 - id: rank_site
   kind: fn
   status: implemented
-  bridge_methods: []
+  bridge_methods:
+  - map.cell
+  - map.find
   domains:
   - construction
 - id: rect
@@ -2122,6 +2148,22 @@ entries:
   domains:
   - health_medical
   - combat
+- id: rescuees
+  kind: selector
+  status: implemented
+  bridge_methods:
+  - state.pawns
+  domains:
+  - health_medical
+  - quests_incidents
+- id: carriers
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.pawns
+  domains:
+  - health_medical
+  - pawns
 - id: touched
   kind: fn
   status: implemented

@@ -22,6 +22,8 @@ when frozen, beside this file in dev — never inside the bundle.
 
 from __future__ import annotations
 
+import encodings.idna  # noqa: F401 — frozen builds: getaddrinfo resolves
+# hosts via the 'idna' codec; PyInstaller misses the lazy encodings lookup
 import json
 import os
 import shutil
@@ -154,7 +156,7 @@ def main(argv: list[str] | None = None) -> int:
         if len(rest) > 1:  # -y is valid only as the sole run arg
             print(__doc__)
             return 2
-        rest = ["--pack", "start-mode-v0", "--mode", "run",
+        rest = ["--pack", "colonyrun1", "--mode", "run",
                 "--game", "live", "--iterations", "2000",
                 "--live-flag", "--fair",
                 "--live-brain", "--live-mutate", "--feed"]

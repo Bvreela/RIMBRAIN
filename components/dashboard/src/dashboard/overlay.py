@@ -24,16 +24,18 @@ import queue
 import socket
 import subprocess
 import sys
+import threading
 import tkinter as tk
+import webbrowser
 from datetime import datetime, timezone
 from pathlib import Path
 from tkinter import messagebox, simpledialog, ttk
 from urllib.parse import urlparse
 
 try:
-    from . import brains, packedit, paramspec
+    from . import brains, gamecheck, packedit, paramspec
 except ImportError:  # direct `python overlay.py`
-    import brains, packedit, paramspec  # type: ignore[no-redef]
+    import brains, gamecheck, packedit, paramspec  # type: ignore[no-redef]
 
 import yaml
 
@@ -193,6 +195,24 @@ def load_learning(state_dir: Path) -> list[dict]:
     return out
 
 
+def _ev_brief(ev: dict) -> str:
+    """Compact evidence summary for a mutation trigger row."""
+    bits = []
+    for key, label in (("tasks", "failed"), ("requeued", "requeued"),
+                       ("refusals", "refused"), ("defects", "defects")):
+        v = ev.get(key)
+        if v:
+            bits.append(f"{label}: "
+                        + ",".join(str(x) for x in list(v)[:4]))
+    if ev.get("blocked_polls"):
+        bits.append(f"blocked {ev['blocked_polls']} polls")
+    if ev.get("escalations"):
+        bits.append(f"{ev['escalations']} escalations")
+    if ev.get("terminal_goals"):
+        bits.append(f"{ev['terminal_goals']} goals terminal")
+    return "; ".join(bits)
+
+
 def learn_line(e: dict) -> tuple[str, str]:
     """(text, tag) render of one learning-loop envelope."""
     t = e.get("event_type", "?")
@@ -226,22 +246,33 @@ def learn_line(e: dict) -> tuple[str, str]:
         return (f"cycle {p.get('iteration')} done "
                 f"(improve: {ph.get('improve', '?')})", "")
     if t == "mutation.triggered":
-        return f"mutate pass: {p.get('reason', '?')}", ""
+        brief = _ev_brief(p.get("evidence") or {})
+        return (f"mutate pass: {p.get('reason', '?')}"
+                + (f" — {brief}" if brief else "")), ""
     if t == "mutation.proposed":
-        return (f"proposal {p.get('mutation_id')} via {p.get('model')}: "
-                f"{p.get('op_count')} ops — "
-                f"{str(p.get('analysis') or '')[:64]}", "")
+        ops = "; ".join(p.get("ops") or []) or f"{p.get('op_count')} ops"
+        line = f"proposal {p.get('mutation_id')}: {ops}"
+        if p.get("endpoint_error"):
+            line += f" [endpoint down: {str(p['endpoint_error'])[:32]}]"
+        return line, ""
     if t == "mutation.candidate":
         return f"candidate {p.get('candidate_id')}", ""
     if t == "mutation.noop":
         return f"noop: {str(p.get('rationale') or '')[:72]}", ""
     if t == "mutation.rejected":
         v = "; ".join(str(x) for x in (p.get("violations") or []))
+        ops = "; ".join(p.get("ops") or [])
         return (f"rejected at {p.get('gate')}"
-                + (f" — {v[:72]}" if v else ""), "bad")
+                + (f" — {v[:56]}" if v else "")
+                + (f" [tried: {ops[:48]}]" if ops else ""), "bad")
     if t == "mutation.degraded":
-        return (f"degraded ({p.get('reason')}): "
-                f"{str(p.get('detail') or '')[:56]}", "bad")
+        brief = _ev_brief(p.get("evidence") or {})
+        detail = (f"HTTP {p['status']}" if p.get("status")
+                  else str(p.get("detail") or "")[:40])
+        streak = p.get("streak") or 0
+        return (f"degraded ({p.get('reason')}): {brief or '?'}"
+                f" — {detail} — no change"
+                + (f" ×{streak}" if streak > 1 else ""), "bad")
     if t == "mutation.promoted":
         b = p.get("baseline_score")
         return (f"MUTATION PROMOTED {p.get('candidate_id')}"
@@ -361,6 +392,7 @@ class SetupFrame(ttk.Frame):
         self._widgets: dict[str, list] = {}
         self._descriptors: list[dict] = []
         self._brain_rows: dict[str, dict] = {}
+        self._game_rows: dict[str, dict] = {}
         self._checking = False
         self._suppress = False
         self._build()
@@ -407,6 +439,7 @@ class SetupFrame(ttk.Frame):
                   "an evaluation episode (play modes refuse it)")).pack(
             side="bottom", fill="x", pady=(4, 0))
         self._build_packs(right)
+        self._build_game(right)
         self._build_brains(right)
 
         bottom = ttk.Frame(self)
@@ -515,6 +548,87 @@ class SetupFrame(ttk.Frame):
         self.pack_note = ttk.Label(fr, font=("Consolas", 8),
                                    foreground="#808080")
         self.pack_note.pack(fill="x")
+
+    def _build_game(self, parent):
+        """Game-surface rows: RimBridge (required), Steward add-on and
+        pardeike RimBridgeServer (optional), plus a Steam launch button —
+        rimbrain never starts the game itself (DLLs load at boot only,
+        Workshop Harmony requires a Steam launch)."""
+        fr = ttk.LabelFrame(parent, text="Game")
+        fr.pack(fill="x", pady=2)
+        for key, label in (("rimbridge", "RimBridge"),
+                           ("steward", "Steward add-on"),
+                           ("gabp", "RimBridgeServer")):
+            rowfr = ttk.Frame(fr)
+            rowfr.pack(fill="x", pady=1)
+            dot = tk.Label(rowfr, text="●", font=("Consolas", 10),
+                           bg="#1e1e1e", fg="#808080", width=2)
+            dot.pack(side="left")
+            ttk.Label(rowfr, text=label, width=18,
+                      anchor="w").pack(side="left")
+            tgt = ttk.Label(rowfr, text="—", font=("Consolas", 8),
+                            anchor="w")
+            tgt.pack(side="left", fill="x", expand=True)
+            verdict = ttk.Label(rowfr, text="", font=("Consolas", 8),
+                                anchor="e")
+            verdict.pack(side="right")
+            self._game_rows[key] = {"dot": dot, "target": tgt,
+                                    "verdict": verdict}
+        brow = ttk.Frame(fr)
+        brow.pack(fill="x", pady=(2, 0))
+        self.launch_btn = ttk.Button(brow, text="Launch RimWorld",
+                                     command=self._launch_game)
+        self.launch_btn.pack(side="left")
+        ttk.Label(brow, font=("Consolas", 8), foreground="#808080",
+                  text="via Steam — Workshop mods need it").pack(
+                      side="left", padx=(6, 0))
+
+    def _launch_game(self):
+        """Start RimWorld through the Steam URI handler so Workshop
+        Harmony loads (direct exe launch skips Workshop mods)."""
+        row = self._game_rows.get("rimbridge") or {}
+        try:
+            os.startfile("steam://rungameid/294100")       # win32
+        except (AttributeError, OSError):
+            webbrowser.open("steam://rungameid/294100")
+        if row:
+            row["verdict"].config(text="launching…")
+        self._await_bridge()
+
+    _bridge_up = False
+
+    def _await_bridge(self, attempts=24):
+        """Re-probe while the game boots — a modded RimWorld takes a
+        while to bring the bridge up."""
+        self._check_game()
+        if not self._bridge_up and attempts > 0:
+            self.after(10000, lambda: self._await_bridge(attempts - 1))
+
+    def _check_game(self):
+        """Worker-thread game-surface probe; posts ('game', status) onto
+        the shared brains queue."""
+        url = self.vars["bridge"].get() or "http://127.0.0.1:8765"
+
+        def work():
+            self.app._brain_q.put(
+                ("game", gamecheck.bridge_status(url)))
+        threading.Thread(target=work, daemon=True).start()
+
+    def _render_game(self, res: dict):
+        tones = {"rimbridge": ("ok", "bad"), "steward": ("ok", "warn"),
+                 "gabp": ("ok", "dim")}
+        for key, (up, down) in tones.items():
+            row = self._game_rows.get(key)
+            part = res.get(key) or {}
+            if row is None or not part:
+                continue
+            ok = bool(part.get("ok"))
+            row["dot"].config(fg=_TONE[up if ok else down])
+            row["target"].config(text=part.get("detail", "—"))
+            row["verdict"].config(text="ok" if ok else "check")
+        self._bridge_up = bool(res.get("ok"))
+        self.launch_btn.state(
+            ["disabled"] if self._bridge_up else ["!disabled"])
 
     def _build_brains(self, parent):
         fr = ttk.LabelFrame(parent, text="Brains")
@@ -686,6 +800,7 @@ class SetupFrame(ttk.Frame):
             r["dot"].config(fg="#808080")
             r["verdict"].config(text="checking…")
         brains.check_all(_ra, self.app._brain_q)
+        self._check_game()
 
     def drain_brains(self):
         while True:
@@ -694,6 +809,9 @@ class SetupFrame(ttk.Frame):
             except queue.Empty:
                 break
             self._checking = False
+            if role == "game":
+                self._render_game(res)
+                continue
             row = self._brain_rows.get(role)
             if row is None:
                 continue

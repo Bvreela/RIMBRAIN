@@ -210,7 +210,7 @@ rules:
 - id: combat-arm
   when:
     all:
-    - field: "@fn:living_hostiles()"
+    - field: "@fn:engaged_hostiles()"
       op: not_empty
     - field: "@cfg:combat.direct_command"
       op: falsy
@@ -284,7 +284,7 @@ rules:
     all:
     - field: "@cfg:combat.direct_command"
       op: truthy
-    - field: "@fn:living_hostiles()"
+    - field: "@fn:engaged_hostiles()"
       op: not_empty
   cooldown: {polls: 30}
   try:
@@ -506,7 +506,7 @@ decide:
         # distance-weighted (nearest first). Melee strike from any
         # distance (the order paths+swings); ranged only in band.
         label: strike
-        for_each: living_hostiles
+        for_each: targetable_hostiles
         template: attack-target
         when:
           all:
@@ -529,7 +529,7 @@ decide:
         # move into weapon band of a target — melee pawns use strike
         # instead; ranged pawns close when the target sits out of range
         label: close distance on
-        for_each: living_hostiles
+        for_each: targetable_hostiles
         template: move-pawn
         when:
           all:

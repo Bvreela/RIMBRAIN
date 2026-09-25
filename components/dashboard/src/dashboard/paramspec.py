@@ -33,7 +33,7 @@ PARAM_SPEC = [
      "hint": "debug entry — drive only one stage; combat is a scripted "
              "dev harness"},
     {"flag": "pack", "label": "Pack", "kind": "choice",
-     "choices": [], "default": "start-mode-v0", "group": "Run",
+     "choices": [], "default": "colonyrun1", "group": "Run",
      "hint": "policy pack id — bound to the pack list below"},
     {"flag": "iterations", "label": "Iterations", "kind": "spin",
      "default": 2000, "min": 1, "max": 100000, "group": "Run",
@@ -77,10 +77,10 @@ PARAM_SPEC = [
      "default": False, "group": "Flags",
      "enable_when": {"field": "mode", "ne": "fastevolve"},
      "hint": "declare a scored episode — play-only modes refused"},
-    {"flag": "fresh", "label": "Fresh", "kind": "check",
+    {"flag": "resume", "label": "Resume", "kind": "check",
      "default": False, "group": "Flags",
-     "hint": "wipe session-scoped state before starting (keeps canonical "
-             "events + mutation lineage)"},
+     "hint": "keep the previous session's state — runs normally start "
+             "fresh and re-derive everything from live colony state"},
 ]
 
 _PRESETS = {
@@ -145,7 +145,7 @@ def argv(cfg: dict) -> list[str]:
                       ("feed", "--feed"), ("ledger", "--ledger"),
                       ("no_store", "--no-store"),
                       ("no_hold", "--no-hold"), ("scored", "--scored"),
-                      ("fresh", "--fresh")):
+                      ("resume", "--resume")):
         # fastevolve implies the mutate machinery — the flag is a no-op
         # there, so it isn't offered or emitted
         if key == "live_mutate" and cfg.get("mode") == "fastevolve":

@@ -180,19 +180,38 @@
                 "description": "Verification targets: {<stat>: <min>} over state.rooms rows (impressiveness, beauty, cleanliness, ...)."
               },
               "wall": {
-                "type": "string",
-                "description": "Wall buildable def (e.g. Wall) — outline ops."
+                "type": [
+                  "string",
+                  "array"
+                ],
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "description": "Wall buildable def (e.g. Wall) — outline ops. May be an ordered preference list (first defs.get-known wins)."
               },
               "door": {
-                "type": "string",
-                "description": "Door buildable def (e.g. Door)."
+                "type": [
+                  "string",
+                  "array"
+                ],
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "description": "Door buildable def (e.g. Door). May be an ordered preference list (first defs.get-known wins)."
               },
               "floor": {
                 "type": [
                   "string",
+                  "array",
                   "null"
                 ],
-                "description": "TerrainDef for interior fill (null = no floor ops)."
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "description": "TerrainDef for interior fill (null = no floor ops). May be an ordered preference list (first defs.get-known wins)."
               },
               "roof": {
                 "type": "boolean",
@@ -208,8 +227,21 @@
                   ],
                   "properties": {
                     "def": {
-                      "type": "string",
-                      "minLength": 1
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "minItems": 1
+                        }
+                      ],
+                      "description": "Buildable def name, or an ordered preference list — first defs.get-known wins (modded games rename/omit defs)."
                     },
                     "count": {
                       "type": "integer",

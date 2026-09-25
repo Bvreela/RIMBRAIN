@@ -92,6 +92,7 @@ class PassState:
         self.passes = 0
         self.last_pass_poll = -(10 ** 9)
         self.last_verdict: str | None = None
+        self.degraded_streak = 0   # consecutive endpoint-degraded passes
         self.pending: str | None = None      # candidate awaiting boundary
         self.lineage: str | None = None      # promoted pack hash prefix
         self._decisions: list | None = None  # run's decision rows (ref)
@@ -225,6 +226,8 @@ def check_triggers(ps: PassState, pack: dict, poll: int) -> tuple[str | None, di
     if not cfg:
         return None, {}
     cooldown = int(cfg.get("cooldown_polls") or 0)
+    if ps.degraded_streak:  # endpoint-degraded passes back off
+        cooldown *= 1 << min(ps.degraded_streak, 4)   # x2..x16
     if poll - ps.last_pass_poll < cooldown:
         return None, {}
     if ps.passes >= int(cfg.get("max_passes_per_run") or 0):
@@ -408,6 +411,58 @@ def _prompt(digest: dict) -> list[dict]:
     ]
 
 
+def _ops_brief(ops: list, limit: int = 6) -> list[str]:
+    """Compact one-line-per-op summary for mutation log rows."""
+    out = []
+    for op in (ops or [])[:limit]:
+        if not isinstance(op, dict):
+            continue
+        o, path = op.get("op", "?"), op.get("path", "?")
+        if o in ("set", "set_cfg") and "value" in op:
+            out.append(f"{o} {path}={op['value']}")
+        elif o in ("append", "upsert"):
+            v = op.get("value")
+            out.append(f"{o} {path}: "
+                       f"{v.get('id') if isinstance(v, dict) else v}")
+        else:
+            out.append(f"{o} {path}")
+    more = len(ops or []) - limit
+    if more > 0:
+        out.append(f"+{more} more")
+    return out
+
+
+def _rules_only(ps: PassState, pack: dict, pack_loaded: dict,
+                resolved: dict) -> dict | None:
+    """Deterministic remediation from pack-declared defect patterns —
+    ops compile to packmut so the gate can replay them; None when no
+    finding carries an applicable remediation."""
+    findings = improve.diagnose(ps.since_mark(),
+                                _improve_cfg(pack, ps.cfg))
+    hit = next((f for f in findings
+                if isinstance(f.get("remediation"), dict)
+                and packmut.compile_legacy(
+                    f["remediation"].get("ops"), pack)), None)
+    ops = (packmut.compile_legacy(hit["remediation"]["ops"], pack)
+           if hit else None)
+    if not ops:
+        return None
+    name = resolved.get("name") or resolved.get("endpoint_id") or "?"
+    return {"ok": True, "endpoint_id": name,
+            "model": resolved.get("model") or name,
+            "degraded": True,
+            "usage": {"prompt_tokens": 0, "completion_tokens": 0},
+            "proposal": _finalize({
+                "mutation_id": "mut.rules-only",
+                "analysis": {"failure_paths": [f["defect_class"]
+                                               for f in findings],
+                             "likely_paths": []},
+                "mutations": ops,
+                "rationale": "deterministic remediation for "
+                             "pack-declared defect patterns"},
+                pack_loaded)}
+
+
 def reflect(ps: PassState, digest: dict, pack_loaded: dict, pack: dict,
             reason: str, *, resolver=resolve_role, chat=openai_compat_chat,
             usage_tracker=None) -> dict:
@@ -425,39 +480,31 @@ def reflect(ps: PassState, digest: dict, pack_loaded: dict, pack: dict,
     resolved = res["resolved"]
     if resolved.get("kind") == "fallback":
         # rules-only: deterministic remediations declared by the pack's
-        # defect patterns — the same fixes improve mode would apply,
-        # compiled to the packmut vocabulary so the gate can replay them
-        findings = improve.diagnose(ps.since_mark(),
-                                    _improve_cfg(pack, ps.cfg))
-        hit = next((f for f in findings
-                    if isinstance(f.get("remediation"), dict)
-                    and packmut.compile_legacy(
-                        f["remediation"].get("ops"), pack)), None)
-        ops = (packmut.compile_legacy(hit["remediation"]["ops"], pack)
-               if hit else None)
-        if not ops:
+        # defect patterns — the same fixes improve mode would apply
+        ro = _rules_only(ps, pack, pack_loaded, resolved)
+        if ro is None:
             return {"ok": False, "degraded": True,
                     "error": {"code": "evolve.rules_only_noop",
                               "message": "rules-only path found no "
                                          "applicable remediation"}}
-        return {"ok": True, "endpoint_id": resolved["name"],
-                "model": resolved["name"], "degraded": True,
-                "usage": {"prompt_tokens": 0, "completion_tokens": 0},
-                "proposal": _finalize({
-                    "mutation_id": "mut.rules-only",
-                    "analysis": {"failure_paths": [f["defect_class"]
-                                                 for f in findings],
-                                 "likely_paths": []},
-                    "mutations": ops,
-                    "rationale": "deterministic remediation for "
-                                 "pack-declared defect patterns"},
-                    pack_loaded)}
+        return ro
     r = chat(resolved["endpoint_id"], resolved["model"], _prompt(digest),
              usage_tracker=usage_tracker)
     if not r.get("ok"):
+        # endpoint down/limited — the pass still does work when a
+        # pack-declared defect remediation compiles (marked degraded +
+        # the endpoint error rides along for the log)
+        ro = _rules_only(ps, pack, pack_loaded, resolved)
+        if ro is not None:
+            ro["endpoint_error"] = r["error"]["message"]
+            return ro
         return {"ok": False, "degraded": True,
                 "error": {"code": "evolve.endpoint_error",
-                          "message": r["error"]["message"]}}
+                          "message": r["error"]["message"]},
+                "endpoint_id": resolved.get("endpoint_id"),
+                "model": resolved.get("model"),
+                "status": (r["error"].get("details") or {}).get("status"),
+                "retryable": r["error"].get("retryable")}
     usage = (r.get("body") or {}).get("usage") or {}
     text = ((r.get("body") or {}).get("choices") or [{}])[0] \
         .get("message", {}).get("content")
@@ -829,22 +876,34 @@ def maybe_trigger(ps: PassState, *, dispatcher, ledger, pack_loaded: dict,
     if not prop.get("ok"):
         if prop.get("degraded"):
             ps.last_verdict = "degraded"
+            ps.degraded_streak += 1
             _emit("mutation.degraded", {
                 "reason": reason,
-                "detail": (prop.get("error") or {}).get("message", "?")})
+                "detail": (prop.get("error") or {}).get("message", "?"),
+                "endpoint_id": prop.get("endpoint_id"),
+                "model": prop.get("model"),
+                "status": prop.get("status"),
+                "retryable": prop.get("retryable"),
+                "evidence": evidence,
+                "streak": ps.degraded_streak,
+                "action": "no change applied"})
             return {"verdict": "degraded"}
         ps.last_verdict = "rejected"
+        ps.degraded_streak = 0
         _emit("mutation.rejected", {
             "mutation_id": None, "candidate_id": None, "gate": "schema",
             "violations": prop.get("violations")
             or [(prop.get("error") or {}).get("message", "?")]})
         return {"verdict": "rejected"}
     proposal = prop["proposal"]
+    ps.degraded_streak = 0
     _emit("mutation.proposed", {
         "mutation_id": proposal["mutation_id"],
         "endpoint_id": prop["endpoint_id"], "model": prop["model"],
         "degraded": prop.get("degraded", False),
+        "endpoint_error": prop.get("endpoint_error"),
         "analysis": proposal.get("analysis"),
+        "ops": _ops_brief(proposal.get("mutations")),
         "op_count": len(proposal.get("mutations") or []),
         "usage": prop.get("usage") or {}})
     if not proposal.get("mutations"):
@@ -857,7 +916,8 @@ def maybe_trigger(ps: PassState, *, dispatcher, ledger, pack_loaded: dict,
         ps.last_verdict = "rejected"
         _emit("mutation.rejected", {
             "mutation_id": proposal["mutation_id"], "candidate_id": None,
-            "gate": g["gate"], "violations": g["violations"]})
+            "gate": g["gate"], "violations": g["violations"],
+            "ops": _ops_brief(proposal.get("mutations"))})
         return {"verdict": "rejected", "gate": g["gate"]}
     out = materialize(g["doc"], pack_id, ps, state_dir,
                       emit, seq, clock,

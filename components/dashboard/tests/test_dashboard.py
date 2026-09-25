@@ -150,3 +150,30 @@ def test_overlay_write_reset_request(tmp_path):
 
     p = write_reset_request(tmp_path)
     assert p.name == "brain_reset.request" and p.is_file()
+
+
+def test_overlay_learn_line_mutation_rows():
+    """Mutation rows show trigger evidence + endpoint, not bare names."""
+    from dashboard.overlay import learn_line  # noqa: E402
+
+    line, tag = learn_line({"event_type": "mutation.triggered", "payload": {
+        "reason": "near_failure",
+        "evidence": {"requeued": ["govern.keep"],
+                     "refusals": ["build-layout", "haul", "x"],
+                     "blocked_polls": 15}}})
+    assert "near_failure" in line and "govern.keep" in line
+    assert "build-layout" in line and "blocked 15" in line
+
+    line, tag = learn_line({"event_type": "mutation.degraded", "payload": {
+        "reason": "near_failure", "detail": "HTTP 429 from x",
+        "status": 429, "model": "m-test", "streak": 2,
+        "evidence": {"refusals": ["build-layout"]},
+        "action": "no change applied"}})
+    assert tag == "bad" and "HTTP 429" in line
+    assert "build-layout" in line and "no change" in line
+    assert "m-test" not in line          # trigger + change, not the model
+
+    line, _ = learn_line({"event_type": "mutation.proposed", "payload": {
+        "mutation_id": "mut.x", "op_count": 1,
+        "ops": ["set govern.goals.keep.retry_polls=9"]}})
+    assert "mut.x" in line and "retry_polls=9" in line

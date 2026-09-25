@@ -519,6 +519,11 @@ def main(argv: list[str] | None = None) -> int:
                         "(runstate, ledger, fast-evolve session, views, "
                         "stale brain requests) — canonical events and "
                         "mutation lineage are kept")
+    p.add_argument("--resume", action="store_true",
+                   help="run mode: keep the previous session's state "
+                        "instead of wiping it — runs are fresh by "
+                        "default and re-derive everything from live "
+                        "colony state")
     args = p.parse_args(argv)
     # deprecated mode aliases -> the FR-1422 surface
     alias = {"start": ("run", "live", None),
@@ -535,11 +540,11 @@ def main(argv: list[str] | None = None) -> int:
         args.stage = args.stage or stage
     if args.mode == "run" and args.game == "live" \
             and args.pack == "core-survival-v0":
-        args.pack = "start-mode-v0"  # the colony pack
+        args.pack = "colonyrun1"  # the colony pack
     if args.mode == "cycle" and args.pack == "core-survival-v0":
-        args.pack = "start-mode-v0"
+        args.pack = "colonyrun1"
     if args.mode == "fastevolve" and args.pack == "core-survival-v0":
-        args.pack = "start-mode-v0"
+        args.pack = "colonyrun1"
     if args.mode == "improve" and args.pack == "core-survival-v0":
         args.pack = "improve-v0"  # the mode's own module
 
@@ -592,7 +597,11 @@ def main(argv: list[str] | None = None) -> int:
             "retryable": False}}))
         return 2
 
-    if args.fresh:
+    # A run session must assume nothing: wipe session-scoped state so
+    # the engine re-derives site/phase/goals from live observation.
+    # --resume opts out (crash-recovery inspection); --fresh forces the
+    # wipe for non-run modes where it stays opt-in.
+    if args.fresh or (args.mode == "run" and not args.resume):
         # before TaskLedger()/EventStore() — both load their files
         # eagerly at construction, so the wipe must happen first
         from .store import state_dir as _fresh_dir

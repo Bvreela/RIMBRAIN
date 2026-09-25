@@ -189,9 +189,12 @@ def test_fleeing_hostile_chased_by_melee(rig):
     d, game, ledger, pack, events, tmp = rig
     state = {}
     for d_home in (10, 20, 30):
-        game.hostiles = [{"id": "h1", "dist_home": d_home,
-                          "health": 80.0},
-                         {"id": "h2", "dist_home": 10, "health": 80.0}]
+        game.hostiles = [{"id": "h1", "kind": "PirateGunner",
+                          "dist_home": d_home, "health": 80.0,
+                          "lord": "LordJob_AssaultColony"},
+                         {"id": "h2", "kind": "PirateGunner",
+                          "dist_home": 10, "health": 80.0,
+                          "lord": "LordJob_AssaultColony"}]
         fired = _apply(d, game, {}, pack, state,
                        poll=int(d_home / 10))
     chase = [f for f in fired if f["rule"] == "chase-fleeing"]
@@ -207,7 +210,8 @@ def test_all_armed_defend_together(rig):
     from the pawn's weapon."""
     d, game, ledger, pack, events, tmp = rig
     state = {}
-    game.hostiles = [{"id": "h1", "dist_home": 30, "health": 80.0}]
+    game.hostiles = [{"id": "h1", "kind": "PirateGunner",
+                      "dist_home": 30, "health": 80.0}]
     game.pawns[0]["weapon"] = "w-gun"
     game.pawns[1]["weapon"] = "w-melee"
     fired = _apply(d, game, {}, pack, state, poll=0)
@@ -327,3 +331,68 @@ def test_fair_mode_denies_debug(rig):
     # normal capabilities still dispatch under fair mode
     r = fair.dispatch("draft-pawn", {"pawn": "c1", "drafted": True})
     assert r.get("ok") is not None or "ok" in r
+
+
+# -- pod-crash rescue (rescue-stranded rule) ---------------------------------
+
+def _guest(pid="pod-0", **over):
+    return {"id": pid, "name": f"Survivor {pid}", "kind": "SpaceRefugee",
+            "faction": "Outlander Union", "pos": [22, 22],
+            "downed": True, **over}
+
+
+def test_pod_crash_guest_rescued(rig):
+    """A downed non-colonist on the map (pod crash) gets a Rescue job —
+    and once carried (no pos) the rule stops re-firing."""
+    d, game, ledger, pack, events, tmp = rig
+    d.load_pack("colonyrun1")
+    pack = d.pack["pack"]
+    game.guests.append(_guest())
+    state = {}
+    fired = _apply(d, game, {}, pack, state, poll=0)
+    rows = [f for f in fired if f["rule"] == "rescue-stranded"]
+    assert rows and rows[0]["params"]["target"] == "pod-0"
+    issued = _issued(events, "rescue")
+    assert issued and issued[0]["payload"]["params"] == {
+        "pawn": "c0", "job": "Rescue", "target": "pod-0"}
+    _apply(d, game, {}, pack, state, poll=1)
+    assert len(_issued(events, "rescue")) == 1
+
+
+def test_hostile_pod_crash_not_rescued(rig):
+    """A downed hostile is a capture problem, not a rescue one — the
+    rule leaves it alone."""
+    d, game, ledger, pack, events, tmp = rig
+    d.load_pack("colonyrun1")
+    pack = d.pack["pack"]
+    game.guests.append(_guest("pod-1", hostile=True))
+    _apply(d, game, {}, pack, {}, poll=0)
+    assert not _issued(events, "rescue")
+
+
+def test_colonist_not_a_rescuee(rig):
+    """Downed colonists keep their existing rescue path — the stranded
+    rule never targets a Player pawn."""
+    d, game, ledger, pack, events, tmp = rig
+    d.load_pack("colonyrun1")
+    pack = d.pack["pack"]
+    game.pawns[1]["downed"] = True
+    fired = _apply(d, game, {}, pack, {}, poll=0)
+    assert not [f for f in fired if f["rule"] == "rescue-stranded"]
+
+
+def test_rescue_stranded_holds_under_fire(rig):
+    """No wandering out to survivors mid-raid."""
+    d, game, ledger, pack, events, tmp = rig
+    d.load_pack("colonyrun1")
+    pack = d.pack["pack"]
+    game.guests.append(_guest())
+    game.hostiles.append({"id": "h1", "kind": "Pirate",
+                          "pos": [30, 30]})
+    # combat-evidence rules need the decisions sink the loop supplies
+    ctx = policy.Ctx(cfg=pack, obs={}, game=game, state={}, poll=0,
+                     decisions=[])
+    fired = policy.run_rules(templates.rules_of(pack), d, ctx,
+                             source="rule")
+    assert not [f for f in fired if f["rule"] == "rescue-stranded"]
+    assert not _issued(events, "rescue")

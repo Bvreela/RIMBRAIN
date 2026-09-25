@@ -12,7 +12,7 @@ from dashboard import paramspec  # noqa: E402
 
 # The fair-run preset — byte-for-byte the argv `rimbrain run -y` emits
 # (contracts/launch-cli.md assembled-argv order).
-DEFAULT_ARGV = ["--pack", "start-mode-v0", "--mode", "run",
+DEFAULT_ARGV = ["--pack", "colonyrun1", "--mode", "run",
                 "--game", "live", "--iterations", "2000",
                 "--bridge", "http://127.0.0.1:8765",
                 "--fair", "--live-flag", "--live-brain",
@@ -25,7 +25,7 @@ def test_defaults_match_fair_preset():
     assert d["live_brain"] is True and d["live_mutate"] is True
     assert d["feed"] is True
     assert d["mode"] == "run" and d["game"] == "live"
-    assert d["pack"] == "start-mode-v0" and d["iterations"] == 2000
+    assert d["pack"] == "colonyrun1" and d["iterations"] == 2000
     assert d["bridge"] == "http://127.0.0.1:8765"
 
 
@@ -34,7 +34,7 @@ def test_every_loop_flag_has_a_row():
     assert flags == {"pack", "mode", "game", "stage", "iterations",
                      "bridge", "fair", "live", "live_brain",
                      "live_mutate", "feed", "ledger", "no_store",
-                     "no_hold", "scored", "fresh"}
+                     "no_hold", "scored", "resume"}
 
 
 def test_argv_defaults_equal_run_y():
@@ -45,12 +45,12 @@ def test_argv_emits_flags_only_when_set():
     cfg = paramspec.defaults()
     cfg.update(feed=False, live_brain=False, live_mutate=False,
                ledger=True, no_store=True, no_hold=True, scored=True,
-               fresh=True, stage="plan", mode="improve")
+               resume=True, stage="plan", mode="improve")
     av = paramspec.argv(cfg)
     assert "--feed" not in av and "--live-brain" not in av
     assert "--live-mutate" not in av
     for f in ("--ledger", "--no-store", "--no-hold", "--scored",
-              "--fresh"):
+              "--resume"):
         assert f in av
     assert av[av.index("--stage") + 1] == "plan"
 

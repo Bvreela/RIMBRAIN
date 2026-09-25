@@ -146,7 +146,7 @@ def derive_room_row(ops, rid: int = 1) -> dict:
              for d in defs):
         role = "RecRoom"
     elif beds:
-        role = "Bedroom"
+        role = "Barracks" if beds > 1 else "Bedroom"
     inside = [f for f in furn if f["cell"] in interior]
     cells = len(interior)
     beauty = len(inside) * 2
@@ -248,6 +248,7 @@ class SimGame:
         self._save_seq = 0                  # deterministic modified clock
         self._save_meta: dict[str, str] = {}
         self.hostiles: list[dict] = []
+        self.guests: list[dict] = []       # non-colonist spawned pawns (pod-crash survivors, wanderers)
         self.drafted: set[str] = set()
         # feature 019: delegate-order stub — `combat` is the fair path's
         # standing order; the order itself drafts/releases colonists
@@ -336,8 +337,11 @@ class SimGame:
         if any(m["id"] == pid and m.get("downed")
                for m in self._state["colonists"]["members"]):
             return True
-        return any(h.get("id") == pid and h.get("downed")
-                   for h in self.hostiles)
+        if any(h.get("id") == pid and h.get("downed")
+               for h in self.hostiles):
+            return True
+        return any(g.get("id") == pid and g.get("downed")
+                   for g in self.guests)
 
     @staticmethod
     def _room_has_cell(r, t) -> bool:
@@ -371,6 +375,12 @@ class SimGame:
         queue += [pid for pid in order
                   if pid not in queue
                   and len(room_occ.get(self.pawn_beds.get(pid), [])) > 1]
+        # last barracks dweller (sole occupant of a Barracks row) still
+        # prefers a private bedroom — colonists in Bedrooms stay put
+        queue += [pid for pid in order
+                  if pid not in queue
+                  and self.rooms[self.pawn_beds[pid]].get("role")
+                  != "Bedroom"]
         return queue
 
     def _assign_beds(self, ridx: int, n_beds: int) -> None:
@@ -399,7 +409,8 @@ class SimGame:
         020) — shared pure derivation + atomic owner assignment."""
         row = derive_room_row(ops, rid=len(self.rooms) + 1)
         self.rooms.append(row)
-        if row.get("role") == "Bedroom" and row.get("beds"):
+        if row.get("role") in ("Bedroom", "Barracks") \
+                and row.get("beds"):
             # atomic target-bed-first assignment — conversion without a
             # bedless tick (feature 020 US2 / T035)
             self._assign_beds(len(self.rooms) - 1, row["beds"])
@@ -558,13 +569,29 @@ class SimGame:
                 "day": self._state["day"],
                 "hour": self._state["tick"] // 2500}}
         if method == "state.pawns":
-            return {"ok": True, "result": [
-                {**p, "kind": "Colonist", "downed": self._downed(p["id"]),
-                 "drafted": p["id"] in self.drafted}
-                for p in self.pawns]}
+            f = (params or {}).get("filter", "colonists")
+            if f == "hostiles":
+                return {"ok": True, "result": [
+                    {**h, "hostile": True}
+                    for h in self.hostiles if not h.get("dead")]}
+            if f == "wild":
+                return {"ok": True, "result": [
+                    dict(g) for g in self.guests
+                    if g.get("faction") is None]}
+            rows = [{**p, "kind": "Colonist",
+                     "downed": self._downed(p["id"]),
+                     "drafted": p["id"] in self.drafted}
+                    for p in self.pawns]
+            if f == "all":
+                rows += [dict(g) for g in self.guests]
+                rows += [{**h, "hostile": True}
+                         for h in self.hostiles if not h.get("dead")]
+            return {"ok": True, "result": rows}
         if method == "state.pawn":
             pid = params.get("pawn")
-            prow = next((p for p in self.pawns if p["id"] == pid), {})
+            prow = next((p for p in (self.pawns + self.guests
+                                     + self.hostiles)
+                         if p["id"] == pid), {})
             return {"ok": True, "result": {
                 "id": pid, "skills": self.skills.get(pid, {}),
                 "drafted": pid in self.drafted,
@@ -879,7 +906,8 @@ class SimGame:
                 self.hostiles.append(
                     {"id": f"raider-{len(self.hostiles)}", "kind": "Pirate",
                      "pos": [20 + len(self.hostiles), 20],
-                     "dist_home": 40})
+                     "dist_home": 40,
+                     "lord": "LordJob_AssaultColony"})
             return {"ok": True, "result": {"fired": params.get("def")}}
         if method == "dev.spawn_pawn":
             cell = params.get("cell")
@@ -894,6 +922,7 @@ class SimGame:
                  "kind": params.get("kind"),
                  "faction": params.get("faction"),
                  "pos": pos,
+                 "lord": params.get("lord", "LordJob_AssaultColony"),
                  "dist_home": round(((pos[0] - cx) ** 2
                                      + (pos[1] - cz) ** 2) ** 0.5)})
             return {"ok": True,
@@ -989,6 +1018,16 @@ class SimGame:
                 prow.setdefault("apparel", []).append(thing)
                 self.armor = [a for a in self.armor
                               if a["id"] != target]
+            elif job == "Rescue":
+                # carrying a non-colonist to a bed: the rescuee leaves
+                # the map surface (no pos while held) until healed
+                g = next((x for x in self.guests
+                          if x.get("id") == params.get("target")), None)
+                if g is not None:
+                    g["carried_by"] = pawn
+                    g.pop("pos", None)
+                if prow is not None:
+                    prow["job"] = job
             elif job == "LayDown" and prow is not None \
                     and isinstance(params.get("target"), (list, tuple)) \
                     and len(params.get("target")) >= 2:
@@ -1053,6 +1092,7 @@ class SimGame:
             "meals": self.meals, "anchors": self.anchors,
             "stock_jobs": self.stock_jobs,
             "orders": {}, "rally": self.rally,
+            "guests": self.guests,
             "hostiles": [], "drafted": set()})
 
     def sim_autosave(self, name: str) -> None:
@@ -1062,3 +1102,18 @@ class SimGame:
         self.saves[name] = self._snapshot()
         self._save_seq += 1
         self._save_meta[name] = f"sim-t{self._save_seq:06d}"
+
+    def sim_pod_crash(self, pid: str = "pod-0", hostile: bool = False):
+        """Test hook: a transport-pod crash — a downed non-colonist pawn
+        on the map plus its incident letter (bridge PawnHandle shape)."""
+        g = {"id": pid, "name": f"Survivor {pid}", "kind": "SpaceRefugee",
+             "faction": "Outlander Union", "pos": [22, 22],
+             "downed": True}
+        if hostile:
+            g["hostile"] = True
+        self.guests.append(g)
+        self.letters.append({"id": f"letter-{pid}",
+                             "label": "Transport pod crash",
+                             "def": "NegativeLetter", "target": pid,
+                             "tick": self._state["tick"]})
+        return g

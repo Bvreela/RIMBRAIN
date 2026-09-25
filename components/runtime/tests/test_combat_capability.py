@@ -164,11 +164,66 @@ def test_manhunter_conditional():
 
 
 def test_structure_near_rally_engages():
-    cc, _ = ctx(hostiles=[h(pos=(70, 50), kind="Turret_MiniTurret")])
+    # a static hostile only threatens colonists actually exposed to it;
+    # sheltered colonists can't be shot through walls — drafting for a
+    # dormant turret just freezes the colony (live: mech cluster turret
+    # inside engage_radius held everyone drafted indefinitely)
+    cc, _ = ctx(hostiles=[h(pos=(70, 50), kind="Turret_MiniTurret")],
+                pawns=[c(pos=(70, 70))])
     assert len(policy.resolve("@fn:engaged_hostiles()", cc)) == 1
-    cc, _ = ctx(hostiles=[h(pos=(140, 140),
-                            kind="Turret_MiniTurret")])
+    cc, _ = ctx(hostiles=[h(pos=(70, 50), kind="Turret_MiniTurret")],
+                pawns=[c(pos=(50, 50))])
     assert len(policy.resolve("@fn:engaged_hostiles()", cc)) == 0
+    cc, _ = ctx(hostiles=[h(pos=(140, 140), kind="Turret_MiniTurret")],
+                pawns=[c(pos=(70, 70))])
+    assert len(policy.resolve("@fn:engaged_hostiles()", cc)) == 0
+
+
+def test_non_assault_lord_watches():
+    # scripted non-assault duties (dormant mech cluster, ceremony,
+    # exit-map) are presence, not threat — only assault lords engage
+    cc, _ = ctx(hostiles=[h(pos=(70, 50), lord="MechCluster")],
+                pawns=[c()])
+    assert policy.resolve("@fn:engaged_hostiles()", cc) == []
+    assert len(policy.resolve("@fn:watching_hostiles()", cc)) == 1
+
+
+def test_non_pawn_hostile_is_static():
+    # state.threats emits ThingHandle rows (def/label, no kind/lord) for
+    # hostile non-pawns — a Hive inside engage_radius is presence, not
+    # an attacker; it only threatens colonists actually exposed
+    hive = {"id": "Hive23279", "def": "Hive", "label": "Hive",
+            "pos": [70, 50], "dist_home": 20, "fogged": False}
+    cc, _ = ctx(hostiles=[hive], pawns=[c(pos=(50, 50))])
+    assert policy.resolve("@fn:engaged_hostiles()", cc) == []
+    assert len(policy.resolve("@fn:watching_hostiles()", cc)) == 1
+    cc, _ = ctx(hostiles=[hive], pawns=[c(pos=(70, 70))])
+    assert len(policy.resolve("@fn:engaged_hostiles()", cc)) == 1
+
+
+def test_dormant_drift_is_not_fleeing():
+    # hive insects wander — a rising dist_home trend on a watch-class
+    # hostile is presence, not a rout; chasing it would wake the hive
+    # (live: dormant hive insects flagged 'fleeing' drew 9 attack
+    # orders at poll 2)
+    cc, game = ctx(hostiles=[h(pos=(90, 90),
+                              lord="LordJob_DefendHive",
+                              dist_home=10)])
+    for d in (15, 25, 40):
+        game.hostiles[0]["dist_home"] = d
+        assert policy._fn_fleeing_ids(cc) == []
+
+
+def test_fleeing_engaged_raider_flags():
+    # a raider that fought then recedes is a real rout — chaseable
+    cc, game = ctx(hostiles=[h(pos=(70, 50),
+                              lord="LordJob_AssaultColony",
+                              dist_home=10)])
+    out = []
+    for d in (15, 25, 40):
+        game.hostiles[0]["dist_home"] = d
+        out = policy._fn_fleeing_ids(cc)
+    assert out == ["h1"]
 
 
 def test_combat_mode_watch_engage_hold_overrun():
@@ -805,13 +860,15 @@ def test_direct_command_lifecycle(tmp_path, monkeypatch):
 def test_stand_down_flicker_hysteresis():
     """A flickered or failed threats read must not stand pawns down:
     hostile_free_polls counts only consecutive CONFIRMED-empty reads —
-    a bad RPC holds the streak, a living hostile resets it."""
+    a bad RPC holds the streak, an engaged hostile resets it (watching
+    hostiles — dormant clusters, distant staging — do not)."""
     from runtime import templates
     rules = [r for r in (templates.load_pack("combat-defense-v0")["pack"]
                        .get("rules") or [])
              if r["id"] == "combat-stand-down"]
     assert rules
-    cc, game = ctx(hostiles=[h(id="h1")], pawns=[c(id="p1")],
+    eng = {"lord": "LordJob_AssaultColony"}
+    cc, game = ctx(hostiles=[h(id="h1", **eng)], pawns=[c(id="p1")],
                    cfg={"direct_command": True})
     shared = cc.state
     fail = {"on": False}
@@ -844,8 +901,8 @@ def test_stand_down_flicker_hysteresis():
     assert out
     assert sink.calls == [("draft-pawn", {"pawn": "p1",
                                           "drafted": False})]
-    # flicker: hostile pops back mid-window -> streak resets
-    game.hostiles = [h(id="h1")]
+    # flicker: engaged hostile pops back mid-window -> streak resets
+    game.hostiles = [h(id="h1", **eng)]
     out, _ = poll(7, 2400)
     assert not out
     assert shared["hostile_free_polls"] == 0

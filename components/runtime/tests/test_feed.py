@@ -59,6 +59,32 @@ def test_ux_audit_full_coverage(tmp_path):
     assert v["details"]["missing_entries"] == 0
 
 
+def test_mutation_rows_explain_trigger_and_degraded():
+    trig = render_event(_env("mutation.triggered", {
+        "reason": "near_failure", "poll": 40,
+        "evidence": {"requeued": ["govern.keep"],
+                     "refusals": ["build-layout", "haul"],
+                     "blocked_polls": 15}}))
+    assert "near_failure" in trig
+    assert "govern.keep" in trig and "build-layout" in trig
+    assert "blocked 15" in trig
+
+    deg = render_event(_env("mutation.degraded", {
+        "reason": "near_failure", "detail": "HTTP 429 from x",
+        "status": 429, "retryable": True,
+        "model": "m-test", "endpoint_id": "ep1",
+        "evidence": {"refusals": ["build-layout"]},
+        "streak": 2, "action": "no change applied"}))
+    assert "HTTP 429" in deg and "build-layout" in deg
+    assert "backoff" in deg and "no change applied" in deg
+
+    prop = render_event(_env("mutation.proposed", {
+        "mutation_id": "mut.x",
+        "ops": ["set govern.goals.keep.retry_polls=9"],
+        "op_count": 1}))
+    assert "mut.x" in prop and "retry_polls=9" in prop
+
+
 def test_ux_audit_flags_missing_entry(tmp_path):
     feed = FeedWriter(tmp_path / "feed.md")
     events = [_env("action.issued", {"template_id": "x"}, "evt.1"),

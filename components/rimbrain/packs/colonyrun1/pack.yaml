@@ -830,9 +830,8 @@ rules:
   for_each: colonists
   when:
     all:
-    - field: '@fn:count(@fn:living_hostiles())'
-      op: gt
-      value: 0
+    - field: '@fn:engaged_hostiles()'
+      op: not_empty
     - field: '@var:it.weapon'
       op: present
     - field: '@var:it.downed'
@@ -845,16 +844,23 @@ rules:
     polls: 30
   try:
   - template: attack-target
-    needs: '@fn:nearest_hostile(@var:it.pos)'
+    needs: '@fn:in_range(@var:it.id, @fn:nearest_engaged(@var:it.pos))'
     params:
       pawn: '@var:it.id'
-      target: '@fn:nearest_hostile(@var:it.pos)'
+      target: '@fn:nearest_engaged(@var:it.pos)'
+  - template: move-pawn
+    when:
+      field: '@fn:in_range(@var:it.id, @fn:nearest_engaged(@var:it.pos))'
+      op: falsy
+    needs: '@fn:pos(@fn:nearest_engaged(@var:it.pos))'
+    params:
+      pawn: '@var:it.id'
+      cell: '@fn:pos(@fn:nearest_engaged(@var:it.pos))'
 - id: stand-down
   for_each: '@fn:drafted_ids()'
   when:
-    field: '@fn:count(@fn:living_hostiles())'
-    op: eq
-    value: 0
+    field: '@fn:engaged_hostiles()'
+    op: empty
   cooldown:
     polls: 30
   try:
@@ -905,10 +911,24 @@ rules:
     params:
       i: '@var:it.i'
       choice: OK
+- id: rescue-stranded
+  for_each: '@fn:rescuees()'
+  when:
+    field: '@fn:engaged_hostiles()'
+    op: empty
+  cooldown:
+    polls: 10
+  try:
+  - template: rescue
+    needs: '@fn:first(@fn:carriers())'
+    params:
+      pawn: '@fn:first(@fn:carriers())'
+      job: Rescue
+      target: '@var:it.id'
 - id: combat-arm
   when:
     all:
-    - field: '@fn:living_hostiles()'
+    - field: '@fn:engaged_hostiles()'
       op: not_empty
     - field: '@cfg:combat.direct_command'
       op: falsy
@@ -992,8 +1012,11 @@ rules:
     all:
     - field: '@cfg:combat.direct_command'
       op: truthy
-    - field: '@fn:living_hostiles()'
+    - field: '@fn:engaged_hostiles()'
       op: not_empty
+    - field: '@fn:armed_ids()'
+      op: contains
+      value: '@var:it.id'
   cooldown:
     polls: 30
   try:
@@ -1113,7 +1136,8 @@ phases:
         from_anchor: '@cfg:start.site.anchor_name'
     set:
       site: '@fn:rank_site(@cfg:start.site.zone_w, @cfg:start.site.zone_h, @cfg:start.site.weights.items_proximity, @cfg:start.site.weights.home_proximity,
-        @cfg:start.site.weights.fertility, @cfg:start.site.fertile_step)'
+        @cfg:start.site.weights.fertility, @cfg:start.site.fertile_step, @cfg:start.site.weights.walls, @cfg:start.site.wall_margin,
+        @cfg:start.site.wall_defs)'
     resources:
     - site:anchor
     effect:
@@ -1153,24 +1177,99 @@ phases:
       params:
         designator: unforbid
         things: '@fn:forbidden_ids()'
+  - id: arm
+    lease_ticks: 6000
+    attempts: 6
+    need: '@fn:min(@obs:colonists.count, @fn:weapons_avail(@cfg:start.arm.weapon_kinds))'
+    effect:
+      field: '@fn:armed_count()'
+      op: gte
+      value: '@var:need'
+    repeat:
+      while:
+        field: '@fn:arm_pending(@cfg:start.arm.weapon_kinds, @cfg:start.arm.armor_defs)'
+        op: truthy
+    escalate:
+      after_attempts: 2
+      steps:
+      - template: unforbid-items
+        when:
+          field: '@fn:forbidden_ids()'
+          op: not_empty
+        params:
+          designator: unforbid
+          things: '@fn:forbidden_ids()'
+      - template: strip-pawn
+        when:
+          field: '@fn:downed_ids()'
+          op: not_empty
+        params:
+          designator: strip
+          things: '@fn:downed_ids()'
+    steps:
+    - template: equip-pawn
+      cooldown_polls: 60
+      needs: '@fn:arm_weapon(@cfg:start.arm.weapon_kinds)'
+      params:
+        pawn: '@fn:arm_pawn(@cfg:start.arm.weapon_kinds)'
+        job: Equip
+        target: '@fn:arm_weapon(@cfg:start.arm.weapon_kinds)'
+    - template: wear-apparel
+      cooldown_polls: 60
+      needs: '@fn:first(@fn:armor_ids(@cfg:start.arm.armor_defs))'
+      params:
+        pawn: '@fn:best(@cfg:start.arm.armored_skill)'
+        job: Wear
+        target: '@fn:first(@fn:armor_ids(@cfg:start.arm.armor_defs))'
   - id: shelter
     requires:
     - site
     lease_ticks: 12000
     attempts: 8
     effect:
-      all:
-      - field: '@fn:room_role_at(@var:site.min)'
-        op: eq
-        value: Bedroom
-      - field: '@fn:room_stat(@var:site.min, impressiveness)'
-        op: gte
-        value: '@cfg:rooms.archetypes.bedroom.stat_target.impressiveness'
+      any:
+      - field: '@fn:rooms_matching({role: Barracks})'
+        op: not_empty
+      - field: '@fn:rooms_matching({role: Bedroom, min_impressiveness: 40})'
+        op: not_empty
+    escalate:
+      after_attempts: 3
+      steps:
+      - template: clear-vegetation
+        when:
+          field: '@fn:count(@fn:obstructions(@fn:rect(@fn:sub(@var:site.min.0, 1), @fn:sub(@var:site.min.1, 1), @fn:add(@cfg:start.shelter.room_w,
+            2), @fn:add(@cfg:start.shelter.room_h, 2)), [tree, harvestable]))'
+          op: gt
+          value: 0
+        params:
+          designator: cut
+          things: '@fn:ids(@fn:obstructions(@fn:rect(@fn:sub(@var:site.min.0, 1), @fn:sub(@var:site.min.1, 1), @fn:add(@cfg:start.shelter.room_w,
+            2), @fn:add(@cfg:start.shelter.room_h, 2)), [tree, harvestable]))'
+      - template: build-layout
+        needs: '@fn:plan_room(@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.expansion.overflow.dx), @fn:add(@var:site.min.1, @cfg:govern.expansion.overflow.dy), @cfg:start.shelter.room_w, @cfg:start.shelter.room_h), barracks)'
+        when:
+          field: '@fn:enclosed_at(@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.expansion.overflow.dx), @fn:add(@var:site.min.1, @cfg:govern.expansion.overflow.dy),
+            @cfg:start.shelter.room_w, @cfg:start.shelter.room_h), @cfg:start.shelter.min_room_cells)'
+          op: lt
+          value: 1
+        params:
+          stop_on_error: false
+          ops: '@fn:plan_room(@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.expansion.overflow.dx), @fn:add(@var:site.min.1, @cfg:govern.expansion.overflow.dy),
+            @cfg:start.shelter.room_w, @cfg:start.shelter.room_h), barracks).ops'
+      - template: roof-rect
+        when:
+          field: '@var:last_ok'
+          op: truthy
+        params:
+          designator: Designator_AreaBuildRoof
+          rect: '@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.expansion.overflow.dx), @fn:add(@var:site.min.1, @cfg:govern.expansion.overflow.dy),
+            @cfg:start.shelter.room_w, @cfg:start.shelter.room_h)'
     steps:
     - template: build-layout
+      needs: '@fn:plan_room(@var:site.rect, barracks)'
       params:
         stop_on_error: false
-        ops: '@fn:plan_room(@var:site.rect, bedroom).ops'
+        ops: '@fn:plan_room(@var:site.rect, barracks).ops'
     - template: roof-rect
       when:
         field: '@var:last_ok'
@@ -1178,6 +1277,96 @@ phases:
       params:
         designator: Designator_AreaBuildRoof
         rect: '@fn:rect(@var:site.min.0, @var:site.min.1, @cfg:govern.expansion.footprint.w, @cfg:govern.expansion.footprint.h)'
+  - id: butcher
+    requires:
+    - site
+    lease_ticks: 8000
+    attempts: 4
+    effect:
+      field: '@fn:find_defs(@cfg:start.butcher.defs)'
+      op: not_empty
+    escalate:
+      after_attempts: 2
+      steps:
+      - template: build-one
+        needs: '@fn:free_cell(@fn:first_def(@cfg:start.butcher.defs), @var:site.rect, 0)'
+        params:
+          def: '@fn:first_def(@cfg:start.butcher.defs)'
+          at: '@fn:free_cell(@fn:first_def(@cfg:start.butcher.defs), @var:site.rect, 0)'
+    steps:
+    - template: build-one
+      needs: '@fn:free_cell(@fn:first_def(@cfg:start.butcher.defs), @fn:rect(@fn:add(@var:site.min.0, @fn:sub(@fn:fdiv(@var:site.rect.2, 2), 1)), @fn:add(@var:site.min.1, @fn:sub(@fn:fdiv(@var:site.rect.3, 2), 1)), 3, 3), 0)'
+      params:
+        def: '@fn:first_def(@cfg:start.butcher.defs)'
+        at: '@fn:free_cell(@fn:first_def(@cfg:start.butcher.defs), @fn:rect(@fn:add(@var:site.min.0, @fn:sub(@fn:fdiv(@var:site.rect.2, 2), 1)), @fn:add(@var:site.min.1, @fn:sub(@fn:fdiv(@var:site.rect.3, 2), 1)), 3, 3), 0)'
+  - id: storage
+    requires:
+    - site
+    lease_ticks: 12000
+    attempts: 8
+    effect:
+      all:
+      - field: '@fn:zone_named(@cfg:start.overflow.label)'
+        op: truthy
+      - field: '@fn:roofed(@fn:cell(@var:site.min.0, @fn:add(@var:site.min.1, @cfg:start.shelter.room_h, 1)))'
+        op: truthy
+    escalate:
+      after_attempts: 2
+      steps:
+      - template: create-stockpile
+        when:
+          field: '@fn:zone_named(@cfg:start.overflow.label)'
+          op: falsy
+        params:
+          action: create_stockpile
+          label: '@cfg:start.overflow.label'
+          rect: '@fn:rect(@fn:sub(@var:site.min.0, @cfg:start.overflow.w, 1), @fn:add(@var:site.min.1, @cfg:start.shelter.room_h,
+            1), @cfg:start.overflow.w, @cfg:start.overflow.h)'
+      - template: roof-rect
+        when:
+          field: '@var:last_ok'
+          op: truthy
+        params:
+          designator: Designator_AreaBuildRoof
+          rect: '@fn:rect(@fn:sub(@var:site.min.0, @cfg:start.overflow.w, 1), @fn:add(@var:site.min.1, @cfg:start.shelter.room_h,
+            1), @cfg:start.overflow.w, @cfg:start.overflow.h)'
+      - template: edit-storage
+        when:
+          field: '@var:last_ok'
+          op: truthy
+        params:
+          zone: '@cfg:start.overflow.label'
+          disallow: '@cfg:start.overflow.reserve_interior'
+    steps:
+    - template: create-stockpile
+      when:
+        field: '@fn:zone_named(@cfg:start.overflow.label)'
+        op: falsy
+      params:
+        action: create_stockpile
+        label: '@cfg:start.overflow.label'
+        rect: '@fn:rect(@var:site.min.0, @fn:add(@var:site.min.1, @cfg:start.shelter.room_h, 1), @cfg:start.overflow.w, @cfg:start.overflow.h)'
+    - template: roof-rect
+      when:
+        field: '@var:last_ok'
+        op: truthy
+      params:
+        designator: Designator_AreaBuildRoof
+        rect: '@fn:rect(@var:site.min.0, @fn:add(@var:site.min.1, @cfg:start.shelter.room_h, 1), @cfg:start.overflow.w, @cfg:start.overflow.h)'
+    - template: roof-rect
+      when:
+        field: '@fn:zone_named(@cfg:start.overflow.label)'
+        op: truthy
+      params:
+        designator: Designator_AreaBuildRoof
+        rect: '@fn:rect(@var:site.min.0, @fn:add(@var:site.min.1, @cfg:start.shelter.room_h, 1), @cfg:start.overflow.w, @cfg:start.overflow.h)'
+    - template: edit-storage
+      when:
+        field: '@var:last_ok'
+        op: truthy
+      params:
+        zone: '@cfg:start.overflow.label'
+        disallow: '@cfg:start.overflow.reserve_interior'
   - id: roof
     requires:
     - site
@@ -1196,8 +1385,8 @@ phases:
     attempts: 6
     effect:
       field: '@fn:loose_count()'
-      op: eq
-      value: 0
+      op: lte
+      value: '@cfg:start.haul.max_loose'
     escalate:
       after_attempts: 2
       steps:
@@ -1236,33 +1425,6 @@ phases:
       params:
         designator: haul
         things: '@fn:loose_ids()'
-  - id: arm
-    lease_ticks: 6000
-    attempts: 6
-    need: '@fn:max(1, @fn:min(@obs:colonists.count, @fn:weapons_avail(@cfg:start.arm.weapon_kinds)))'
-    effect:
-      field: '@fn:armed_count()'
-      op: gte
-      value: '@var:need'
-    repeat:
-      while:
-        field: '@fn:arm_pending(@cfg:start.arm.weapon_kinds, @cfg:start.arm.armor_defs)'
-        op: truthy
-    steps:
-    - template: equip-pawn
-      cooldown_polls: 60
-      needs: '@fn:arm_weapon(@cfg:start.arm.weapon_kinds)'
-      params:
-        pawn: '@fn:arm_pawn(@cfg:start.arm.weapon_kinds)'
-        job: Equip
-        target: '@fn:arm_weapon(@cfg:start.arm.weapon_kinds)'
-    - template: wear-apparel
-      cooldown_polls: 60
-      needs: '@fn:first(@fn:armor_ids(@cfg:start.arm.armor_defs))'
-      params:
-        pawn: '@fn:best(@cfg:start.arm.armored_skill)'
-        job: Wear
-        target: '@fn:first(@fn:armor_ids(@cfg:start.arm.armor_defs))'
   - id: beds
     requires:
     - site
@@ -1278,6 +1440,14 @@ phases:
         field: '@fn:sub(@var:need, @fn:add(@obs:beds_total, @obs:bed_blueprints))'
         op: gt
         value: 0
+    escalate:
+      after_attempts: 3
+      steps:
+      - template: build-one
+        needs: '@fn:free_cell(@fn:nth(@cfg:start.shelter.bed_defs, 2), @var:site.rect, 1)'
+        params:
+          def: '@fn:nth(@cfg:start.shelter.bed_defs, 2)'
+          at: '@fn:free_cell(@fn:nth(@cfg:start.shelter.bed_defs, 2), @var:site.rect, 1)'
     steps:
     - template: build-one
       needs: '@fn:free_cell(@cfg:start.shelter.bed_def, @var:site.rect, 1, @fn:stuff(@cfg:start.shelter.stuff_preference))'
@@ -1297,6 +1467,25 @@ phases:
       while:
         field: '@obs:food_source_present'
         op: falsy
+    escalate:
+      after_attempts: 3
+      steps:
+      - template: create-growing
+        when:
+          field: '@obs:zones_growing'
+          op: lt
+          value: 2
+        params:
+          action: create_growing
+          label: start.growing
+          rect: '@fn:fertile(@fn:rect(@fn:sub(@var:site.min.0, @cfg:start.food.zone_w, 1), @fn:add(@var:site.min.1, @cfg:start.food.zone_h,
+            1), @cfg:start.food.zone_w, @cfg:start.food.zone_h), @cfg:start.fertility.sample_step)'
+          plant: '@cfg:start.food.plant'
+      - template: set-plant
+        params:
+          action: set_plant
+          label: start.growing
+          plant: '@cfg:start.food.plant'
     steps:
     - template: create-growing
       when:
@@ -1333,6 +1522,34 @@ phases:
       while:
         field: '@obs:cookstation_ready'
         op: falsy
+    escalate:
+      after_attempts: 3
+      steps:
+      - template: build-one
+        when:
+          all:
+          - field: '@obs:cookstation_ids'
+            op: empty
+          - field: '@fn:blueprints(@cfg:start.cooking.station_defs)'
+            op: eq
+            value: 0
+        needs: '@fn:free_cell(@fn:nth(@cfg:start.cooking.station_defs, 1), @var:site.rect, 0, @fn:stuff(@cfg:start.shelter.stuff_preference))'
+        params:
+          def: '@fn:nth(@cfg:start.cooking.station_defs, 1)'
+          at: '@fn:free_cell(@fn:nth(@cfg:start.cooking.station_defs, 1), @var:site.rect, 0, @fn:stuff(@cfg:start.shelter.stuff_preference))'
+          stuff: '@fn:stuff(@cfg:start.shelter.stuff_preference)'
+      - template: add-bill
+        when:
+          all:
+          - field: '@obs:cookstation_ids'
+            op: not_empty
+          - field: '@obs:cookbill_configured'
+            op: falsy
+        params:
+          thing: '@fn:first(@obs:cookstation_ids)'
+          recipe: '@cfg:start.cooking.recipe'
+          mode: '@cfg:start.cooking.bill_mode'
+          count: '@fn:add(@fn:mul(@obs:colonists.count, @cfg:start.cooking.meals_per_day), @cfg:start.cooking.buffer)'
     steps:
     - template: build-one
       when:
@@ -1376,6 +1593,19 @@ phases:
     effect:
       field: '@obs:recreation_present'
       op: truthy
+    escalate:
+      after_attempts: 3
+      steps:
+      - template: build-one
+        when:
+          field: '@fn:blueprints(@cfg:start.recreation.defs)'
+          op: eq
+          value: 0
+        needs: '@fn:free_cell(@fn:first(@cfg:start.recreation.defs), @var:site.rect, 0, @fn:stuff(@cfg:start.shelter.stuff_preference))'
+        params:
+          def: '@fn:first(@cfg:start.recreation.defs)'
+          at: '@fn:free_cell(@fn:first(@cfg:start.recreation.defs), @var:site.rect, 0, @fn:stuff(@cfg:start.shelter.stuff_preference))'
+          stuff: '@fn:stuff(@cfg:start.shelter.stuff_preference)'
     steps:
     - template: build-one
       when:
@@ -1392,44 +1622,200 @@ phases:
         at: '@fn:free_cell(@fn:first(@cfg:start.recreation.defs), @fn:rect(@fn:add(@var:site.min.0, @cfg:start.shelter.room_w,
           1), @var:site.min.1, 3, @cfg:start.shelter.room_h), 0, @fn:stuff(@cfg:start.shelter.stuff_preference))'
         stuff: '@fn:stuff(@cfg:start.shelter.stuff_preference)'
-  - id: overflow
+  - id: dining
     requires:
     - site
-    lease_ticks: 4000
-    attempts: 4
+    lease_ticks: 12000
+    attempts: 8
     effect:
-      field: '@fn:zone_named(@cfg:start.overflow.label)'
-      op: truthy
+      any:
+      - field: '@fn:rooms_matching({role: DiningRoom, min_impressiveness: 40})'
+        op: not_empty
+      - field: '@fn:rooms_matching({role: RecRoom, min_impressiveness: 40})'
+        op: not_empty
+    repeat:
+      while:
+        all:
+        - field: '@fn:rooms_matching({role: DiningRoom, min_impressiveness: 40})'
+          op: empty
+        - field: '@fn:rooms_matching({role: RecRoom, min_impressiveness: 40})'
+          op: empty
+    escalate:
+      after_attempts: 3
+      steps:
+      - template: clear-vegetation
+        when:
+          field: '@fn:count(@fn:obstructions(@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.dining.rect_dx, -1), @fn:add(@var:site.min.1,
+            @cfg:govern.dining.rect_dy, -1), @fn:add(@cfg:govern.dining.room_w, 2), @fn:add(@cfg:govern.dining.room_h, 2)),
+            [tree, harvestable]))'
+          op: gt
+          value: 0
+        params:
+          designator: cut
+          things: '@fn:ids(@fn:obstructions(@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.dining.rect_dx, -1), @fn:add(@var:site.min.1,
+            @cfg:govern.dining.rect_dy, -1), @fn:add(@cfg:govern.dining.room_w, 2), @fn:add(@cfg:govern.dining.room_h, 2)),
+            [tree, harvestable]))'
+      - template: build-layout
+        needs: '@fn:plan_room(@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.dining.alt_dx), @fn:add(@var:site.min.1, @cfg:govern.dining.alt_dy), @cfg:govern.dining.room_w, @cfg:govern.dining.room_h), dining_hall)'
+        when:
+          field: '@fn:enclosed_at(@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.dining.alt_dx), @fn:add(@var:site.min.1, @cfg:govern.dining.alt_dy),
+            @cfg:govern.dining.room_w, @cfg:govern.dining.room_h), @cfg:govern.dining.min_room_cells)'
+          op: lt
+          value: 1
+        params:
+          stop_on_error: false
+          ops: '@fn:plan_room(@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.dining.alt_dx), @fn:add(@var:site.min.1, @cfg:govern.dining.alt_dy),
+            @cfg:govern.dining.room_w, @cfg:govern.dining.room_h), dining_hall).ops'
+      - template: roof-rect
+        when:
+          field: '@var:last_ok'
+          op: truthy
+        params:
+          designator: Designator_AreaBuildRoof
+          rect: '@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.dining.alt_dx), @fn:add(@var:site.min.1, @cfg:govern.dining.alt_dy),
+            @cfg:govern.dining.room_w, @cfg:govern.dining.room_h)'
     steps:
-    - template: create-stockpile
+    - template: build-layout
+      needs: '@fn:plan_room(@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.dining.rect_dx), @fn:add(@var:site.min.1, @cfg:govern.dining.rect_dy), @cfg:govern.dining.room_w, @cfg:govern.dining.room_h), dining_hall)'
       params:
-        action: create_stockpile
-        label: '@cfg:start.overflow.label'
-        rect: '@fn:rect(@var:site.min.0, @fn:add(@var:site.min.1, @cfg:start.shelter.room_h, 1), @cfg:start.overflow.w, @cfg:start.overflow.h)'
+        stop_on_error: false
+        ops: '@fn:plan_room(@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.dining.rect_dx), @fn:add(@var:site.min.1, @cfg:govern.dining.rect_dy),
+          @cfg:govern.dining.room_w, @cfg:govern.dining.room_h), dining_hall).ops'
     - template: roof-rect
       when:
         field: '@var:last_ok'
         op: truthy
       params:
         designator: Designator_AreaBuildRoof
-        rect: '@fn:rect(@var:site.min.0, @fn:add(@var:site.min.1, @cfg:start.shelter.room_h, 1), @cfg:start.overflow.w, @cfg:start.overflow.h)'
-    - template: edit-storage
+        rect: '@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.dining.rect_dx), @fn:add(@var:site.min.1, @cfg:govern.dining.rect_dy),
+          @cfg:govern.dining.room_w, @cfg:govern.dining.room_h)'
+  - id: kitchen
+    requires:
+    - site
+    lease_ticks: 12000
+    attempts: 8
+    effect:
+      field: '@fn:rooms_matching({role: Kitchen})'
+      op: not_empty
+    repeat:
+      while:
+        field: '@fn:rooms_matching({role: Kitchen})'
+        op: empty
+    escalate:
+      after_attempts: 3
+      steps:
+      - template: clear-vegetation
+        when:
+          field: '@fn:count(@fn:obstructions(@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.kitchen.rect_dx, -1), @fn:add(@var:site.min.1,
+            @cfg:govern.kitchen.rect_dy, -1), @fn:add(@cfg:govern.kitchen.room_w, 2), @fn:add(@cfg:govern.kitchen.room_h, 2)),
+            [tree, harvestable]))'
+          op: gt
+          value: 0
+        params:
+          designator: cut
+          things: '@fn:ids(@fn:obstructions(@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.kitchen.rect_dx, -1), @fn:add(@var:site.min.1,
+            @cfg:govern.kitchen.rect_dy, -1), @fn:add(@cfg:govern.kitchen.room_w, 2), @fn:add(@cfg:govern.kitchen.room_h, 2)),
+            [tree, harvestable]))'
+      - template: build-layout
+        needs: '@fn:plan_room(@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.kitchen.alt_dx), @fn:add(@var:site.min.1, @cfg:govern.kitchen.alt_dy), @cfg:govern.kitchen.room_w, @cfg:govern.kitchen.room_h), kitchen)'
+        when:
+          field: '@fn:enclosed_at(@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.kitchen.alt_dx), @fn:add(@var:site.min.1, @cfg:govern.kitchen.alt_dy),
+            @cfg:govern.kitchen.room_w, @cfg:govern.kitchen.room_h), @cfg:govern.kitchen.min_room_cells)'
+          op: lt
+          value: 1
+        params:
+          stop_on_error: false
+          ops: '@fn:plan_room(@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.kitchen.alt_dx), @fn:add(@var:site.min.1, @cfg:govern.kitchen.alt_dy),
+            @cfg:govern.kitchen.room_w, @cfg:govern.kitchen.room_h), kitchen).ops'
+      - template: roof-rect
+        when:
+          field: '@var:last_ok'
+          op: truthy
+        params:
+          designator: Designator_AreaBuildRoof
+          rect: '@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.kitchen.alt_dx), @fn:add(@var:site.min.1, @cfg:govern.kitchen.alt_dy),
+            @cfg:govern.kitchen.room_w, @cfg:govern.kitchen.room_h)'
+    steps:
+    - template: build-layout
+      needs: '@fn:plan_room(@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.kitchen.rect_dx), @fn:add(@var:site.min.1, @cfg:govern.kitchen.rect_dy), @cfg:govern.kitchen.room_w, @cfg:govern.kitchen.room_h), kitchen)'
+      params:
+        stop_on_error: false
+        ops: '@fn:plan_room(@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.kitchen.rect_dx), @fn:add(@var:site.min.1, @cfg:govern.kitchen.rect_dy),
+          @cfg:govern.kitchen.room_w, @cfg:govern.kitchen.room_h), kitchen).ops'
+    - template: roof-rect
       when:
         field: '@var:last_ok'
         op: truthy
       params:
-        zone: '@cfg:start.overflow.label'
-        disallow: '@cfg:start.overflow.reserve_interior'
+        designator: Designator_AreaBuildRoof
+        rect: '@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.kitchen.rect_dx), @fn:add(@var:site.min.1, @cfg:govern.kitchen.rect_dy),
+          @cfg:govern.kitchen.room_w, @cfg:govern.kitchen.room_h)'
+  - id: dump
+    requires:
+    - site
+    lease_ticks: 4000
+    attempts: 4
+    effect:
+      field: '@fn:zone_named(@cfg:govern.dump.label)'
+      op: truthy
+    escalate:
+      after_attempts: 2
+      steps:
+      - template: create-stockpile
+        when:
+          field: '@fn:zone_named(@cfg:govern.dump.label)'
+          op: falsy
+        params:
+          action: create_stockpile
+          label: '@cfg:govern.dump.label'
+          rect: '@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.dump.alt_dx), @fn:add(@var:site.min.1, @cfg:govern.dump.alt_dy),
+            @cfg:govern.dump.w, @cfg:govern.dump.h)'
+      - template: edit-storage
+        when:
+          field: '@var:last_ok'
+          op: truthy
+        params:
+          zone: '@cfg:govern.dump.label'
+          disallow_all: true
+          allow: '@cfg:govern.dump.allow'
+    steps:
+    - template: create-stockpile
+      when:
+        field: '@fn:zone_named(@cfg:govern.dump.label)'
+        op: falsy
+      params:
+        action: create_stockpile
+        label: '@cfg:govern.dump.label'
+        rect: '@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.dump.rect_dx), @fn:add(@var:site.min.1, @cfg:govern.dump.rect_dy),
+          @cfg:govern.dump.w, @cfg:govern.dump.h)'
+    - template: edit-storage
+      when:
+        any:
+        - field: '@var:last_ok'
+          op: truthy
+        - field: '@fn:zone_named(@cfg:govern.dump.label)'
+          op: truthy
+      params:
+        zone: '@cfg:govern.dump.label'
+        disallow_all: true
+        allow: '@cfg:govern.dump.allow'
   complete:
     conditions:
       shelter:
-        all:
-        - field: '@fn:room_role_at(@var:site.min)'
-          op: eq
-          value: Bedroom
-        - field: '@fn:room_stat(@var:site.min, impressiveness)'
-          op: gte
-          value: '@cfg:rooms.archetypes.bedroom.stat_target.impressiveness'
+        any:
+        - field: '@fn:rooms_matching({role: Barracks})'
+          op: not_empty
+        - field: '@fn:rooms_matching({role: Bedroom, min_impressiveness: 40})'
+          op: not_empty
+      dining:
+        any:
+        - field: '@fn:rooms_matching({role: DiningRoom, min_impressiveness: 40})'
+          op: not_empty
+        - field: '@fn:rooms_matching({role: RecRoom, min_impressiveness: 40})'
+          op: not_empty
+      kitchen:
+        field: '@fn:rooms_matching({role: Kitchen})'
+        op: not_empty
       beds:
         field: '@obs:beds_total'
         op: gte
@@ -2048,6 +2434,7 @@ standing_goals:
       value: '@cfg:rooms.archetypes.dining_hall.stat_target.impressiveness'
   steps:
   - template: build-layout
+    needs: '@fn:plan_room(@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.dining.rect_dx), @fn:add(@var:site.min.1, @cfg:govern.dining.rect_dy), @cfg:govern.dining.room_w, @cfg:govern.dining.room_h), dining_hall)'
     params:
       stop_on_error: false
       ops: '@fn:plan_room(@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.dining.rect_dx), @fn:add(@var:site.min.1, @cfg:govern.dining.rect_dy),
@@ -2080,6 +2467,7 @@ standing_goals:
       value: 0
   steps:
   - template: build-layout
+    needs: '@fn:plan_room(@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.kitchen.rect_dx), @fn:add(@var:site.min.1, @cfg:govern.kitchen.rect_dy), @cfg:govern.kitchen.room_w, @cfg:govern.kitchen.room_h), kitchen)'
     params:
       stop_on_error: false
       ops: '@fn:plan_room(@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.kitchen.rect_dx), @fn:add(@var:site.min.1, @cfg:govern.kitchen.rect_dy),
@@ -2113,6 +2501,7 @@ standing_goals:
       value: 0
   steps:
   - template: build-layout
+    needs: '@fn:plan_room(@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.hospital.rect_dx), @fn:add(@var:site.min.1, @cfg:govern.hospital.rect_dy), @cfg:govern.hospital.rect_w, @cfg:govern.hospital.rect_h), hospital)'
     params:
       stop_on_error: false
       ops: '@fn:plan_room(@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.hospital.rect_dx), @fn:add(@var:site.min.1, @cfg:govern.hospital.rect_dy),
@@ -2145,6 +2534,7 @@ standing_goals:
       value: '@cfg:rooms.archetypes.workshop.stat_target.impressiveness'
   steps:
   - template: build-layout
+    needs: '@fn:plan_room(@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.workshop.rect_dx), @fn:add(@var:site.min.1, @cfg:govern.workshop.rect_dy), @cfg:govern.workshop.rect_w, @cfg:govern.workshop.rect_h), workshop)'
     params:
       stop_on_error: false
       ops: '@fn:plan_room(@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.workshop.rect_dx), @fn:add(@var:site.min.1, @cfg:govern.workshop.rect_dy),
@@ -2216,7 +2606,7 @@ standing_goals:
 - id: mission-offers
   when:
     all:
-    - field: '@fn:living_hostiles()'
+    - field: '@fn:engaged_hostiles()'
       op: empty
     - field: '@obs:meals_present'
       op: truthy
@@ -2306,11 +2696,13 @@ standing_goals:
     value: 0
   steps:
   - template: build-layout
+    needs: '@fn:plan_room(@fn:rect(@var:site.min.0, @fn:sub(@var:site.min.1, @fn:add(@cfg:govern.expansion.footprint.h, 1)), @cfg:govern.expansion.footprint.w, @cfg:govern.expansion.footprint.h), bedroom)'
     params:
       stop_on_error: false
       ops: '@fn:plan_room(@fn:rect(@var:site.min.0, @fn:sub(@var:site.min.1, @fn:add(@cfg:govern.expansion.footprint.h, 1)),
         @cfg:govern.expansion.footprint.w, @cfg:govern.expansion.footprint.h), bedroom).ops'
   - template: build-layout
+    needs: '@fn:plan_room(@fn:rect(@fn:add(@var:site.min.0, @fn:add(@cfg:govern.expansion.footprint.w, 1)), @fn:sub(@var:site.min.1, @fn:add(@cfg:govern.expansion.footprint.h, 1)), @cfg:govern.expansion.footprint.w, @cfg:govern.expansion.footprint.h), bedroom)'
     when:
       field: '@var:last_ok'
       op: truthy
@@ -2320,6 +2712,7 @@ standing_goals:
         @fn:add(@cfg:govern.expansion.footprint.h, 1)), @cfg:govern.expansion.footprint.w, @cfg:govern.expansion.footprint.h),
         bedroom).ops'
   - template: build-layout
+    needs: '@fn:plan_room(@fn:rect(@fn:add(@var:site.min.0, @fn:add(@fn:mul(@cfg:govern.expansion.footprint.w, 2), 2)), @fn:sub(@var:site.min.1, @fn:add(@cfg:govern.expansion.footprint.h, 1)), @cfg:govern.expansion.footprint.w, @cfg:govern.expansion.footprint.h), bedroom)'
     when:
       field: '@var:last_ok'
       op: truthy
@@ -2329,6 +2722,7 @@ standing_goals:
         @fn:add(@cfg:govern.expansion.footprint.h, 1)), @cfg:govern.expansion.footprint.w, @cfg:govern.expansion.footprint.h),
         bedroom).ops'
   - template: build-layout
+    needs: '@fn:plan_room(@fn:rect(@fn:add(@var:site.min.0, @cfg:govern.expansion.overflow.dx), @fn:add(@var:site.min.1, @cfg:govern.expansion.overflow.dy), @cfg:govern.expansion.footprint.w, @cfg:govern.expansion.footprint.h), bedroom)'
     when:
       field: '@var:last_ok'
       op: truthy
@@ -2906,7 +3300,7 @@ decide:
           all:
           - field: '@fn:draftable(@var:it.id)'
             op: truthy
-          - field: '@fn:outranges(@var:it.id, @fn:nearest_hostile(@var:it.pos))'
+          - field: '@fn:outranges(@var:it.id, @fn:nearest_engaged(@var:it.pos))'
             op: truthy
           - not:
               field: '@fn:outrun_by(@var:it.id)'
@@ -2959,7 +3353,7 @@ decide:
         priority: '@cfg:combat.option_weights.combat-chase'
       - id: combat-strike
         label: strike
-        for_each: living_hostiles
+        for_each: targetable_hostiles
         template: attack-target
         when:
           all:
@@ -2982,7 +3376,7 @@ decide:
         priority: '@fn:sub(100, @fn:dist_to(@var:it.id, @var:target.id))'
       - id: combat-close
         label: close distance on
-        for_each: living_hostiles
+        for_each: targetable_hostiles
         template: move-pawn
         when:
           all:
@@ -3045,6 +3439,23 @@ decide:
 rooms:
   tier_table: auto
   archetypes:
+    barracks:
+      size:
+        w: 7
+        h: 7
+      wall: Wall
+      door: Door
+      floor: WoodPlankFloor
+      stuff_preference:
+      - WoodLog
+      - Steel
+      furniture:
+      - def: Bed
+        count: 4
+        anchor: wall
+      - def: StandingLamp
+        count: 1
+        optional: true
     bedroom:
       tier_target: average
       stat_target:
@@ -3077,7 +3488,10 @@ rooms:
       door: Door
       floor: WoodPlankFloor
       furniture:
-      - def: Table2x2
+      - def:
+        - Table2x2
+        - Table2x2c
+        - Table1x2c
         count: 2
         anchor: free
       - def: DiningChair
@@ -3125,7 +3539,9 @@ rooms:
       door: Door
       floor: PavedTile
       furniture:
-      - def: SimpleWorkbench
+      - def:
+        - SimpleWorkbench
+        - CraftingSpot
         count: 2
         anchor: wall
       - def: ToolCabinet
@@ -3157,7 +3573,11 @@ start:
       items_proximity: 2.0
       home_proximity: 1.0
       fertility: 8.0
+      walls: 4.0
     fertile_step: 3
+    wall_margin: 4
+    wall_defs:
+    - Wall
     anchor_name: start.storage
   shelter:
     room_w: 7
@@ -3231,6 +3651,12 @@ start:
     - Medicine
     - Weapons
     - Apparel
+  haul:
+    max_loose: 8
+  butcher:
+    defs:
+    - ButcherSpot
+    - TableButcher
   recreation:
     defs:
     - HorseshoesPin
@@ -3349,6 +3775,8 @@ govern:
   dining:
     rect_dx: 7
     rect_dy: -12
+    alt_dx: -8
+    alt_dy: -12
     room_w: 6
     room_h: 7
     min_room_cells: 9
@@ -3389,9 +3817,22 @@ govern:
   kitchen:
     rect_dx: 0
     rect_dy: -12
+    alt_dx: -8
+    alt_dy: -3
     room_w: 6
     room_h: 6
     min_room_cells: 9
+  dump:
+    label: start.dump
+    rect_dx: -4
+    rect_dy: -24
+    alt_dx: 12
+    alt_dy: -24
+    w: 6
+    h: 5
+    allow:
+    - Chunks
+    - Corpses
   hospital:
     rect_dx: 14
     rect_dy: -12
