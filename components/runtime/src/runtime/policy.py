@@ -108,6 +108,13 @@ def resolve(spec, ctx):
             v = _dig(ctx.persist, spec[5:])
         return v
     m = _FN_RE.match(spec)
+    tail = None
+    if not m:
+        # `@fn:name(...).path` — dig a field out of the fn's dict result
+        t = re.match(r"^(@fn:\w+\(.*\))(\..+)$", spec, re.S)
+        if t:
+            m = _FN_RE.match(t.group(1))
+            tail = t.group(2)[1:]
     if m:
         name, argstr = m.group(1), m.group(2)
         fn = FN.get(name)
@@ -116,9 +123,10 @@ def resolve(spec, ctx):
         args = [resolve(a, ctx) if a.strip().startswith("@")
                 else _literal(a) for a in _split_args(argstr)]
         try:
-            return fn(ctx, *args)
+            out = fn(ctx, *args)
         except Exception:
             return None
+        return _dig(out, tail) if tail is not None else out
     return spec
 
 
@@ -874,6 +882,10 @@ def _skill(ctx, pid, name):
     det = _pawn_detail(ctx, pid)
     sk = (det.get("skills") or {}) if isinstance(det, dict) else {}
     v = sk.get(name)
+    if v is None:
+        low = str(name).lower()
+        v = next((x for k, x in sk.items()
+                  if str(k).lower() == low), None)
     try:
         return float(str(v).rstrip("!")) if v is not None else 0.0
     except (TypeError, ValueError):
@@ -1255,12 +1267,15 @@ _POWER_DEFAULT = {"Drifter": 35, "TribalArcher": 45, "TribalWarrior": 50,
 
 
 def _combat_cfg(ctx) -> dict:
-    """The pack's `combat:` cfg block — {} when absent or when the key
-    carries the dev-harness script (feature-010 shape: spawn/rounds/…)."""
-    blk = ctx.cfg.get("combat") if isinstance(ctx.cfg, dict) else None
-    if not isinstance(blk, dict):
+    """The pack's `combat:` cfg block — or `dev_combat:` when `combat:`
+    carries the dev-harness script (feature-010 shape). {} otherwise."""
+    if not isinstance(ctx.cfg, dict):
         return {}
-    return blk if any(k in blk for k in _COMBAT_CFG_KEYS) else {}
+    blk = ctx.cfg.get("combat")
+    if isinstance(blk, dict) and any(k in blk for k in _COMBAT_CFG_KEYS):
+        return blk
+    dev = ctx.cfg.get("dev_combat")
+    return dev if isinstance(dev, dict) else {}
 
 
 def _dist(a, b):
@@ -1271,6 +1286,23 @@ def _dist(a, b):
         return ((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2) ** 0.5
     except (TypeError, ValueError):
         return None
+
+
+def _pos_of(ctx, x):
+    """[x,z] for a raw cell, a row dict, or a pawn/hostile id."""
+    p = _fn_pos(ctx, x)
+    if p is not None:
+        return p
+    pid = x.get("id") if isinstance(x, dict) else x
+    if pid is None:
+        return None
+    for pool in (_colonist_rows(ctx), _hostile_rows(ctx)):
+        for r in pool:
+            if isinstance(r, dict) and r.get("id") == pid:
+                q = _fn_pos(ctx, r)
+                if q is not None:
+                    return q
+    return None
 
 
 def _home_areas(ctx):
@@ -1416,7 +1448,7 @@ def _fn_watching_hostiles(ctx):
     """Living hostile rows to watch but not engage (siege/staging/far/
     sheltered-manhunter)."""
     return [h for h in _fn_living_hostiles(ctx)
-            if not _is_friendly(ctx, h)
+            if not _is_friendly(ctx, h) and not h.get("fogged")
             and _engage_kind(ctx, h) == "watch"]
 
 
@@ -1608,14 +1640,14 @@ def _fn_hostiles_in_home(ctx):
 
 
 def _fn_hostiles_within(ctx, cell, r=10):
-    p = cell if isinstance(cell, (list, tuple)) else _fn_pos(ctx, cell)
+    p = _pos_of(ctx, cell)
     return [h for h in _fn_living_hostiles(ctx)
             if (_dist(_fn_pos(ctx, h), p) or 10 ** 9) <= float(r or 10)]
 
 
 def _fn_nearest_fleeing(ctx, pawn):
     fled = set(_fn_fleeing_ids(ctx))
-    p = _fn_pos(ctx, pawn)
+    p = _pos_of(ctx, pawn)
     best, best_d = None, None
     for h in _hostile_rows(ctx):
         if h.get("id") not in fled:
@@ -1650,7 +1682,9 @@ def _fn_skill_of(ctx, pid, skill):
 
 
 def _fn_health_of(ctx, pid):
-    return _pawn_health(ctx, pid)
+    row = next((c for c in _colonist_rows(ctx)
+                if isinstance(c, dict) and c.get("id") == pid), None)
+    return _pawn_health(ctx, pid, row)
 
 
 def _fn_need_of(ctx, pid, need):
@@ -1750,7 +1784,7 @@ def _fn_in_range(ctx, p, h):
     pw = _weapon_of(ctx, p)
     if not pw or pw.get("range") is None:
         return False
-    d = _dist(_fn_pos(ctx, p), _fn_pos(ctx, h))
+    d = _dist(_pos_of(ctx, p), _pos_of(ctx, h))
     return d is not None and d <= pw["range"]
 
 
@@ -1846,7 +1880,7 @@ def _fn_kite_cell(ctx, pawn):
     """Step away from the nearest engaged hostile along the pawn-hostile
     vector, biased home — None when the pawn lacks range+speed edge
     (FR-1910: kite suppressed when outranged or outrun)."""
-    p = _fn_pos(ctx, pawn)
+    p = _pos_of(ctx, pawn)
     nh = _fn_nearest_hostile(ctx, p)
     if p is None or nh is None:
         return None
@@ -1866,7 +1900,7 @@ def _fn_kite_cell(ctx, pawn):
 def _fn_block_cell(ctx, pawn):
     """Cell between the nearest melee hostile and home center —
     choke approximation for melee-block."""
-    p = _fn_pos(ctx, pawn)
+    p = _pos_of(ctx, pawn)
     hc = _fn_home(ctx)
     nh = _fn_nearest_hostile(ctx, p or hc)
     h = next((x for x in _fn_living_hostiles(ctx)
@@ -1888,12 +1922,21 @@ def _combat_evidence(ctx, rid, source):
     order = _fn_order_state(ctx)
     cfg = _combat_cfg(ctx)
     markers = ctx.state.setdefault("combat_markers", {})
-    if engaged and "start" not in markers:
-        markers["start"] = ctx.tick
-    if not engaged and "start" in markers:
-        del markers["start"]
-        markers.pop("overrun", None)
-        markers.pop("prolonged", None)
+    if engaged:
+        if markers.get("idle"):
+            # new engagement — reset the span markers
+            markers["start"] = ctx.tick
+            for k in ("overrun", "prolonged", "released"):
+                markers.pop(k, None)
+        markers.pop("idle", None)
+        markers.setdefault("start", ctx.tick)
+        markers["peak_engaged"] = max(
+            len(engaged), int(markers.get("peak_engaged") or 0))
+    else:
+        markers["idle"] = True
+        if not engaged:
+            markers["peak_engaged"] = max(
+                0, int(markers.get("peak_engaged") or 0))
     marks = []
     if mode == "overrun" and "overrun" not in markers:
         markers["overrun"] = ctx.tick
@@ -1903,6 +1946,19 @@ def _combat_evidence(ctx, rid, source):
             not in markers and ctx.tick - markers["start"] >= int(pt):
         markers["prolonged"] = ctx.tick
         marks.append({"marker": "combat.prolonged"})
+    # T030: on the order's combat_released ledger event, record the
+    # engagement summary once — duration, peak hostiles, losses
+    if order.get("last") == "combat_released" \
+            and not markers.get("released"):
+        markers["released"] = True
+        marks.append({
+            "marker": "combat.released",
+            "duration_ticks": (ctx.tick - markers["start"]
+                               if "start" in markers else None),
+            "peak_engaged": markers.get("peak_engaged") or 0,
+            "casualties": _fn_casualty_ids(ctx)})
+        markers.pop("start", None)
+        markers.pop("peak_engaged", None)
     ctx.decisions.append({
         "tick": ctx.tick, "poll": ctx.poll,
         "source": f"{source}:{rid}", "rule": rid,
@@ -1910,6 +1966,8 @@ def _combat_evidence(ctx, rid, source):
         "engaged": [h.get("id") for h in engaged],
         "watching": [h.get("id") for h in _fn_watching_hostiles(ctx)],
         "fighters": _fn_draftable(ctx),
+        "casualties": _fn_casualty_ids(ctx),
+        "needs_tend": _fn_pawns_needing_tend(ctx),
         "order": {k: order.get(k) for k in
                   ("enabled", "engaged", "overrun", "last")},
         "markers": marks})
@@ -2251,10 +2309,11 @@ FN = {
     "outrun_by": _fn_outrun_by, "in_range": _fn_in_range,
     "enemy_mix": _fn_enemy_mix, "enemy_max_range": _fn_enemy_max_range,
     "threat_power": _fn_threat_power, "manhunters": _fn_manhunters,
+    "touched": _pawn_touched,
     "free_beds": _fn_free_beds, "casualty_ids": _fn_casualty_ids,
     "pawns_needing_tend": _fn_pawns_needing_tend,
     "kite_cell": _fn_kite_cell, "block_cell": _fn_block_cell,
-    "rally_cell": _fn_rally_cell,
+    "rally_cell": _fn_rally_cell, "rally_rect": _rally_rect,
 }
 
 
@@ -2457,21 +2516,25 @@ def run_rules(rules, dispatcher, ctx, source="rules") -> list[dict]:
             ctx.vars["index"] = idx
             if rule.get("when"):
                 ok, clauses = check_detail(rule["when"], ctx)
-                if not ok:
-                    # evidence-marked rules leave a structured gate row
-                    # naming the failing clause (T010/FR-1908); other
-                    # rules stay silent to keep the log bounded
-                    if ctx.decisions is not None and (
+                gk = ("gate", rid, idx)
+                prev = ctx.state.get(gk)
+                ctx.state[gk] = ok
+                # evidence-marked rules leave a structured gate row on
+                # pass<->fail transitions naming each clause's result +
+                # reason (T010/FR-1908); steady-state polls stay silent
+                if ctx.decisions is not None and prev is not None \
+                        and prev != ok and (
                             rule.get("evidence")
                             or rule.get("kind") == "combat-evidence"):
-                        ctx.decisions.append({
-                            "tick": ctx.tick, "poll": ctx.poll,
-                            "source": f"{source}:{rid}", "gate": True,
-                            "rule": rid,
-                            "subject": (cand.get("id")
-                                        if isinstance(cand, dict)
-                                        else cand),
-                            "clauses": clauses})
+                    ctx.decisions.append({
+                        "tick": ctx.tick, "poll": ctx.poll,
+                        "source": f"{source}:{rid}", "gate": True,
+                        "rule": rid, "result": ok,
+                        "subject": (cand.get("id")
+                                    if isinstance(cand, dict)
+                                    else cand),
+                        "clauses": clauses})
+                if not ok:
                     continue
             if rule.get("kind") == "combat-evidence":
                 # evidence-only rule (feature 019): append the combat

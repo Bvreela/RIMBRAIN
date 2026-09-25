@@ -114,6 +114,34 @@ pattern, scan cadence, anchor age bound, pause behavior, per-day
 reflection budget, and the trigger predicates — all pack data, validated
 at pack load.
 
+## Combat capability (feature 019)
+
+`combat-defense-v0` is the fair-class defense pack: the Steward `combat`
+standing order executes (draft → rally → hold → overrun → release) and
+the pack steers it. Tune the `combat:` cfg block — `engage_radius` /
+`overrun_radius` (classification radii), `near_hostile` (retreat safety
+bound), `release_ticks`/`prolonged_ticks` (lifecycle windows),
+`min_health` + `allow_unarmed` (fighter floors), `relief` (need
+thresholds for standing down), `engage_odds_floor` (when to shelter
+instead of fight), `chase_skill` (skill gate for chase/block options),
+`assault_duties`/`watch_lords`/`manhunter_mental` (threat vocabulary),
+`delegate_order` (which order to steer), `option_weights` (per-option
+priority).
+
+Per-pawn options live under `decide.select.pawn_scope` — `combat-retreat`
+(outranged/outrun/hurt → safe cell), `combat-relief` (low needs → stand
+down), `combat-block` (melee breach plug), `combat-focus` (nearest
+hostile), `combat-chase` (fleeing pursuit), `combat-kite` (range+speed
+edge), `combat-move` (rally cell). Each `when`/`needs` clause is
+pack-editable; `option_weights` sets fallback priority. The
+`combat-evidence` rule appends posture snapshots + lifecycle markers
+(`combat.overrun`/`combat.prolonged`/`combat.released` with duration,
+peak hostiles, casualties) to `decisions.jsonl`.
+
+Dev-class packs keep the scripted harness under `combat:` (checkpoint/
+spawn/rounds) and get the cfg surface via `dev_combat:` — see
+`dev-lab-v0` for the shape.
+
 ## Guided editor (feature 018)
 
 **Edit Brain** on the launcher's Setup screen opens the selected pack in a

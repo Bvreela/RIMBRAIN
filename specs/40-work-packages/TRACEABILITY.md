@@ -158,3 +158,26 @@ Suite evidence: 266/266 runtime tests green post-implementation (248 prior + 18.
 | FR-024 overwrite-active pairs write+reset | `PackEditor._save_new` active-name path: confirm "hot-swaps the live brain" → write + `brain_reset.request {}` |
 
 Suite evidence: `test_probe_live.py` (9), `test_paramspec.py` (14), `test_brains.py` (10), `test_packedit.py` (12); combined dashboard+runtime run 324/324 green (also fixed `api.probe_cache` returning a copy — `.clear()` callers got a no-op — and catalogued the 021 `upgrade_*`/`equip_pending` fns). Frozen parity: rebuilt `dist/rimbrain.exe` — bare exe spawns `overlay --setup` beside `dist/state|packs`, `run -y --mode sim` exits 2, `run --mode sim` headless run identical to dev.
+
+## Feature 019 — combat capability (FR-1901..1910, SC-1901..1906)
+
+| Requirement | Evidence |
+|---|---|
+| FR-1901 catalog actions (move/cancel/set-area/hostility/gizmo/order/tend/capture/ingest/hunt/guard/rally/run/release) | `capability-catalog.yaml` +47 entries; pack `combat-defense-v0` `capabilities.templates`; `test_combat_capability.py` dispatch assertions |
+| FR-1902 classification as data | `combat:` cfg block (`pack.schema.json` properties; `_combat_cfg` incl. `dev_combat:` fallback for harness packs); `templates._combat_script` shape-gate keeps cfg vs 010-script distinct; `test_combat_capability.py::test_*` classification rows |
+| FR-1903 selectors/fns | `policy.py` combat fns + `_SELECTORS` (`fighters`/`draftable`/`engaged_hostiles`/`watching_hostiles`/`hostiles_in_home`/`manhunters`/`casualties`); `test_combat_capability.py` (classification/eligibility/mix/power/range cases) |
+| FR-1904 pawn options + deterministic fallback | `decide.select.pawn_scope` in `combat-defense-v0` (7 options, `option_weights` priorities); `test_pawn_scope_*` (compile bound, priority-head fallback, direct dispatch) |
+| FR-1905 state machine + hysteresis | `combat_mode` (watch/engage/hold/overrun) + `ticks_since_hostile` release window + `prolonged_ticks`; `test_combat_mode_watch_engage_hold_overrun`, `test_sim_delegate_combat_lifecycle` |
+| FR-1906 fair-class | `combat-defense-v0` `class: fair`, zero `dev.*`; harness combat stays in `dev-lab-v0` (`combat:` script shape-gated) |
+| FR-1907 touch interlock / delegate | `_pawn_touched` via `steward.orders.explain.hands_off`; absent steward → not touched, unreadable surface → excluded (conservative); `test_draftable_touch_interlock` |
+| FR-1908 decision/lifecycle evidence | `combat-evidence` rule kind → posture snapshots; gate-transition clause rows (`check_detail`); `combat.overrun`/`combat.prolonged`/`combat.released` markers (duration/peak/casualties); `test_combat_evidence_rule_records_snapshot`, `test_gate_rows_carry_clause_reasons` |
+| FR-1909 distinct rally cells | `rally_cell` cover-preferring greedy spread, persisted assignments; `test_rally_cells_are_distinct_per_fighter` |
+| FR-1910 suppression of bad moves | `safe_cell`/`kite_cell` return null under `near_hostile`/outranged+outrun → option unoffered; `test_pawn_scope_retreat_suppression_and_offer`, `test_kite_suppressed_when_outranged` |
+| SC-1901 delegate arm/engage/release lifecycle | `test_sim_delegate_combat_lifecycle` (SimGame order stub: set→draft→kill→600-tick release) |
+| SC-1902 no attacks on downed/fogged/friendly | `_engage_kind`/`_is_friendly` exclusions; `test_excluded_hostiles_never_engage` |
+| SC-1903 fallback = argmax-priority | `test_pawn_scope_fallback_is_priority_head` |
+| SC-1904 fair/dev separation | schema `combat`/`dev_combat` props; `_combat_script` gate; `test_*` + `test_universal.py::test_phases_come_from_pack` (harness phases unchanged) |
+| SC-1905 deterministic endpoint-down | caller=None → shadow → `priority_head`; `test_pawn_scope_fallback_is_priority_head` |
+| SC-1906 recovery ordering | rescue → field-tend → capture(gated `free_beds('prison')`) → strip(when Home clear); `test_rescue_*`, `test_capture_*`, `test_strip_*` |
+
+Suite evidence: `test_combat_capability.py` (28) + full runtime regression green vs T003 baseline (280/281; `test_phases_come_from_pack` intermittently flaky pre-019).

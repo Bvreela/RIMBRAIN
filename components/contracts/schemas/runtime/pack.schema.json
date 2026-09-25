@@ -353,6 +353,11 @@
         "delegate_order": {"type": ["string", "null"]}
       }
     },
+    "dev_combat": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Fair-shaped combat cfg for dev-class packs whose `combat:` key already carries the feature-010 harness script — lets scripted combat runs exercise the feature-019 fns under pack-controlled floors."
+    },
     "cycle": {
       "type": "object",
       "additionalProperties": true,
