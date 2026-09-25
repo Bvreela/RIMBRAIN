@@ -88,6 +88,32 @@ budget). If `rimbrain.improve` resolves to a bare `rules-only` fallback
 the pass degrades to the improve pack's declared defect-pattern
 remediations — still deterministic, still gated.
 
+## Fast-evolve play mode (feature 021)
+
+`--mode fastevolve` is a daily save-scum adaptation loop: each in-game
+day anchors to the autosave nearest day start (`game.list_saves` +
+`fastevolve.autosave_pattern`). When a `fastevolve.triggers` predicate
+(`fail_when`/`near_when` over observed state, optionally plus the
+`mutate:` goal-level triggers) fires, the game pauses, one reflection
+pass runs, a gated candidate promotes **immediately** (mid-run, ADR-020
+— the controlled exception to boundary-only promotion), the anchor
+reloads, and the day retries under the evolved brain. At most
+`max_reloads_per_day` reloads (default 2 → three attempts); an exhausted
+day still evolves but moves on, keeping the last evolved pack.
+
+Fair protections stay on inside the mode — `dev.*` stays refused; only
+`game.save`/`game.load` get a scoped grant. Scored episodes refuse the
+mode at launch (`loop.fastevolve_scored`), as does `--dev`
+(`loop.fastevolve_requires_fair`). Retry state lives in
+`state/fastevolve.json` (survives restarts and the post-reload wipe);
+`planning.json` shows the `fastevolve` block; the feed narrates every
+`fastevolve.*` event.
+
+Tune it in the pack's `fastevolve:` section: reload budget, autosave
+pattern, scan cadence, anchor age bound, pause behavior, per-day
+reflection budget, and the trigger predicates — all pack data, validated
+at pack load.
+
 ## Safe editing rules
 
 - **Refusals are information, not failures.** A pack that won't load tells you exactly what it didn't like — read `action.refused`/`load` errors, fix the named field.

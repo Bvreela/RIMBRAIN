@@ -317,6 +317,12 @@ class Overlay(tk.Tk):
         if mv:
             extra.append(f"reflect:{mv.get('last_verdict') or 'idle'}"
                          f"/{mv.get('passes', 0)}")
+        fv = p.get("fastevolve")
+        if fv:
+            extra.append(f"fe:d{fv.get('day')}"
+                         f" r{fv.get('reloads_used', 0)}"
+                         f"/{fv.get('max_reloads', 0)}"
+                         + ("!" if fv.get("exhausted") else ""))
         self.exit_lbl.config(text=(
             "  ".join(f"[{'x' if ok else ' '}] {k}"
                      for k, ok in exits.items())

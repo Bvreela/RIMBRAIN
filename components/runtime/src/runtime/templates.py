@@ -152,9 +152,67 @@ def _builtin_problems(doc: dict) -> list[str]:
     return problems[:25]
 
 
+def _fastevolve_problems(doc: dict) -> list[str]:
+    """Feature 021 section checks — always run (the JSON schema only
+    types the knobs; the trigger predicates need the policy grammar)."""
+    fe = doc.get("fastevolve")
+    if fe is None:
+        return []
+    if not isinstance(fe, dict):
+        return ["$.fastevolve: must be an object"]
+    problems: list[str] = []
+    for k in ("max_reloads_per_day", "saves_poll_every",
+              "max_anchor_age_days", "max_passes_per_day"):
+        v = fe.get(k)
+        if v is not None and (not isinstance(v, int)
+                              or isinstance(v, bool) or v < 0):
+            problems.append(f"$.fastevolve.{k}: must be an int >= 0")
+    trig = fe.get("triggers")
+    if trig is not None and not isinstance(trig, dict):
+        problems.append("$.fastevolve.triggers: must be an object")
+    for k in ("fail_when", "near_when"):
+        p = (trig or {}).get(k)
+        if p is not None:
+            problems += [f"$.fastevolve.triggers.{k}: {m}"
+                         for m in _pred_problems(p)]
+    methods = {t.get("method") for t in templates_of(doc)
+               if isinstance(t, dict)}
+    if "game.load" not in methods:
+        problems.append("$.fastevolve: pack opts into fast-evolve but "
+                        "declares no game.load template — retries "
+                        "can't reload the day anchor")
+    return problems[:25]
+
+
+def _pred_problems(pred) -> list[str]:
+    """Shape-check one predicate tree against the policy.check grammar —
+    combinator nodes carry sub-predicates; leaves need a known op."""
+    from . import policy
+    if not isinstance(pred, dict):
+        return ["predicate must be an object"]
+    out: list[str] = []
+    for k in ("all", "any"):
+        if k in pred:
+            subs = pred[k]
+            if not isinstance(subs, list):
+                return [f"'{k}' must be a list of predicates"]
+            for s in subs:
+                out += _pred_problems(s)
+            return out
+    if "not" in pred:
+        return _pred_problems(pred["not"])
+    op = pred.get("op")
+    if op not in policy._OPS:
+        out.append(f"unknown op '{op}'")
+    elif not isinstance(pred.get("field"), str):
+        out.append("leaf predicate needs a string 'field'")
+    return out
+
+
 def validate_pack(doc: dict) -> list[str]:
     problems = _jsonschema_problems(doc)
-    return _builtin_problems(doc) if problems is None else problems
+    problems = _builtin_problems(doc) if problems is None else problems
+    return (problems + _fastevolve_problems(doc))[:25]
 
 
 def _hash_of(doc: dict) -> str:

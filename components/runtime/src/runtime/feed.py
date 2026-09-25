@@ -102,6 +102,33 @@ def render_event(env: dict) -> str:
     if t == "mutation.noop":
         return (f"Mutation pass: no change — {p.get('rationale') or ''}"
                 .rstrip())
+    if t == "fastevolve.day_start":
+        return (f"Day {p.get('day')}: anchored to autosave "
+                f"`{p.get('anchor')}`"
+                + (" [stale fallback]" if p.get("anchor_stale") else "")
+                + ".")
+    if t == "fastevolve.triggered":
+        return (f"Day {p.get('day')} attempt {p.get('attempt')}: "
+                f"`{p.get('reason')}` — {p.get('evidence')}.")
+    if t == "fastevolve.promoted":
+        return (f"Evolved pack `{p.get('candidate_id')}` promoted "
+                "mid-day for this retry.")
+    if t == "fastevolve.reloaded":
+        return (f"Retrying day {p.get('day')} (attempt "
+                f"{p.get('attempt')}): reloaded `{p.get('save')}`"
+                + (f" under `{p.get('candidate_id')}`."
+                   if p.get("candidate_id") else "."))
+    if t == "fastevolve.exhausted":
+        return (f"Day {p.get('day')}: retry budget spent after "
+                f"{p.get('attempts')} attempt(s) — the day moves on; "
+                "the last evolved pack stays active.")
+    if t == "fastevolve.anchor_missing":
+        return (f"Day {p.get('day')}: no autosave anchor — still "
+                "evolving for future days; no reload this attempt.")
+    if t == "fastevolve.pack_unfit":
+        return (f"Active pack `{p.get('pack')}` has no "
+                f"`{p.get('missing')}` template — fast-evolve retries "
+                "will be refused until a capable pack is loaded.")
     return f"{t}: {p}"  # structured echo — never blank
 
 

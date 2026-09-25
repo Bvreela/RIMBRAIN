@@ -4,8 +4,9 @@ One entry point for the whole app — dev (`python rimbrain.py ...`) and
 frozen (`rimbrain.exe ...`) behave identically:
 
   rimbrain run [loop args]    runtime loop + dashboard overlay together
+                              (--no-overlay opts out)
   rimbrain overlay [--args]   overlay only (also the frozen child entry)
-  rimbrain loop <args>        runtime loop pass-through (no overlay)
+  rimbrain loop <args>        runtime loop pass-through (--overlay opts in)
 
 `run` defaults to a fair live-brain unified-run pass; every `runtime loop`
 flag passes straight through, e.g.
@@ -78,6 +79,16 @@ def _overlay_cmd() -> list[str]:
             else [sys.executable, "-m", "dashboard.overlay"])
 
 
+def _spawn_overlay(env: dict) -> subprocess.Popen:
+    """Overlay beside a loop — same state dir + packs root so the pack
+    picker and brain-reset channel land where the loop reads them."""
+    oargs = ["--state-dir", env["RIMBRAIN_STATE_DIR"]]
+    packs = _packs_dir()  # before _run_loop imports runtime: a fresh
+    if packs:             # frozen seed lands where the loop resolves it
+        oargs += ["--packs-dir", packs]
+    return subprocess.Popen(_overlay_cmd() + oargs, env=env)
+
+
 def _run_overlay(argv: list[str]) -> int:
     sys.argv = ["dashboard.overlay"] + argv
     from dashboard import overlay
@@ -97,7 +108,15 @@ def main(argv: list[str] | None = None) -> int:
     if cmd == "overlay":
         return _run_overlay(rest)
     if cmd == "loop":
-        return _run_loop(rest)
+        want_overlay = "--overlay" in rest
+        if not want_overlay:
+            return _run_loop(rest)
+        rest = [a for a in rest if a != "--overlay"]
+        proc = _spawn_overlay(_env())
+        try:
+            return _run_loop(rest)
+        finally:
+            proc.terminate()
     if cmd != "run":
         print(__doc__)
         return 2
@@ -106,15 +125,21 @@ def main(argv: list[str] | None = None) -> int:
                 "--game", "live", "--iterations", "2000",
                 "--live-flag", "--fair",
                 "--live-brain", "--live-mutate", "--feed"]
-    oargs = ["--state-dir", _env()["RIMBRAIN_STATE_DIR"]]
-    packs = _packs_dir()  # before _run_loop imports runtime: a fresh
-    if packs:             # frozen seed lands where the loop resolves it
-        oargs += ["--packs-dir", packs]
-    proc = subprocess.Popen(_overlay_cmd() + oargs, env=_env())
+    no_overlay = "--no-overlay" in rest
+    rest = [a for a in rest if a != "--no-overlay"]
+    proc = None if no_overlay else _spawn_overlay(_env())
+    if proc is not None:
+        import time
+        time.sleep(1.5)  # let a Tk/launch failure surface now, not later
+        if proc.poll() is not None:
+            print("rimbrain: overlay exited immediately — running "
+                  "headless (check dashboard deps); "
+                  "--no-overlay silences this", file=sys.stderr)
     try:
         return _run_loop(rest)
     finally:
-        proc.terminate()
+        if proc is not None:
+            proc.terminate()
 
 
 if __name__ == "__main__":

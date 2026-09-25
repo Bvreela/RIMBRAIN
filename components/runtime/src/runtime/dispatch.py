@@ -113,11 +113,16 @@ class Dispatcher:
     def __init__(self, bridge: BridgeClient | None = None, *,
                  state_dir: str | Path | None = None,
                  sink=None, game_tick: int | None = None,
-                 clock=None, fair: bool = False) -> None:
+                 clock=None, fair: bool = False,
+                 allow_save_load: bool = False) -> None:
         self.bridge = bridge or BridgeClient()
         # fair mode: no debug/cheat surface — dev.* plus save-load
-        # (checkpoint restore is a test harness, not fair play)
+        # (checkpoint restore is a test harness, not fair play).
+        # allow_save_load (ADR-020): the fast-evolve play mode's scoped
+        # grant — lifts ONLY the game.save/game.load half of the fair
+        # refusal; dev.* stays refused. Set by --mode fastevolve only.
         self._fair = fair
+        self._allow_save_load = allow_save_load
         self._state_dir = Path(state_dir) if state_dir else DEFAULT_STATE_DIR
         self._sink = sink
         self._lock = threading.RLock()
@@ -210,8 +215,9 @@ class Dispatcher:
                                 f"action '{action_id}' is not in the pack",
                                 decision_id)
         if self._fair and (template["method"].startswith("dev.")
-                           or template["method"] in
-                           ("game.save", "game.load")):
+                           or (template["method"] in
+                               ("game.save", "game.load")
+                               and not self._allow_save_load)):
             return self._refuse(action_id, params, "dispatch.fair_mode",
                                 f"'{template['method']}' denied: fair run "
                                 "(no debug/save-load)", decision_id)

@@ -29,6 +29,9 @@ DECISION_TYPES = {
     "mutation.triggered", "mutation.proposed", "mutation.candidate",
     "mutation.rejected", "mutation.promoted", "mutation.reverted",
     "mutation.degraded", "mutation.noop",
+    "fastevolve.day_start", "fastevolve.triggered",
+    "fastevolve.promoted", "fastevolve.reloaded",
+    "fastevolve.exhausted", "fastevolve.anchor_missing",
 }
 
 

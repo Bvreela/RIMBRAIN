@@ -79,7 +79,8 @@ class SimGame:
     """
 
     def __init__(self, state: dict | None = None,
-                 established: bool = False) -> None:
+                 established: bool = False,
+                 autosaves: list[str] | None = None) -> None:
         self._state = deepcopy(state) if state else default_state()
         members = self._state["colonists"]["members"]
         # colony world (the start-mode surface)
@@ -102,6 +103,8 @@ class SimGame:
         self.meals = 0
         self.anchors: dict[str, dict] = {}
         self.saves: dict[str, dict] = {}
+        self._save_seq = 0                  # deterministic modified clock
+        self._save_meta: dict[str, str] = {}
         self.hostiles: list[dict] = []
         self.drafted: set[str] = set()
         self.pawns = [{"id": m["id"], "name": m["name"],
@@ -162,8 +165,11 @@ class SimGame:
             self.roofed = {(14, 14)}
             for p in self.pawns:
                 p["weapon"] = "w-gun"
+                p["equipment"] = [{"id": "w-gun", "def": "Gun_Revolver"}]
             self.weapons = []
             self.armor = []
+        for a in autosaves or []:
+            self.sim_autosave(a)
 
     @property
     def current(self) -> dict:
@@ -282,10 +288,13 @@ class SimGame:
                 for p in self.pawns]}
         if method == "state.pawn":
             pid = params.get("pawn")
+            prow = next((p for p in self.pawns if p["id"] == pid), {})
             return {"ok": True, "result": {
                 "id": pid, "skills": self.skills.get(pid, {}),
                 "drafted": pid in self.drafted,
-                "downed": self._downed(pid)}}
+                "downed": self._downed(pid),
+                "equipment": list(prow.get("equipment") or []),
+                "apparel": list(prow.get("apparel") or [])}}
         if method == "map.find" and params.get("def") == "Fire":
             fires = self._state["map"]["fires"]
             cell = self._state["map"].get("fire_cell")
@@ -429,20 +438,16 @@ class SimGame:
                 "hostiles": list(self.hostiles),
                 "home_center": [50, 50]}}
         if method == "game.list_saves":
+            # bridge shape: [{name, modified}] — modified is a
+            # deterministic monotonic tag (sim-tNNNNNN), not wall time
             return {"ok": True, "result": [
-                {"name": n} for n in self.saves]}
+                {"name": n, "modified": self._save_meta.get(n)}
+                for n in self.saves]}
         if method == "game.save":
-            self.saves[params["name"]] = deepcopy({
-                "items": self.items, "forbidden": self.forbidden,
-                "zones": self.zones, "rooms": self.rooms,
-                "blueprints": self.blueprints, "roofed": self.roofed,
-                "beds": self.beds, "food_source": self.food_source,
-                "recreation": self.recreation, "traps": self.traps,
-                "turbines": self.turbines,
-                "cookstations": self.cookstations, "bills": self.bills,
-                "meals": self.meals, "anchors": self.anchors,
-                "stock_jobs": self.stock_jobs,
-                "hostiles": [], "drafted": set()})
+            self.saves[params["name"]] = self._snapshot()
+            self._save_seq += 1
+            self._save_meta[params["name"]] = \
+                f"sim-t{self._save_seq:06d}"
             return {"ok": True, "result": {"name": params["name"]}}
         if method == "game.load":
             snap = self.saves.get(params["name"])
@@ -593,14 +598,27 @@ class SimGame:
                                         "target": params.get("target")})
             prow = next((p for p in self.pawns if p["id"] == pawn), None)
             if job == "Equip" and prow is not None:
-                prow["weapon"] = params.get("target")
+                target = params.get("target")
+                # the equipped thing leaves the loose pool and becomes
+                # the pawn's equipment — Equip auto-drops the old weapon
+                old = (prow.get("equipment") or [None])[0]
+                if old:
+                    self.weapons.append(old)
+                thing = next((w for w in self.weapons
+                              if w["id"] == target),
+                             {"id": target})
+                prow["weapon"] = target
+                prow["equipment"] = [thing]
                 self.weapons = [w for w in self.weapons
-                                if w["id"] != params.get("target")]
+                                if w["id"] != target]
             elif job == "Wear" and prow is not None:
-                prow.setdefault("apparel", []).append(
-                    params.get("target"))
+                target = params.get("target")
+                thing = next((a for a in self.armor
+                              if a["id"] == target),
+                             {"id": target})
+                prow.setdefault("apparel", []).append(thing)
                 self.armor = [a for a in self.armor
-                              if a["id"] != params.get("target")]
+                              if a["id"] != target]
             elif prow is not None:
                 prow["job"] = job
             return {"ok": True, "result": {"applied": True,
@@ -625,6 +643,14 @@ class SimGame:
             return {"ok": True, "result": {
                 "queue": self.research.get("queue"),
                 "current": self.research.get("current")}}
+        if method == "game.pause":
+            self._state["paused"] = bool(params.get("paused"))
+            return {"ok": True, "result": {"paused":
+                                           self._state["paused"]}}
+        if method == "game.speed":
+            self._state["speed"] = int(params.get("speed") or 0)
+            self._state["paused"] = self._state["speed"] == 0
+            return {"ok": True, "result": {"speed": self._state["speed"]}}
         if method == "state.letters":
             return {"ok": True, "result": list(self.letters)}
         if method == "ui.letter":
@@ -632,3 +658,24 @@ class SimGame:
                             if l.get("id") != params.get("id")]
             return {"ok": True, "result": {"answered": params.get("id")}}
         return err("sim.unknown_method", f"method '{method}' not simulated")
+
+    def _snapshot(self) -> dict:
+        return deepcopy({
+            "items": self.items, "forbidden": self.forbidden,
+            "zones": self.zones, "rooms": self.rooms,
+            "blueprints": self.blueprints, "roofed": self.roofed,
+            "beds": self.beds, "food_source": self.food_source,
+            "recreation": self.recreation, "traps": self.traps,
+            "turbines": self.turbines,
+            "cookstations": self.cookstations, "bills": self.bills,
+            "meals": self.meals, "anchors": self.anchors,
+            "stock_jobs": self.stock_jobs,
+            "hostiles": [], "drafted": set()})
+
+    def sim_autosave(self, name: str) -> None:
+        """Test hook (feature 021): register a loadable autosave row —
+        snapshots the colony surface and bumps the deterministic
+        `modified` clock so 'nearest day start' ordering is testable."""
+        self.saves[name] = self._snapshot()
+        self._save_seq += 1
+        self._save_meta[name] = f"sim-t{self._save_seq:06d}"

@@ -1,329 +1,489 @@
-# Improvement cycle pack (feature 009; FR-801/803/808).
-# Config for the self-improvement loop: defect patterns, metric
-# weights, audit gates, cadence. Templates are inert here — the cycle
-# writes candidate packs, never direct game actions.
-schema_version: 0
+schema_version: 1
 pack_id: pack.improve-v0
 revision: v0.1
 class: fair
-
 templates:
-  - id: noop
-    method: game.status          # read-only; keeps the pack loadable
-    params_schema:
-      type: object
-      additionalProperties: true
-    description: sentinel — the improvement loop makes no game writes
-
-jobs: [improve]
+- &id001
+  id: noop
+  method: game.status
+  params_schema:
+    type: object
+    additionalProperties: true
+  description: "sentinel \u2014 the improvement loop makes no game writes"
+jobs:
+- improve
 decision_map: []
 emergency: []
-
 improve:
   cadence:
-    episodes_per_cycle: 1        # run a self-check after every episode
-    max_iterations: 20           # hard bound — never a runaway
+    episodes_per_cycle: 1
+    max_iterations: 20
   defect_patterns:
-    - id: repeated_refusal
-      event_type: action.refused
-      group_by: payload.template_id
-      min_count: 2               # same template refused >=N times
-      remediation: fix_template_params
-    - id: params_invalid
-      event_type: action.refused
-      group_by: payload.error.code
-      match_value: dispatch.params_invalid
-      min_count: 1
-      remediation: fix_template_params
-    - id: verify_failure
-      event_type: task.transition
-      group_by: payload.kind
-      match_to_state: [failed, expired]
-      min_count: 2
-      remediation: retune_lease_or_effect
-    # Colony-health failure classes (FR-812) — outcome defects, not
-    # dispatch failures. `where` predicates run over event fields;
-    # `window_ticks` bounds the count window (3.6M ticks = 1 game year);
-    # dict remediation declares the mutation ops applied to a candidate.
-    - id: poor_mood
-      event_type: colony.vitals
-      where: {field: payload.mood_min, op: lt, value: 30}
-      group_by: event_type            # colony-wide signal, one group
-      min_count: 3                    # sustained across >=3 samples
-      remediation:
-        ops:
-          # more meal buffer + more joy sources relieve mood pressure
-          - {op: set_cfg, path: start.cooking.buffer, value: 6}
-          - {op: append, path: start.recreation.defs, value: PokerTable}
-    - id: extreme_break_risk
-      event_type: colony.vitals
-      where: {field: payload.extreme_risk, op: gte, value: 1}
-      group_by: event_type
-      min_count: 1                    # <5% mood -> break MTB ~0.5 days;
-                                    # waiting for a second sample is too late
-      remediation:
-        ops:
-          - {op: append, path: start.recreation.defs, value: BilliardsTable}
-          - {op: set_cfg, path: start.cooking.buffer, value: 6}
-    - id: extreme_break_alert
-      event_type: colony.vitals
-      where: {field: payload.alerts, op: contains, value: Extreme break risk}
-      group_by: event_type
-      min_count: 1                    # game's own red flag — corroborates
-                                    # extreme_risk, needs no per-pawn math
-      remediation:
-        ops:
-          - {op: append, path: start.recreation.defs, value: BilliardsTable}
-          - {op: set_cfg, path: start.cooking.buffer, value: 6}
-    - id: mental_break_active
-      event_type: colony.vitals
-      where: {field: payload.in_mental_state, op: gte, value: 1}
-      group_by: event_type
-      min_count: 1                    # berserk/tantrum can kill colonists
-      remediation:
-        ops:
-          - {op: append, path: start.recreation.defs, value: PokerTable}
-          - {op: set_cfg, path: start.cooking.buffer, value: 8}
-    - id: repeat_sickness
-      event_type: colony.sickness
-      group_by: payload.pawn          # per-pawn illness frequency
-      window_ticks: 3600000           # RimWorld game year (4x15 days)
-      min_count: 2                    # >1 sickness in a year = hygiene fail
-      remediation:
-        ops:
-          # prefer built stoves over campfires — cleaner kitchens,
-          # less food poisoning
-          - {op: set_cfg, path: start.cooking.station_defs,
-             value: [ElectricStove, FueledStove, Campfire]}
-    - id: disease_outbreak
-      event_type: colony.sickness
-      group_by: event_type            # colony-wide onset burst
-      window_ticks: 60000             # one game day
-      min_count: 3                    # plague/flu wave, not chronic illness
-      remediation:
-        ops:
-          - {op: set_cfg, path: start.cooking.station_defs,
-             value: [ElectricStove, FueledStove, Campfire]}
-    - id: food_poisoning_chronic
-      event_type: colony.sickness
-      where: {field: payload.hediff, op: eq, value: FoodPoisoning}
-      group_by: event_type            # kitchen-attributable recurrence
-      window_ticks: 3600000
-      min_count: 3
-      remediation:
-        ops:
-          - {op: set_cfg, path: start.cooking.station_defs,
-             value: [ElectricStove, FueledStove, Campfire]}
-    - id: starving_colonist
-      event_type: colony.vitals
-      where: {field: payload.starving, op: gte, value: 1}
-      group_by: event_type
-      min_count: 2                    # Food need <10% — between low buffer
-                                    # and Malnutrition onset
-      remediation:
-        ops:
-          - {op: set_cfg, path: start.cooking.buffer, value: 8}
-          - {op: set_cfg, path: start.food.zone_w, value: 9}
-          - {op: set_cfg, path: start.food.zone_h, value: 9}
-    - id: starvation_onset
-      event_type: colony.sickness
-      where: {field: payload.hediff, op: eq, value: Malnutrition}
-      group_by: payload.pawn
-      window_ticks: 3600000
-      min_count: 1                    # malnutrition kills in ~6 days
-      remediation:
-        ops:
-          - {op: set_cfg, path: start.cooking.buffer, value: 8}
-          - {op: set_cfg, path: start.food.zone_w, value: 9}
-          - {op: set_cfg, path: start.food.zone_h, value: 9}
-    - id: food_crisis
-      event_type: colony.vitals
-      where: {field: payload.food_days, op: lt, value: 1.5}
-      group_by: event_type
-      min_count: 2                    # leading indicator before malnutrition
-      remediation:
-        ops:
-          - {op: set_cfg, path: start.cooking.buffer, value: 8}
-          - {op: set_cfg, path: start.food.zone_w, value: 9}
-          - {op: set_cfg, path: start.food.zone_h, value: 9}
-    - id: temperature_stress
-      event_type: colony.sickness
-      where: {field: payload.hediff, op: in, value: [Hypothermia, Heatstroke]}
-      group_by: payload.pawn
-      window_ticks: 3600000
-      min_count: 1
-      remediation:
-        ops:
-          # parkas/dusters blunt both ends of the temperature band
-          - {op: append, path: start.arm.armor_defs, value: Apparel_Parka}
-          - {op: append, path: start.arm.armor_defs, value: Apparel_CowboyHat}
-    - id: multiple_downed
-      event_type: colony.vitals
-      where: {field: payload.downed, op: gte, value: 2}
-      group_by: event_type
-      min_count: 1                    # any single sample is a failure
-      remediation:
-        ops:
-          # stop chasing routers — retreat posture until defenses improve
-          - {op: drop_rule, ids: [chase-fleeing]}
-    - id: total_incapacitation
-      event_type: colony.vitals
-      where: {field: payload.all_downed, op: eq, value: true}
-      group_by: event_type
-      min_count: 1                    # nobody left to rescue/tend/fight
-      remediation:
-        ops:
-          - {op: drop_rule, ids: [chase-fleeing]}
-          - {op: set_cfg, path: start.arm.armor_defs,
-             value: [Apparel_PlateArmor, Apparel_FlakJacket,
-                     Apparel_FlakVest, Apparel_Duster, Apparel_Jacket]}
-    - id: bleeding_out
-      event_type: colony.vitals
-      where: {field: payload.bleeding, op: gte, value: 1}
-      group_by: event_type
-      min_count: 2                    # persisting across samples = no tend
-      remediation:
-        ops:
-          # stop generating new bleeders; doctor-priority writes are a
-          # capability gap (cap.ui.set_work) — partial remediation
-          - {op: drop_rule, ids: [chase-fleeing]}
-    - id: untended_wounds
-      event_type: colony.vitals
-      where: {field: payload.needs_tending, op: gte, value: 1}
-      group_by: event_type
-      min_count: 3                    # sustained = doctoring not happening
-      remediation:
-        ops:
-          # hospital beds raise tend quality; work-priority is a gap
-          - {op: append, path: start.shelter.bed_defs, value: HospitalBed}
-    - id: colonist_death
-      event_type: colony.vitals
-      where: {field: payload.dead, op: gte, value: 1}
-      group_by: event_type
-      min_count: 1                    # one death is one too many
-      remediation:
-        ops:
-          - {op: drop_rule, ids: [chase-fleeing]}
-          # heavier armor preference on the front-line pawn
-          - {op: set_cfg, path: start.arm.armor_defs,
-             value: [Apparel_PlateArmor, Apparel_FlakJacket,
-                     Apparel_FlakVest, Apparel_Duster, Apparel_Jacket]}
-    - id: colonist_death_letter
-      event_type: colony.letter
-      where: {field: payload.def, op: eq, value: Death}
-      group_by: event_type
-      min_count: 1                    # letter backstop — corpses leave roster
-      remediation:
-        ops:
-          - {op: drop_rule, ids: [chase-fleeing]}
-    - id: raid_pressure
-      event_type: colony.letter
-      where: {field: payload.def, op: eq, value: ThreatBig}
-      group_by: event_type
-      window_ticks: 3600000
-      min_count: 3                    # repeated major raids in one year
-      remediation:
-        ops:
-          - {op: drop_rule, ids: [chase-fleeing]}
-          - {op: set_cfg, path: start.arm.armor_defs,
-             value: [Apparel_PlateArmor, Apparel_FlakJacket,
-                     Apparel_FlakVest, Apparel_Duster, Apparel_Jacket]}
-    - id: escalating_threat
-      event_type: colony.vitals
-      where: {field: payload.threat_points, op: gt, value: 400}
-      group_by: event_type
-      min_count: 3                    # wealth-scaled raids outpacing defense
-      remediation:
-        ops:
-          - {op: set_cfg, path: start.arm.armor_defs,
-             value: [Apparel_PlateArmor, Apparel_FlakJacket,
-                     Apparel_FlakVest, Apparel_Duster, Apparel_Jacket]}
-    - id: fire_rampant
-      event_type: colony.vitals
-      where: {field: payload.fires, op: gte, value: 5}
-      group_by: event_type
-      min_count: 2                    # spread beyond reflex capacity
-      remediation:
-        ops:
-          # rebuild in stone — raiders burn wood bases (guide)
-          - {op: set_cfg, path: start.shelter.stuff_preference,
-             value: [BlocksGranite, BlocksLimestone, BlocksSandstone,
-                     Steel, WoodLog]}
-    - id: power_failure
-      event_type: colony.vitals
-      where: {field: payload.power_net_w, op: lt, value: 0}
-      group_by: event_type
-      min_count: 3                    # sustained deficit -> freezer cascade
-      remediation:
-        ops:
-          # no power phase exists yet — food security is the reachable
-          # lever: bigger buffer rides out brownouts
-          - {op: set_cfg, path: start.cooking.buffer, value: 8}
-    - id: medicine_shortage
-      event_type: colony.vitals
-      where: {field: payload.medicine, op: lte, value: 0}
-      group_by: event_type
-      min_count: 3                    # fresh colonies legitimately start
-                                    # at zero — persistent zero is the defect
-      remediation:
-        ops:
-          # keep medicine OUT of the overflow pile (real lever today);
-          # growing healroot needs research -> future start.medical block
-          - {op: set_cfg, path: start.overflow.reserve_interior,
-             value: [Foods, Medicine, Weapons, Apparel, Textiles]}
-    - id: spoilage_pileup
-      event_type: colony.vitals
-      where: {field: payload.rotting_outside, op: gte, value: 5}
-      group_by: event_type
-      min_count: 2                    # food rotting unroofed outdoors
-      remediation:
-        ops:
-          - {op: set_cfg, path: start.overflow.w, value: 8}
-          - {op: set_cfg, path: start.overflow.h, value: 8}
-    - id: exhaustion
-      event_type: colony.vitals
-      where: {field: payload.exhausted, op: gte, value: 1}
-      group_by: event_type
-      min_count: 3                    # rest<15% feeds mental breaks
-      remediation:
-        ops:
-          - {op: set_cfg, path: start.shelter.bed_defs,
-             value: [Bed, DoubleBed, HospitalBed, SleepingSpot,
-                     DoubleSleepingSpot]}
-    - id: recreation_deprivation
-      event_type: colony.vitals
-      where: {field: payload.bored, op: gte, value: 1}
-      group_by: event_type
-      min_count: 3                    # recreation<15% — the mood leak that
-                                    # ends in breaks, not just bad thoughts
-      remediation:
-        ops:
-          - {op: append, path: start.recreation.defs, value: PokerTable}
-    - id: starvation_alert
-      event_type: colony.vitals
-      where: {field: payload.alerts, op: contains, value: Starvation}
-      group_by: event_type
-      min_count: 1                    # game's own red alert — immediate
-      remediation:
-        ops:
-          - {op: set_cfg, path: start.cooking.buffer, value: 8}
-          - {op: set_cfg, path: start.food.zone_w, value: 9}
-          - {op: set_cfg, path: start.food.zone_h, value: 9}
+  - id: repeated_refusal
+    event_type: action.refused
+    group_by: payload.template_id
+    min_count: 2
+    remediation: fix_template_params
+  - id: params_invalid
+    event_type: action.refused
+    group_by: payload.error.code
+    match_value: dispatch.params_invalid
+    min_count: 1
+    remediation: fix_template_params
+  - id: verify_failure
+    event_type: task.transition
+    group_by: payload.kind
+    match_to_state:
+    - failed
+    - expired
+    min_count: 2
+    remediation: retune_lease_or_effect
+  - id: poor_mood
+    event_type: colony.vitals
+    where:
+      field: payload.mood_min
+      op: lt
+      value: 30
+    group_by: event_type
+    min_count: 3
+    remediation:
+      ops:
+      - op: set_cfg
+        path: start.cooking.buffer
+        value: 6
+      - op: append
+        path: start.recreation.defs
+        value: PokerTable
+  - id: extreme_break_risk
+    event_type: colony.vitals
+    where:
+      field: payload.extreme_risk
+      op: gte
+      value: 1
+    group_by: event_type
+    min_count: 1
+    remediation:
+      ops:
+      - op: append
+        path: start.recreation.defs
+        value: BilliardsTable
+      - op: set_cfg
+        path: start.cooking.buffer
+        value: 6
+  - id: extreme_break_alert
+    event_type: colony.vitals
+    where:
+      field: payload.alerts
+      op: contains
+      value: Extreme break risk
+    group_by: event_type
+    min_count: 1
+    remediation:
+      ops:
+      - op: append
+        path: start.recreation.defs
+        value: BilliardsTable
+      - op: set_cfg
+        path: start.cooking.buffer
+        value: 6
+  - id: mental_break_active
+    event_type: colony.vitals
+    where:
+      field: payload.in_mental_state
+      op: gte
+      value: 1
+    group_by: event_type
+    min_count: 1
+    remediation:
+      ops:
+      - op: append
+        path: start.recreation.defs
+        value: PokerTable
+      - op: set_cfg
+        path: start.cooking.buffer
+        value: 8
+  - id: repeat_sickness
+    event_type: colony.sickness
+    group_by: payload.pawn
+    window_ticks: 3600000
+    min_count: 2
+    remediation:
+      ops:
+      - op: set_cfg
+        path: start.cooking.station_defs
+        value:
+        - ElectricStove
+        - FueledStove
+        - Campfire
+  - id: disease_outbreak
+    event_type: colony.sickness
+    group_by: event_type
+    window_ticks: 60000
+    min_count: 3
+    remediation:
+      ops:
+      - op: set_cfg
+        path: start.cooking.station_defs
+        value:
+        - ElectricStove
+        - FueledStove
+        - Campfire
+  - id: food_poisoning_chronic
+    event_type: colony.sickness
+    where:
+      field: payload.hediff
+      op: eq
+      value: FoodPoisoning
+    group_by: event_type
+    window_ticks: 3600000
+    min_count: 3
+    remediation:
+      ops:
+      - op: set_cfg
+        path: start.cooking.station_defs
+        value:
+        - ElectricStove
+        - FueledStove
+        - Campfire
+  - id: starving_colonist
+    event_type: colony.vitals
+    where:
+      field: payload.starving
+      op: gte
+      value: 1
+    group_by: event_type
+    min_count: 2
+    remediation:
+      ops:
+      - op: set_cfg
+        path: start.cooking.buffer
+        value: 8
+      - op: set_cfg
+        path: start.food.zone_w
+        value: 9
+      - op: set_cfg
+        path: start.food.zone_h
+        value: 9
+  - id: starvation_onset
+    event_type: colony.sickness
+    where:
+      field: payload.hediff
+      op: eq
+      value: Malnutrition
+    group_by: payload.pawn
+    window_ticks: 3600000
+    min_count: 1
+    remediation:
+      ops:
+      - op: set_cfg
+        path: start.cooking.buffer
+        value: 8
+      - op: set_cfg
+        path: start.food.zone_w
+        value: 9
+      - op: set_cfg
+        path: start.food.zone_h
+        value: 9
+  - id: food_crisis
+    event_type: colony.vitals
+    where:
+      field: payload.food_days
+      op: lt
+      value: 1.5
+    group_by: event_type
+    min_count: 2
+    remediation:
+      ops:
+      - op: set_cfg
+        path: start.cooking.buffer
+        value: 8
+      - op: set_cfg
+        path: start.food.zone_w
+        value: 9
+      - op: set_cfg
+        path: start.food.zone_h
+        value: 9
+  - id: temperature_stress
+    event_type: colony.sickness
+    where:
+      field: payload.hediff
+      op: in
+      value:
+      - Hypothermia
+      - Heatstroke
+    group_by: payload.pawn
+    window_ticks: 3600000
+    min_count: 1
+    remediation:
+      ops:
+      - op: append
+        path: start.arm.armor_defs
+        value: Apparel_Parka
+      - op: append
+        path: start.arm.armor_defs
+        value: Apparel_CowboyHat
+  - id: multiple_downed
+    event_type: colony.vitals
+    where:
+      field: payload.downed
+      op: gte
+      value: 2
+    group_by: event_type
+    min_count: 1
+    remediation:
+      ops:
+      - op: drop_rule
+        ids:
+        - chase-fleeing
+  - id: total_incapacitation
+    event_type: colony.vitals
+    where:
+      field: payload.all_downed
+      op: eq
+      value: true
+    group_by: event_type
+    min_count: 1
+    remediation:
+      ops:
+      - op: drop_rule
+        ids:
+        - chase-fleeing
+      - op: set_cfg
+        path: start.arm.armor_defs
+        value:
+        - Apparel_PlateArmor
+        - Apparel_FlakJacket
+        - Apparel_FlakVest
+        - Apparel_Duster
+        - Apparel_Jacket
+  - id: bleeding_out
+    event_type: colony.vitals
+    where:
+      field: payload.bleeding
+      op: gte
+      value: 1
+    group_by: event_type
+    min_count: 2
+    remediation:
+      ops:
+      - op: drop_rule
+        ids:
+        - chase-fleeing
+  - id: untended_wounds
+    event_type: colony.vitals
+    where:
+      field: payload.needs_tending
+      op: gte
+      value: 1
+    group_by: event_type
+    min_count: 3
+    remediation:
+      ops:
+      - op: append
+        path: start.shelter.bed_defs
+        value: HospitalBed
+  - id: colonist_death
+    event_type: colony.vitals
+    where:
+      field: payload.dead
+      op: gte
+      value: 1
+    group_by: event_type
+    min_count: 1
+    remediation:
+      ops:
+      - op: drop_rule
+        ids:
+        - chase-fleeing
+      - op: set_cfg
+        path: start.arm.armor_defs
+        value:
+        - Apparel_PlateArmor
+        - Apparel_FlakJacket
+        - Apparel_FlakVest
+        - Apparel_Duster
+        - Apparel_Jacket
+  - id: colonist_death_letter
+    event_type: colony.letter
+    where:
+      field: payload.def
+      op: eq
+      value: Death
+    group_by: event_type
+    min_count: 1
+    remediation:
+      ops:
+      - op: drop_rule
+        ids:
+        - chase-fleeing
+  - id: raid_pressure
+    event_type: colony.letter
+    where:
+      field: payload.def
+      op: eq
+      value: ThreatBig
+    group_by: event_type
+    window_ticks: 3600000
+    min_count: 3
+    remediation:
+      ops:
+      - op: drop_rule
+        ids:
+        - chase-fleeing
+      - op: set_cfg
+        path: start.arm.armor_defs
+        value:
+        - Apparel_PlateArmor
+        - Apparel_FlakJacket
+        - Apparel_FlakVest
+        - Apparel_Duster
+        - Apparel_Jacket
+  - id: escalating_threat
+    event_type: colony.vitals
+    where:
+      field: payload.threat_points
+      op: gt
+      value: 400
+    group_by: event_type
+    min_count: 3
+    remediation:
+      ops:
+      - op: set_cfg
+        path: start.arm.armor_defs
+        value:
+        - Apparel_PlateArmor
+        - Apparel_FlakJacket
+        - Apparel_FlakVest
+        - Apparel_Duster
+        - Apparel_Jacket
+  - id: fire_rampant
+    event_type: colony.vitals
+    where:
+      field: payload.fires
+      op: gte
+      value: 5
+    group_by: event_type
+    min_count: 2
+    remediation:
+      ops:
+      - op: set_cfg
+        path: start.shelter.stuff_preference
+        value:
+        - BlocksGranite
+        - BlocksLimestone
+        - BlocksSandstone
+        - Steel
+        - WoodLog
+  - id: power_failure
+    event_type: colony.vitals
+    where:
+      field: payload.power_net_w
+      op: lt
+      value: 0
+    group_by: event_type
+    min_count: 3
+    remediation:
+      ops:
+      - op: set_cfg
+        path: start.cooking.buffer
+        value: 8
+  - id: medicine_shortage
+    event_type: colony.vitals
+    where:
+      field: payload.medicine
+      op: lte
+      value: 0
+    group_by: event_type
+    min_count: 3
+    remediation:
+      ops:
+      - op: set_cfg
+        path: start.overflow.reserve_interior
+        value:
+        - Foods
+        - Medicine
+        - Weapons
+        - Apparel
+        - Textiles
+  - id: spoilage_pileup
+    event_type: colony.vitals
+    where:
+      field: payload.rotting_outside
+      op: gte
+      value: 5
+    group_by: event_type
+    min_count: 2
+    remediation:
+      ops:
+      - op: set_cfg
+        path: start.overflow.w
+        value: 8
+      - op: set_cfg
+        path: start.overflow.h
+        value: 8
+  - id: exhaustion
+    event_type: colony.vitals
+    where:
+      field: payload.exhausted
+      op: gte
+      value: 1
+    group_by: event_type
+    min_count: 3
+    remediation:
+      ops:
+      - op: set_cfg
+        path: start.shelter.bed_defs
+        value:
+        - Bed
+        - DoubleBed
+        - HospitalBed
+        - SleepingSpot
+        - DoubleSleepingSpot
+  - id: recreation_deprivation
+    event_type: colony.vitals
+    where:
+      field: payload.bored
+      op: gte
+      value: 1
+    group_by: event_type
+    min_count: 3
+    remediation:
+      ops:
+      - op: append
+        path: start.recreation.defs
+        value: PokerTable
+  - id: starvation_alert
+    event_type: colony.vitals
+    where:
+      field: payload.alerts
+      op: contains
+      value: Starvation
+    group_by: event_type
+    min_count: 1
+    remediation:
+      ops:
+      - op: set_cfg
+        path: start.cooking.buffer
+        value: 8
+      - op: set_cfg
+        path: start.food.zone_w
+        value: 9
+      - op: set_cfg
+        path: start.food.zone_h
+        value: 9
   metrics:
-    refusal_rate: 0.4            # weights for candidate scoring
+    refusal_rate: 0.4
     verify_failure_rate: 0.3
     task_completion_rate: 0.3
-    min_events: 5                # evidence floor — below -> defer
-  audit_gates:                   # all must pass before promotion
-    - code.suite
-    - policy.invariant
-    - ux.feed_coverage
+    min_events: 5
+  audit_gates:
+  - code.suite
+  - policy.invariant
+  - ux.feed_coverage
   promotion:
-    episode_boundary_only: true  # immutability invariant
-    incumbent_wins_ties: true    # stability bias
-
-# Feature 016: same trigger knobs available when this pack drives a
-# mutation-enabled pass (offline improve runs don't consult it).
+    episode_boundary_only: true
+    incumbent_wins_ties: true
+  day_failure_threshold: 0.8
 mutate:
   goals_per_pass: 10
   on_failure: true
@@ -336,3 +496,28 @@ mutate:
   cooldown_polls: 40
   max_passes_per_run: 8
   max_ops: 5
+meta:
+  pack_id: pack.improve-v0
+  revision: v0.1
+  class: fair
+capabilities:
+  templates:
+  - *id001
+reflexes: []
+rules: []
+senses:
+  universal: {}
+  govern: {}
+phases: []
+standing_goals: []
+options: []
+decide:
+  select:
+    role: rimbrain.select
+    batch_pawns: true
+    fallback: priority_head
+    shadow: true
+  plan:
+    role: rimbrain.plan
+    cadence_s: 150
+    on_phase_boundary: true

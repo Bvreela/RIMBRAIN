@@ -125,7 +125,7 @@ The window supervises the loop process: GO spawns it, the monitor shows its outp
 **Launch & parameters**
 
 - **FR-001**: The app MUST present a setup screen before a run starts when invoked with no run arguments; invocation with any run argument MUST bypass the screen unchanged, and a skip flag MUST start the fair-default pass immediately.
-- **FR-002**: Every parameter the run loop accepts MUST have a labeled control; the screen MUST be generated from a declarative parameter specification so a reduced flag surface (feature 017's consolidation) re-renders without rework.
+- **FR-002**: Every parameter the run loop accepts MUST have a labeled control; the screen MUST be generated from a declarative parameter specification so a reduced flag surface (feature 017's consolidation) re-renders without rework. The run-mode control in particular MUST enumerate every run type the runtime exposes — including play-option modes specified after this feature (e.g. feature 021 fast-evolve) — so new run types appear without UI rework.
 - **FR-003**: Defaults MUST equal today's fair-run preset: fair on, start mode, default pack, live confirmation, live-brain, live-mutate, and feed enabled.
 - **FR-004**: Invalid flag combinations MUST be blocked or visibly flagged at selection time, mirroring the loop's fail-closed validation (cycle needs dev; live-ish modes need the live confirmation; live-mutate needs an eligible mode; dev-class packs need fair off).
 - **FR-005**: GO MUST start a run whose effective parameters exactly match the visible controls.
@@ -182,10 +182,11 @@ The window supervises the loop process: GO spawns it, the monitor shows its outp
 
 ## Assumptions
 
+- **Sequencing gate (operator decision, 2026-09-24):** this feature implements *last* among the queued features — after 017 unified phase engine, 019 combat capability, 020 building capability, and 021 fast-evolve are implemented and their suites pass. The declarative parameter spec (FR-002) is then generated from the final mode/flag/run-type surface once, rather than snapshotted early and reworked per feature.
 - The existing overlay window technology is retained; this feature extends it rather than introducing a second UI stack.
 - The runtime's public API facade is the only permitted path for endpoint probing and binding resolution from UI code.
 - The brain-reset request file channel already handles pack swap/reset/unload and is reused unchanged.
-- Packs on disk remain schema v0 during this feature; the editor's outline uses the unified phase vocabulary as labels while reading v0 paths — full v1-form editing follows feature 017's loader migration.
+- Packs on disk are schema v1 (feature 017 landed the native shape + auto-migration); the editor's outline uses the unified phase vocabulary directly against v1 roots.
 - Comment preservation inside guided-save copies is best-effort (copy-then-patch where feasible); source packs are never modified so no documentation is destroyed.
 - Probe verdicts are advisory: degraded-path fallbacks mean a failed brain never blocks a run.
 - The mutation-candidates directory remains exclusively owned by the reflect/mutate pipeline.
