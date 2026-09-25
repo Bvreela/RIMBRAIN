@@ -14,10 +14,10 @@
 
 ## Phase 1: Setup
 
-- [ ] T001 Verify 017 US2 landed: `components/runtime/tests/test_select.py` green, `decide.select.pawn_scope` compiles per-pawn candidates, `engine.step(select_out=)` consumed in `components/runtime/src/runtime/loop.py` — do not proceed if open
-- [ ] T002 Create branch `feature/019-combat-capability` from the 017 merge point
-- [ ] T003 [P] Record baseline: `cd components/runtime && uv run pytest -q` — save pass count for regression comparison
-- [ ] T004 [P] Draft ADR for combat-writer authority (delegate model per spec Edge Cases resolution) in `specs/90-decisions/ADR-0XX-combat-authority.md` — order is base executor, pack steers via `steward.orders.*`, pawn options are surgical overrides via manual-touch
+- [X] T001 Verify 017 US2 landed: `components/runtime/tests/test_select.py` green, `decide.select.pawn_scope` compiles per-pawn candidates, `engine.step(select_out=)` consumed in `components/runtime/src/runtime/loop.py` — do not proceed if open
+- [X] T002 Create branch `feature/019-combat-capability` from the 017 merge point
+- [X] T003 [P] Record baseline: 281 green, `test_phases_come_from_pack` intermittent under full suite (passes standalone) — `cd components/runtime && uv run pytest -q` — save pass count for regression comparison
+- [X] T004 [P] Draft ADR for combat-writer authority (ADR-021) (delegate model per spec Edge Cases resolution) in `specs/90-decisions/ADR-0XX-combat-authority.md` — order is base executor, pack steers via `steward.orders.*`, pawn options are surgical overrides via manual-touch
 
 ---
 

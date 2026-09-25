@@ -332,7 +332,26 @@
     "combat": {
       "type": "object",
       "additionalProperties": true,
-      "description": "Combat-test config (feature 010): checkpoint name, incident def, bounded points/rounds/tick budget. Test mode only, never scored."
+      "description": "Two shapes share this key: (a) dev-harness combat script (feature 010: checkpoint/spawn/rounds/engage/cleanup — test mode only, never scored); (b) fair-class combat cfg block (feature 019, combat-capability/v0: delegate-order steering, classification radii/duties, eligibility floors, option weights). Properties below validate only the cfg shape — harness keys pass through additionalProperties.",
+      "properties": {
+        "rally_anchor": {"type": "string"},
+        "engage_radius": {"type": "integer", "minimum": 1},
+        "overrun_radius": {"type": "integer", "minimum": 1},
+        "near_hostile": {"type": "integer", "minimum": 1},
+        "release_ticks": {"type": "integer", "minimum": 1},
+        "prolonged_ticks": {"type": "integer", "minimum": 1},
+        "min_health": {"type": "number", "minimum": 0, "maximum": 100},
+        "relief": {"type": "object"},
+        "allow_unarmed": {"type": "boolean"},
+        "engage_odds_floor": {"type": "number", "exclusiveMinimum": 0},
+        "power_overrides": {"type": "object"},
+        "option_weights": {"type": "object"},
+        "chase_skill": {"type": "integer", "minimum": 0, "maximum": 20},
+        "assault_duties": {"type": "array", "items": {"type": "string"}},
+        "watch_lords": {"type": "array", "items": {"type": "string"}},
+        "manhunter_mental": {"type": "string"},
+        "delegate_order": {"type": ["string", "null"]}
+      }
     },
     "cycle": {
       "type": "object",

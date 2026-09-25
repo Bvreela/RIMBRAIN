@@ -106,7 +106,7 @@ v0; additive to pack schema v1. Packs without `rooms:`/`mods:` are unaffected. A
 
 - `space_score` over fixture cells matches the formula; `space_tier` honors vanilla vs modded tables.
 - `plan_room` compiles each shipped archetype to ops respecting sizes/links; unfit rects return null.
-- `bed_demand` couple-aware counting; `pawns_with_thought` over fixture thoughts.
+- `bed_demand` couple-aware counting; `pawns_with_thought`/`pawns_wounded` over fixture pawns; `room_role_at`/`room_at`/`rooms_matching` over fixture room rows.
 
 ## Consumer tests
 

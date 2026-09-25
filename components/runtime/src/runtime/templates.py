@@ -268,9 +268,9 @@ def migrate_v0(doc: dict) -> dict:
               if start.get("phases") else [])
     # a pack carrying a combat: script gets it as a gated phase kind —
     # engaged only under scripted=True (dev harness / --stage combat)
-    if doc.get("combat"):
+    if _combat_script(doc) is not None:
         phases.append({"id": "combat", "kind": "combat",
-                       "combat": doc["combat"]})
+                       "combat": _combat_script(doc)})
     out.setdefault("phases", phases)
     out.setdefault("standing_goals", list(govern.get("goals") or []))
     out.setdefault("options", list(doc.get("goal_options") or []))
@@ -280,6 +280,20 @@ def migrate_v0(doc: dict) -> dict:
         "plan": {"role": "rimbrain.plan", "cadence_s": 150,
                  "on_phase_boundary": True}})
     return out
+
+
+_COMBAT_SCRIPT_KEYS = frozenset({
+    "checkpoint", "prereq", "rounds", "hostile_count", "pawn_kind",
+    "spawn_offset", "setup", "spawn", "engage", "cleanup"})
+
+
+def _combat_script(doc: dict):
+    """`combat:` is the dev-harness script (feature 010) only when it
+    carries script keys — the fair-class combat cfg block (feature 019)
+    shares the key and must not become a ``kind: combat`` phase."""
+    blk = doc.get("combat")
+    return blk if isinstance(blk, dict) \
+        and _COMBAT_SCRIPT_KEYS & blk.keys() else None
 
 
 _V0_TO_V1 = {
@@ -330,9 +344,10 @@ def phases_of(pack: dict) -> list:
                 "steps": start.get("phases") or [],
                 "complete": start.get("exit") or {}, "cfg": start}]
               if start.get("phases") else [])
-    if pack.get("combat"):
+    script = _combat_script(pack)
+    if script is not None:
         phases.append({"id": "combat", "kind": "combat",
-                       "combat": pack["combat"]})
+                       "combat": script})
     return phases
 
 

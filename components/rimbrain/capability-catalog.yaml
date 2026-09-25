@@ -1577,3 +1577,372 @@ entries:
   domains:
   - steward_component
   notes: owned by components/steward, not runtime
+- id: move-pawn
+  kind: template
+  status: implemented
+  bridge_methods:
+  - ui.goto
+  domains:
+  - combat
+  - navigation
+- id: cancel-job
+  kind: template
+  status: implemented
+  bridge_methods:
+  - ui.cancel_job
+  domains:
+  - work_jobs
+  - combat
+- id: set-area
+  kind: template
+  status: implemented
+  bridge_methods:
+  - ui.set_policies
+  domains:
+  - policies
+  - combat
+- id: set-hostility
+  kind: template
+  status: implemented
+  bridge_methods:
+  - ui.set_policies
+  domains:
+  - policies
+  - combat
+- id: press-gizmo
+  kind: template
+  status: implemented
+  bridge_methods:
+  - ui.press
+  domains:
+  - ui_control
+  - combat
+- id: order-pawn
+  kind: template
+  status: implemented
+  bridge_methods:
+  - ui.order
+  domains:
+  - pawns
+  - combat
+- id: field-tend
+  kind: template
+  status: implemented
+  bridge_methods:
+  - ui.job
+  domains:
+  - health_medical
+  - combat
+- id: capture
+  kind: template
+  status: implemented
+  bridge_methods:
+  - ui.job
+  domains:
+  - prisoners
+  - combat
+- id: ingest-drug
+  kind: template
+  status: implemented
+  bridge_methods:
+  - ui.job
+  domains:
+  - health_medical
+  - combat
+- id: designate-hunt
+  kind: template
+  status: implemented
+  bridge_methods:
+  - ui.designate
+  domains:
+  - combat
+  - work_jobs
+- id: animal-guard
+  kind: template
+  status: implemented
+  bridge_methods:
+  - ui.animal
+  domains:
+  - animals
+  - combat
+- id: rally-set
+  kind: template
+  status: implemented
+  bridge_methods:
+  - steward.orders.rally
+  domains:
+  - combat
+  - steward_component
+- id: order-run
+  kind: template
+  status: implemented
+  bridge_methods:
+  - steward.orders.run
+  domains:
+  - combat
+  - steward_component
+- id: order-set
+  kind: template
+  status: implemented
+  bridge_methods:
+  - steward.orders.set
+  domains:
+  - combat
+  - steward_component
+- id: combat-release
+  kind: template
+  status: implemented
+  bridge_methods:
+  - steward.orders.release
+  domains:
+  - combat
+  - steward_component
+- id: engaged_hostiles
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.threats
+  - state.areas
+  - steward.status
+  domains:
+  - combat
+  - observation
+- id: watching_hostiles
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.threats
+  - state.areas
+  - steward.status
+  domains:
+  - combat
+  - observation
+- id: hostiles_in_home
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.threats
+  - state.areas
+  domains:
+  - combat
+  - observation
+- id: hostiles_within
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.threats
+  domains:
+  - combat
+  - observation
+- id: combat_mode
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.threats
+  - steward.status
+  domains:
+  - combat
+- id: ticks_since_hostile
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.threats
+  domains:
+  - combat
+  - observation
+- id: draftable
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.pawns
+  - state.pawn
+  - steward.orders.explain
+  domains:
+  - combat
+  - pawns
+- id: fighters
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.pawns
+  - state.pawn
+  - steward.orders.explain
+  domains:
+  - combat
+  - pawns
+- id: order_state
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - steward.status
+  - steward.orders.explain
+  domains:
+  - combat
+  - steward_component
+- id: nearest_fleeing
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.threats
+  domains:
+  - combat
+- id: safe_cell
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.threats
+  - state.base
+  domains:
+  - combat
+  - navigation
+- id: kite_cell
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.threats
+  - defs.get
+  domains:
+  - combat
+  - navigation
+- id: block_cell
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.threats
+  domains:
+  - combat
+  - navigation
+- id: rally_cell
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - steward.status
+  - map.cell
+  - state.base
+  domains:
+  - combat
+  - geometry
+- id: skill_of
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.pawn
+  domains:
+  - pawns
+- id: health_of
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.pawn
+  domains:
+  - pawns
+  - health_medical
+- id: need_of
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.pawn
+  domains:
+  - pawns
+- id: speed_of
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.pawn
+  domains:
+  - pawns
+- id: weapon_stats
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - defs.get
+  domains:
+  - defs_metadata
+  - combat
+- id: outranges
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - defs.get
+  - state.threats
+  domains:
+  - combat
+- id: outranged_by
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - defs.get
+  - state.threats
+  domains:
+  - combat
+- id: outrun_by
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.pawn
+  - state.threats
+  domains:
+  - combat
+- id: in_range
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - defs.get
+  - state.threats
+  domains:
+  - combat
+- id: enemy_mix
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.threats
+  - defs.get
+  domains:
+  - combat
+  - observation
+- id: enemy_max_range
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.threats
+  - defs.get
+  domains:
+  - combat
+- id: threat_power
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.threats
+  domains:
+  - combat
+- id: manhunters
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.threats
+  domains:
+  - combat
+- id: free_beds
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.rooms
+  domains:
+  - health_medical
+  - prisoners
+- id: casualty_ids
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.pawns
+  domains:
+  - health_medical
+  - combat
+- id: pawns_needing_tend
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.pawn
+  domains:
+  - health_medical
+  - combat
