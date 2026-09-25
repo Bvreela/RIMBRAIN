@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rimbrainagent.dev/schemas/events/types/model.tool_call.schema.json",
+  "title": "events/types/model.tool_call",
+  "description": "Payload for event_type 'model.tool_call' (upstream kind 'tool_call'): {name, args, id}. Legacy family kept for replay; dispatcher-era equivalent is intent.queued.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name", "args", "id"],
+  "properties": {
+    "name": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "args": { "type": "object" },
+    "id": { "type": "string", "minLength": 1, "maxLength": 256 }
+  }
+}

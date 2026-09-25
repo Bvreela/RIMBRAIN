@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rimbrainagent.dev/schemas/events/types/action.completed.schema.json",
+  "title": "events/types/action.completed",
+  "description": "Payload for event_type 'action.completed' (native type, feature 004; FR-307): the dispatched bridge RPC returned ok. `result` is the bridge result (privacy-redacted by policy, never secrets).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["pack_revision", "template_id", "params", "outcome"],
+  "properties": {
+    "pack_revision": { "type": "string", "minLength": 1 },
+    "decision_id": { "type": "string" },
+    "template_id": { "type": "string", "minLength": 1 },
+    "params": { "type": "object", "additionalProperties": true },
+    "result": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Bridge result payload."
+    },
+    "outcome": { "enum": ["completed"] }
+  }
+}

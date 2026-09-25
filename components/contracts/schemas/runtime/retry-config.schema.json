@@ -1,0 +1,170 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rimbrainagent.dev/schemas/runtime/retry-config.schema.json",
+  "title": "runtime/retry-config",
+  "description": "RetryConfig contract object for checkpoint-reload retry loops (feature 003, specs/003-checkpoint-retry; FR-202, UR-RL-002). Versioned contract object: schema_version is required and deliberately unbounded above (consumer max is consumer policy per compatibility/VERSIONING.md). Declares the game-time window (window_ticks XOR window_hours; 2500 ticks per game-hour), the retry cap (max_retries bounds retries AFTER the first attempt, so total windows <= max_retries + 1), game speed (0-4), the namespaced checkpoint save family, references naming the success gate and mutation space (recorded in the run manifest and emitted events), and hard wall-clock budgets. The embedded `gate`/`mutation_space`/`candidate` blocks make the object self-contained and executable offline by components/lab; `sim` carries SimBridge parameters for offline runs. Debug/eval mode only: retry loops are forbidden during scored episodes (FR-208).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "config_id",
+    "max_retries",
+    "speed",
+    "checkpoint_family",
+    "gate_ref",
+    "mutation_space_ref",
+    "budgets"
+  ],
+  "oneOf": [
+    { "required": ["window_ticks"] },
+    { "required": ["window_hours"] }
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Contract revision; no maximum (strict consumers enforce their own ceiling)."
+    },
+    "config_id": {
+      "description": "Retry-loop config identifier; rl.* kind per common/id grammar.",
+      "allOf": [
+        { "$ref": "../common/id.schema.json" },
+        { "pattern": "^rl\\." }
+      ]
+    },
+    "window_ticks": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Game-time increment per iteration in ticks. XOR with window_hours."
+    },
+    "window_hours": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "description": "Game-time increment per iteration in game-hours (2500 ticks each). XOR with window_ticks."
+    },
+    "max_retries": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Hard cap on retries after the first attempt; total windows <= max_retries + 1 (FR-207)."
+    },
+    "speed": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4,
+      "description": "Game speed applied while advancing each window (bridge game.speed 0..4)."
+    },
+    "checkpoint_family": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[A-Za-z][A-Za-z0-9_-]*$",
+      "description": "Namespaced save family; checkpoints are saved as <family>--<run_id>--cp<N> and isolated from user saves (FR-206)."
+    },
+    "gate_ref": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "description": "Identifier naming the success gate; recorded in the run manifest and retry.gate.evaluated events. The embedded `gate` block carries the executable definition in v1."
+    },
+    "mutation_space_ref": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "description": "Identifier naming the declared mutation space; recorded for provenance. The embedded `mutation_space` list carries the executable definition in v1."
+    },
+    "budgets": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["per_window_s", "total_s"],
+      "properties": {
+        "per_window_s": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Wall-clock budget per window in seconds; exceeding aborts the loop (FR-207)."
+        },
+        "total_s": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Wall-clock budget for the whole run in seconds; exceeding aborts the loop (FR-207)."
+        }
+      },
+      "description": "Hard wall-clock bounds; the loop cannot self-extend them."
+    },
+    "gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["predicates"],
+      "properties": {
+        "combinator": {
+          "enum": ["all", "any"],
+          "description": "How predicate verdicts combine; default 'all' when omitted."
+        },
+        "predicates": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "field", "op", "value"],
+            "properties": {
+              "id": { "type": "string", "minLength": 1, "maxLength": 128 },
+              "field": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256,
+                "description": "Dotted path into the observed state dict (numeric segments index lists)."
+              },
+              "op": {
+                "enum": ["eq", "ne", "gt", "gte", "lt", "lte", "contains"]
+              },
+              "value": {
+                "description": "Expected value compared against the observed field."
+              }
+            }
+          }
+        }
+      },
+      "description": "Embedded executable gate definition (state predicates, never event equality). Required to run; optional when the config is used purely as a manifest."
+    },
+    "mutation_space": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "apply"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "apply": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path", "op", "value"],
+            "properties": {
+              "path": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256,
+                "description": "Dotted path into the candidate plan dict (numeric segments index lists)."
+              },
+              "op": {
+                "enum": ["set", "bump", "swap"],
+                "description": "set: assign value at path; bump: add numeric value to numeric leaf; swap: exchange list elements at the [i,j] index pair in value."
+              },
+              "value": {
+                "description": "Op operand: literal for set, numeric delta for bump, [i,j] index pair for swap."
+              }
+            }
+          }
+        }
+      },
+      "description": "Embedded ordered mutation list; one popped per retry, exhaustion ends the loop as 'exhausted' (FR-204)."
+    },
+    "candidate": {
+      "type": "object",
+      "description": "Initial candidate plan/matrix dict the mutation space edits; mutations produce new revisions, never in-place pack edits (UR-RL-006)."
+    },
+    "sim": {
+      "type": "object",
+      "description": "Optional SimBridge parameters for --mode sim runs ({state, wall_per_window_s, ...}); ignored by --mode live."
+    }
+  }
+}

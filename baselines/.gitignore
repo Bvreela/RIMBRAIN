@@ -1,0 +1,7 @@
+# Generated baseline bundle artifacts stay out of git; manifests and gap records are committed.
+*
+!MANIFEST.yaml
+!gaps.yaml
+!.gitignore
+!*/MANIFEST.yaml
+!*/gaps.yaml

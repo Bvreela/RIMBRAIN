@@ -1,0 +1,578 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rimbrainagent.dev/schemas/runtime/pack.schema.json",
+  "title": "runtime/pack",
+  "description": "PolicyPack contract (feature 004; FR-302/FR-305/FR-308): validated-data policy. templates are declarative single-writer actions; decision_map binds typed systemone answers to templates; emergency rules are deterministic no-model reflexes. Immutable during scored runs; the revision hash rides in every action.* event.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version"
+  ],
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "schema_version": {
+            "maximum": 0
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "pack_id",
+          "revision",
+          "templates",
+          "jobs",
+          "decision_map",
+          "emergency"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "schema_version": {
+            "minimum": 1
+          }
+        },
+        "required": [
+          "schema_version"
+        ]
+      },
+      "then": {
+        "required": [
+          "meta",
+          "capabilities"
+        ]
+      }
+    }
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1,
+      "description": "Pack schema revision (0 = legacy v0, migrated at load; 1 = unified phase-engine surface, feature 017)."
+    },
+    "meta": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "v1 identity block: {pack_id, revision, class: fair|dev}. Loader mirrors pack_id/revision/class here on v0 migration."
+    },
+    "capabilities": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "v1 capability vocabulary: {templates: [...]} — same shape as the legacy top-level templates array."
+    },
+    "senses": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "v1 observation config: site geometry, measured-field def lists, vitals cadence, enrich toggles. v0 start.*/govern.*/universal.* cfg migrates here."
+    },
+    "reflexes": {
+      "type": "array",
+      "description": "v1 pre-decide emergency rules (ex-emergency): [{id, priority, when, action}] — `when` uses the unified policy predicate dialect (feature 017)."
+    },
+    "rules": {
+      "type": "array",
+      "description": "v1 standing invariant rules (ex-universal.rules): [{id, when, action}]."
+    },
+    "phases": {
+      "type": "array",
+      "description": "v1 phase list (ex-start.phases + post phases): [{id, prescriptive?, when?, steps, complete?, goals?, action_list?, cfg}]. Exactly one prescriptive phase may exist."
+    },
+    "standing_goals": {
+      "type": "array",
+      "description": "v1 standing goals (ex-govern.goals): ordered objectives evaluated across phases; re-arm on effect lapse."
+    },
+    "options": {
+      "type": "array",
+      "description": "v1 strategic options catalog (ex-goal_options) the planner may promote into standing_goals or a plan."
+    },
+    "decide": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "v1 decide-stage config: {select: {role, batch_pawns, fallback, shadow, cadence_polls}, plan: {role, cadence_s, on_phase_boundary, on_events}}."
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "v1 metrics config: vitals + efficiency windows feeding select ranking and reflect evidence."
+    },
+    "action_list": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "v1 action-list bounds (ex-max_items etc.) shared by the select stage; hard cap stays runtime-owned."
+    },
+    "vitals": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "v1 colony-health sampling config (cadence, thresholds)."
+    },
+    "blueprints": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "v1 layout blueprints: compound/dining/kitchen/bedroom/floor geometry the pack's phases reference."
+    },
+    "defense": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "v1 defense policy: trap/killbox/perimeter config the pack's goals reference."
+    },
+    "rooms": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Room archetype catalog + tier profile (feature 020; room-archetypes/v0): {tier_table: auto|vanilla|realistic_rooms_rewritten, archetypes: {<id>: archetype}}. Archetypes compile to build-layout ops via plan_room; room goals verify on observed role/stat predicates.",
+      "properties": {
+        "tier_table": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "vanilla",
+            "realistic_rooms_rewritten"
+          ],
+          "description": "Resolution order for space-tier thresholds: auto = live defs.get(Space).scoreStages -> cfg -> vanilla; an explicit value forces that table."
+        },
+        "archetypes": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": true,
+            "anyOf": [
+              {
+                "required": [
+                  "size"
+                ]
+              },
+              {
+                "required": [
+                  "tier_target"
+                ]
+              }
+            ],
+            "properties": {
+              "size": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "w",
+                  "h"
+                ],
+                "properties": {
+                  "w": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "h": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                },
+                "description": "Interior footprint cells (w x h); the compiled room's walls surround this rect."
+              },
+              "tier_target": {
+                "type": "string",
+                "description": "Space-tier key (rather_tight|average|somewhat|quite|very|extremely) — footprint derived from the resolved tier table instead of size."
+              },
+              "stat_target": {
+                "type": "object",
+                "additionalProperties": true,
+                "description": "Verification targets: {<stat>: <min>} over state.rooms rows (impressiveness, beauty, cleanliness, ...)."
+              },
+              "wall": {
+                "type": [
+                  "string",
+                  "array"
+                ],
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "description": "Wall buildable def (e.g. Wall) — outline ops. May be an ordered preference list (first defs.get-known wins)."
+              },
+              "door": {
+                "type": [
+                  "string",
+                  "array"
+                ],
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "description": "Door buildable def (e.g. Door). May be an ordered preference list (first defs.get-known wins)."
+              },
+              "floor": {
+                "type": [
+                  "string",
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "description": "TerrainDef for interior fill (null = no floor ops). May be an ordered preference list (first defs.get-known wins)."
+              },
+              "roof": {
+                "type": "boolean",
+                "description": "Build roof over the interior (default true)."
+              },
+              "furniture": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "required": [
+                    "def"
+                  ],
+                  "properties": {
+                    "def": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "minItems": 1
+                        }
+                      ],
+                      "description": "Buildable def name, or an ordered preference list — first defs.get-known wins (modded games rename/omit defs)."
+                    },
+                    "count": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "anchor": {
+                      "type": "string",
+                      "enum": [
+                        "wall",
+                        "corner",
+                        "center",
+                        "free"
+                      ]
+                    },
+                    "linked_to": {
+                      "type": "string",
+                      "description": "Furniture def this item must sit within linkableRange of."
+                    },
+                    "adjacent_to": {
+                      "type": "string",
+                      "description": "Furniture def this item must be orthogonally adjacent to."
+                    },
+                    "separate": {
+                      "type": "boolean",
+                      "description": "Keep this item non-adjacent to other furnishing cells."
+                    },
+                    "optional": {
+                      "type": "boolean",
+                      "description": "Skip silently when no placement satisfies the constraints."
+                    },
+                    "links": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "description": "Place one linked item per N anchor instances (e.g. links: 2 + at: each_bench = one cabinet per two benches)."
+                    },
+                    "at": {
+                      "type": "string",
+                      "description": "Placement selector relative to another furnishing (e.g. each_bench = adjacent to every bench instance)."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "mods": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Per-mod profiles (feature 020): {<key>: {package_id, settings}} — declared cfg consulted only after live detection; vanilla applies on any doubt."
+    },
+    "pack_id": {
+      "type": "string",
+      "pattern": "^pack\\.[a-z0-9][a-z0-9._-]{0,63}$",
+      "description": "id grammar (common/id) with the pack. prefix."
+    },
+    "derived_from": {
+      "type": "string",
+      "description": "Lineage: pack id this pack was derived from (guided-editor save-as-new, feature 018). Additive metadata; rides the pack hash like any other field."
+    },
+    "revision": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "description": "Human-readable revision tag; the canonical-JSON hash is authoritative (feature 001)."
+    },
+    "policy_version": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Policy primitive vocabulary version (feature 012; UR-BRN-014): the runtime interpreter validates @fn/selector/op names against this version. Absent = pre-engine pack (no phases/rules)."
+    },
+    "class": {
+      "type": "string",
+      "enum": [
+        "fair",
+        "dev"
+      ],
+      "description": "Pack class (UR-BRN-018): 'fair' packs declare zero dev.* bridge methods and are loadable under --fair; 'dev' packs carry test/debug tooling (spawn/heal/checkpoint scripts) and are refused at load in fair runs. Absent = unclassified."
+    },
+    "templates": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "method",
+          "params_schema"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9._-]{0,63}$"
+          },
+          "method": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "description": "Bridge RPC method; must exist in the sealed inventory or the pack is rejected at load."
+          },
+          "params_schema": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "JSON-Schema subset (draft 2020-12) applied to dispatch params before any write."
+          },
+          "require": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Params that must be present (in addition to params_schema)."
+          },
+          "description": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "jobs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Survival job ids this pack covers (food, emergency, ...)."
+    },
+    "fallback_plan": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Deterministic rules-only plan the planner loop emits when the planning tier degrades to the terminal sentinel (feature 005, FR-408). Pack-authored data so degraded behavior is visible in pack diffs."
+    },
+    "decision_map": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "question",
+          "choice",
+          "action"
+        ],
+        "properties": {
+          "question": {
+            "type": "string",
+            "description": "Systemone question id the answer came from."
+          },
+          "choice": {
+            "type": "string",
+            "description": "Selected choice id; score/noul thresholds below may also trigger."
+          },
+          "score": {
+            "type": "number",
+            "description": "Optional trigger: answer score >= this value maps too."
+          },
+          "noul": {
+            "type": "number",
+            "description": "Optional trigger: answer noul >= this value maps too."
+          },
+          "action": {
+            "$ref": "#/$defs/action",
+            "description": "Dispatcher action the answer maps to; unmapped answers are refused (FR-303)."
+          }
+        }
+      }
+    },
+    "emergency": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "priority",
+          "condition",
+          "action"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "priority": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Lower fires first when several rules match."
+          },
+          "condition": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "combinator",
+              "predicates"
+            ],
+            "properties": {
+              "combinator": {
+                "enum": [
+                  "all",
+                  "any"
+                ]
+              },
+              "predicates": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "field",
+                    "op",
+                    "value"
+                  ],
+                  "properties": {
+                    "field": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "op": {
+                      "enum": [
+                        "eq",
+                        "ne",
+                        "gt",
+                        "gte",
+                        "lt",
+                        "lte",
+                        "contains"
+                      ]
+                    },
+                    "value": {
+                      "description": "Any JSON value; type compatibility checked at eval."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "action": {
+            "$ref": "#/$defs/action",
+            "description": "Reflex action dispatched without any model call (FR-308)."
+          }
+        }
+      }
+    },
+    "start": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Start-mode config (feature 008): site ranking weights, shelter dims, recreation defs, food policy, exit conditions. Absent on non-start packs."
+    },
+    "govern": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Standing post-start goals (UR-RUN-009): ordered {id, when?, requires?, need?, effect, steps, repeat?} evaluated every poll after the start exit contract holds on a held run. Terminal goals re-arm while their effect lapses — sustainment and long-horizon objectives (research queue, mission letters) share the phase machinery."
+    },
+    "goal_options": {
+      "type": "array",
+      "description": "Overarching strategic goal options (catalog-level, not committed policy): [{id, summary, survival_benefit, investment, wealth_impact, raid_threat_impact, phase, prerequisites, sources}] the planner weighs against the raid-points economy and may promote into govern.goals or a plan."
+    },
+    "improve": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Self-improvement cycle config (feature 009): defect patterns, metric weights, audit gate list, cadence. Absent on non-improvement packs."
+    },
+    "combat": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Two shapes share this key: (a) dev-harness combat script (feature 010: checkpoint/spawn/rounds/engage/cleanup — test mode only, never scored); (b) fair-class combat cfg block (feature 019, combat-capability/v0: delegate-order steering, classification radii/duties, eligibility floors, option weights). Properties below validate only the cfg shape — harness keys pass through additionalProperties.",
+      "properties": {
+        "rally_anchor": {"type": "string"},
+        "engage_radius": {"type": "integer", "minimum": 1},
+        "overrun_radius": {"type": "integer", "minimum": 1},
+        "near_hostile": {"type": "integer", "minimum": 1},
+        "release_ticks": {"type": "integer", "minimum": 1},
+        "prolonged_ticks": {"type": "integer", "minimum": 1},
+        "min_health": {"type": "number", "minimum": 0, "maximum": 100},
+        "relief": {"type": "object"},
+        "allow_unarmed": {"type": "boolean"},
+        "engage_odds_floor": {"type": "number", "exclusiveMinimum": 0},
+        "power_overrides": {"type": "object"},
+        "option_weights": {"type": "object"},
+        "chase_skill": {"type": "integer", "minimum": 0, "maximum": 20},
+        "assault_duties": {"type": "array", "items": {"type": "string"}},
+        "watch_lords": {"type": "array", "items": {"type": "string"}},
+        "manhunter_mental": {"type": "string"},
+        "delegate_order": {"type": ["string", "null"]}
+      }
+    },
+    "dev_combat": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Fair-shaped combat cfg for dev-class packs whose `combat:` key already carries the feature-010 harness script — lets scripted combat runs exercise the feature-019 fns under pack-controlled floors."
+    },
+    "cycle": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Save-reset cycle config (feature 010): checkpoint name, phase ordering, per-phase budgets."
+    },
+    "universal": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Universal pawn rules (feature 011): idle-job fallbacks, combat target discipline, post-combat strip. Applies in every mode."
+    },
+    "mutate": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Live-mutation trigger policy (feature 016; FR-1402/1412): goals_per_pass cadence, on_failure / near_failure thresholds, cooldown_polls, max_passes_per_run, max_ops. Absent = no in-run reflection passes even under --live-mutate."
+    },
+    "fastevolve": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Fast-evolve play-mode policy (feature 021; ADR-020): max_reloads_per_day retry budget, autosave_pattern anchor filter, saves_poll_every scan throttle, max_anchor_age_days fallback bound, pause_during_evolve, max_passes_per_day, triggers {use_mutate, fail_when, near_when} colony predicates. Absent = fastevolve defaults still apply under --mode fastevolve."
+    }
+  },
+  "$defs": {
+    "action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "template_id",
+        "params"
+      ],
+      "properties": {
+        "template_id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9._-]{0,63}$"
+        },
+        "params": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "Template params; validated against the template's params_schema at dispatch."
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rimbrainagent.dev/schemas/events/types/policy.watchdog.completed.schema.json",
+  "title": "events/types/policy.watchdog.completed",
+  "description": "Payload for event_type 'policy.watchdog.completed' (upstream kind 'watchdog'): {summary, fixes, skipped, commits, errors, uncommitted} — one self-correction pass over mod/Source + agent/rimagent.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["summary", "fixes", "skipped", "commits", "errors", "uncommitted"],
+  "properties": {
+    "summary": { "type": "string", "maxLength": 65536 },
+    "fixes": { "type": "array", "maxItems": 1024 },
+    "skipped": { "type": "array", "maxItems": 1024 },
+    "commits": { "type": "array", "maxItems": 1024 },
+    "errors": { "type": "integer", "minimum": 0 },
+    "uncommitted": { "type": "array", "maxItems": 1024 }
+  }
+}

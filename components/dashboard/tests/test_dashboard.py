@@ -1,0 +1,179 @@
+"""Dashboard API tests (T067) — ephemeral server + urllib, isolated profiles."""
+
+from __future__ import annotations
+
+import json
+import sys
+import threading
+import urllib.request
+from pathlib import Path
+
+import pytest
+import yaml
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(REPO_ROOT / "components" / "dashboard" / "src"))
+sys.path.insert(0, str(REPO_ROOT / "components" / "runtime" / "src"))
+
+import runtime.registry as rr  # noqa: E402
+from dashboard.server import Handler  # noqa: E402
+from http.server import ThreadingHTTPServer  # noqa: E402
+
+EP = {"id": "ep1", "api": "openai-compat", "base_url": "http://x/v1",
+      "api_key_ref": "env:TEST_DASH_KEY", "models": ["m1"],
+      "capabilities": ["chat"]}
+
+
+@pytest.fixture()
+def server(tmp_path, monkeypatch):
+    monkeypatch.setenv(rr.PROFILES_ENV, str(tmp_path / "profiles"))
+    (tmp_path / "profiles").mkdir()
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    yield f"http://127.0.0.1:{srv.server_port}", tmp_path / "profiles"
+    srv.shutdown()
+
+
+def _get(base, path):
+    return json.loads(urllib.request.urlopen(base + path, timeout=5).read())
+
+
+def _send(base, path, method, body=None):
+    req = urllib.request.Request(
+        base + path, method=method,
+        data=json.dumps(body or {}).encode() if body is not None else None,
+        headers={"Content-Type": "application/json"})
+    try:
+        return json.loads(urllib.request.urlopen(req, timeout=5).read())
+    except urllib.error.HTTPError as e:
+        return json.loads(e.read())
+
+
+def test_page_serves(server):
+    base, _ = server
+    body = urllib.request.urlopen(base + "/", timeout=5).read()
+    assert b"Model Endpoints" in body
+
+
+def test_endpoint_crud_via_api(server):
+    base, prof = server
+    assert _get(base, "/api/endpoints")["endpoints"] == []
+    r = _send(base, "/api/endpoints", "POST", EP)
+    assert r["ok"]
+    assert _get(base, "/api/endpoints")["endpoints"][0]["id"] == "ep1"
+    r = _send(base, "/api/endpoints/ep1", "PUT", {"label": "renamed"})
+    assert r["ok"] and r["result"]["label"] == "renamed"
+    r = _send(base, "/api/endpoints/ep1", "DELETE")
+    assert r["ok"]
+    assert _get(base, "/api/endpoints")["endpoints"] == []
+
+
+def test_yaml_is_authoritative(server):
+    """Hand-edited YAML is what the API serves (SC-003)."""
+    base, prof = server
+    _send(base, "/api/endpoints", "POST", EP)
+    doc = yaml.safe_load((prof / "endpoints.yaml").read_text())
+    doc["endpoints"][0]["label"] = "hand-edited"
+    (prof / "endpoints.yaml").write_text(yaml.safe_dump(doc))
+    assert _get(base, "/api/endpoints")["endpoints"][0]["label"] == "hand-edited"
+
+
+def test_secrets_never_in_responses(server, monkeypatch):
+    monkeypatch.setenv("TEST_DASH_KEY", "supersecret-value")
+    base, _ = server
+    _send(base, "/api/endpoints", "POST", EP)
+    for path in ("/api/endpoints", "/api/bindings", "/", "/api/discover"):
+        body = urllib.request.urlopen(base + path, timeout=5).read()
+        assert b"supersecret-value" not in body
+
+
+def test_set_binding_via_api(server):
+    base, _ = server
+    _send(base, "/api/endpoints", "POST", EP)
+    r = _send(base, "/api/bindings", "POST",
+              {"role": "rimbrain.plan", "endpoint": "ep1", "model": "m1"})
+    assert r["ok"]
+    assert _get(base, "/api/bindings")["bindings"]["rimbrain.plan"]["endpoint"] == "ep1"
+
+
+def test_probe_unknown_endpoint(server):
+    base, _ = server
+    r = _send(base, "/api/probe/ghost", "POST")
+    assert not r["ok"] and r["error"]["code"] == "registry.endpoint.missing"
+
+
+def test_overlay_load_view(tmp_path):
+    """Overlay reads canonical view records; torn/missing -> empty."""
+    sys.path.insert(0, str(REPO_ROOT / "components" / "dashboard" / "src"))
+    from dashboard.overlay import load_view  # noqa: E402
+
+    planning, decisions = load_view(tmp_path)
+    assert planning == {} and decisions == []
+
+    (tmp_path / "planning.json").write_text(json.dumps(
+        {"mode": "start", "tick": 1, "goals": [{"id": "beds"}]}))
+    (tmp_path / "decisions.jsonl").write_text(
+        '{"tick":1,"source":"r","template":"t","params":{},"ok":true}\n'
+        '{"tick":2,"source":"r","template":"t","params":{},"ok":false}\n')
+    planning, decisions = load_view(tmp_path)
+    assert planning["mode"] == "start"
+    assert [d["tick"] for d in decisions] == [1, 2]
+
+    (tmp_path / "decisions.jsonl").write_text('{"torn":\n')
+    assert load_view(tmp_path)[1] == []
+
+
+def test_overlay_epoch_window_resets_on_load():
+    """Matrix resets after load-game rows and bare tick rewinds."""
+    from dashboard.overlay import epoch_window  # noqa: E402
+
+    rows = [
+        {"tick": 100, "template": "attack-target"},
+        {"tick": 200, "template": "load-game"},
+        {"tick": 90, "template": "attack-target"},
+        {"tick": 95, "template": "draft-pawn"},
+    ]
+    assert [r["tick"] for r in epoch_window(rows)] == [90, 95]
+
+    # tick rewind without a load row (external save load)
+    rows = [{"tick": 500, "template": "x"}, {"tick": 300, "template": "y"}]
+    assert [r["tick"] for r in epoch_window(rows)] == [300]
+
+    # monotone epoch -> everything shown
+    rows = [{"tick": 1, "template": "x"}, {"tick": 2, "template": "y"}]
+    assert len(epoch_window(rows)) == 2
+
+
+def test_overlay_write_reset_request(tmp_path):
+    """FR-1108: Brain Reset button posts the request file the runtime polls."""
+    from dashboard.overlay import write_reset_request  # noqa: E402
+
+    p = write_reset_request(tmp_path)
+    assert p.name == "brain_reset.request" and p.is_file()
+
+
+def test_overlay_learn_line_mutation_rows():
+    """Mutation rows show trigger evidence + endpoint, not bare names."""
+    from dashboard.overlay import learn_line  # noqa: E402
+
+    line, tag = learn_line({"event_type": "mutation.triggered", "payload": {
+        "reason": "near_failure",
+        "evidence": {"requeued": ["govern.keep"],
+                     "refusals": ["build-layout", "haul", "x"],
+                     "blocked_polls": 15}}})
+    assert "near_failure" in line and "govern.keep" in line
+    assert "build-layout" in line and "blocked 15" in line
+
+    line, tag = learn_line({"event_type": "mutation.degraded", "payload": {
+        "reason": "near_failure", "detail": "HTTP 429 from x",
+        "status": 429, "model": "m-test", "streak": 2,
+        "evidence": {"refusals": ["build-layout"]},
+        "action": "no change applied"}})
+    assert tag == "bad" and "HTTP 429" in line
+    assert "build-layout" in line and "no change" in line
+    assert "m-test" not in line          # trigger + change, not the model
+
+    line, _ = learn_line({"event_type": "mutation.proposed", "payload": {
+        "mutation_id": "mut.x", "op_count": 1,
+        "ops": ["set govern.goals.keep.retry_polls=9"]}})
+    assert "mut.x" in line and "retry_polls=9" in line

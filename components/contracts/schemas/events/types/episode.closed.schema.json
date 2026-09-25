@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rimbrainagent.dev/schemas/events/types/episode.closed.schema.json",
+  "title": "events/types/episode.closed",
+  "description": "Payload for event_type 'episode.closed' (upstream kind 'episode_end'): {episode, score, reason, assisted, brain_sha}.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["episode", "score", "reason", "assisted", "brain_sha"],
+  "properties": {
+    "episode": { "type": "integer", "minimum": 0 },
+    "score": { "type": "number" },
+    "reason": { "type": "string", "maxLength": 4096 },
+    "assisted": { "type": "boolean" },
+    "brain_sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$",
+      "description": "Git SHA of the brain/ tree at episode close."
+    }
+  }
+}

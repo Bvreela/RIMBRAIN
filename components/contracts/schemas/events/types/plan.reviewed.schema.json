@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rimbrainagent.dev/schemas/events/types/plan.reviewed.schema.json",
+  "title": "events/types/plan.reviewed",
+  "description": "Payload for event_type 'plan.reviewed' (native type, feature 005; FR-403/405): the deterministic gate + optional review-model critique produced a verdict. The gate is code; the model's critique is advisory text only.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["plan_id", "pack_revision", "verdict", "violations"],
+  "properties": {
+    "plan_id": { "type": "string", "minLength": 1 },
+    "pack_revision": { "type": "string", "minLength": 1 },
+    "endpoint_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Planning endpoint that produced the proposal under review."
+    },
+    "model": { "type": "string", "minLength": 1 },
+    "verdict": { "enum": ["approved", "rejected", "revised"] },
+    "violations": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Deterministic-gate violations; non-empty forces verdict=rejected."
+    },
+    "feedback": {
+      "type": "string",
+      "description": "Review-model critique (advisory)."
+    },
+    "model_unavailable": {
+      "type": "boolean",
+      "description": "Review model call failed; verdict rests on the deterministic gate alone."
+    },
+    "usage": {
+      "type": "object",
+      "required": ["prompt_tokens", "completion_tokens"],
+      "properties": {
+        "prompt_tokens": { "type": "integer", "minimum": 0 },
+        "completion_tokens": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    }
+  }
+}

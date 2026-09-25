@@ -687,9 +687,8 @@ rules:
   for_each: colonists
   when:
     all:
-    - field: '@fn:count(@fn:living_hostiles())'
-      op: gt
-      value: 0
+    - field: '@fn:engaged_hostiles()'
+      op: not_empty
     - field: '@var:it.weapon'
       op: present
     - field: '@var:it.downed'
@@ -702,16 +701,15 @@ rules:
     polls: 30
   try:
   - template: attack-target
-    needs: '@fn:nearest_hostile(@var:it.pos)'
+    needs: '@fn:nearest_engaged(@var:it.pos)'
     params:
       pawn: '@var:it.id'
-      target: '@fn:nearest_hostile(@var:it.pos)'
+      target: '@fn:nearest_engaged(@var:it.pos)'
 - id: stand-down
   for_each: '@fn:drafted_ids()'
   when:
-    field: '@fn:count(@fn:living_hostiles())'
-    op: eq
-    value: 0
+    field: '@fn:engaged_hostiles()'
+    op: empty
   cooldown:
     polls: 30
   try:
@@ -1962,7 +1960,7 @@ standing_goals:
 - id: mission-offers
   when:
     all:
-    - field: '@fn:living_hostiles()'
+    - field: '@fn:engaged_hostiles()'
       op: empty
     - field: '@obs:meals_present'
       op: truthy
@@ -2693,7 +2691,7 @@ rooms:
       stat_target: {impressiveness: 40}
       wall: Wall
       door: Door
-      floor: Carpet
+      floor: WoodPlankFloor
       stuff_preference:
       - WoodLog
       - Steel
@@ -2708,7 +2706,7 @@ rooms:
       stat_target: {impressiveness: 40}
       wall: Wall
       door: Door
-      floor: Carpet
+      floor: WoodPlankFloor
       furniture:
       - {def: Table2x2, count: 2, anchor: free}
       - {def: DiningChair, count: 8, adjacent_to: Table2x2}
@@ -2717,7 +2715,7 @@ rooms:
       stat_target: {cleanliness: 0}
       wall: Wall
       door: Door
-      floor: Floor
+      floor: PavedTile
       furniture:
       - {def: HospitalBed, count: 2, anchor: wall}
       - {def: VitalsMonitor, linked_to: HospitalBed}
@@ -2726,7 +2724,7 @@ rooms:
       stat_target: {cleanliness: 0}
       wall: Wall
       door: Door
-      floor: Floor
+      floor: PavedTile
       furniture:
       - {def: FueledStove, count: 1, anchor: wall}
       - {def: TableButcher, count: 1, anchor: wall, separate: true}
@@ -2735,7 +2733,7 @@ rooms:
       stat_target: {impressiveness: 30}
       wall: Wall
       door: Door
-      floor: Floor
+      floor: PavedTile
       furniture:
       - {def: SimpleWorkbench, count: 2, anchor: wall}
       - {def: ToolCabinet, links: 2, linked_to: SimpleWorkbench}

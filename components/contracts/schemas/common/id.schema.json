@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rimbrainagent.dev/schemas/common/id.schema.json",
+  "title": "common/id",
+  "description": "Opaque, immutable namespaced identifier with grammar kind.identifier. Registered kinds: evt, ep, obs, plan, goal, task, lock, intent, act, ver, req, resp, fix, pack, cmp, blb, pm, rl (retry-loop config), run (retry-loop run). Ordering and identity semantics live in envelope fields, never in the ID.",
+  "type": "string",
+  "pattern": "^[a-z][a-z0-9]*\\.[A-Za-z0-9][A-Za-z0-9_-]{2,63}$",
+  "maxLength": 128
+}

@@ -1,0 +1,24 @@
+# CI shell for components/rimbrain (T012; FR-014).
+# Inert placeholder: this file moves unchanged into the component repository
+# once a portable remote exists. Until then it only runs the no-op self-check.
+name: rimbrain-validate
+
+on:
+  push:
+    paths:
+      - "components/rimbrain/**"
+  pull_request:
+    paths:
+      - "components/rimbrain/**"
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Component self-check
+        run: python "components/rimbrain/validate.py"

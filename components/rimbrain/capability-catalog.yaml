@@ -1,0 +1,2270 @@
+# Capability catalog (feature 014; UR-BRN-015..017).
+# Data about what the engine CAN do — never when/why (pack data).
+# Audit: python tools/capability_audit.py [--live]
+catalog_version: 0.1.0
+domains:
+- animals
+- checkpoints
+- collections
+- combat
+- construction
+- defs_metadata
+- diagnostics
+- engine_escape
+- environment
+- equipment
+- factions_social
+- food_cooking
+- geometry
+- growing
+- health_medical
+- items_hauling
+- math
+- navigation
+- observation
+- pawns
+- policies
+- power
+- prisoners
+- production
+- quests_incidents
+- research
+- runtime_control
+- steward_component
+- storage_zones
+- testing_dev
+- ui_control
+- work_jobs
+- work_priorities
+entries:
+- id: set-anchor
+  kind: template
+  status: implemented
+  bridge_methods:
+  - anchor.set
+  domains:
+  - navigation
+- id: create-stockpile
+  kind: template
+  status: implemented
+  bridge_methods:
+  - ui.zone
+  - ui.storage
+  domains:
+  - storage_zones
+- id: create-growing
+  kind: template
+  status: implemented
+  bridge_methods:
+  - ui.zone
+  domains:
+  - growing
+- id: unforbid-items
+  kind: template
+  status: implemented
+  bridge_methods:
+  - ui.designate
+  domains:
+  - items_hauling
+- id: haul-items
+  kind: template
+  status: implemented
+  bridge_methods:
+  - ui.job
+  domains:
+  - items_hauling
+- id: build-layout
+  kind: template
+  status: implemented
+  bridge_methods:
+  - ui.build
+  - ui.build_many
+  domains:
+  - construction
+- id: build-one
+  kind: template
+  status: implemented
+  bridge_methods:
+  - ui.build
+  domains:
+  - construction
+- id: add-bill
+  kind: template
+  status: implemented
+  bridge_methods:
+  - ui.add_bill
+  - ui.bill
+  domains:
+  - food_cooking
+  - production
+- id: equip-pawn
+  kind: template
+  status: implemented
+  bridge_methods:
+  - ui.job
+  domains:
+  - equipment
+- id: wear-apparel
+  kind: template
+  status: implemented
+  bridge_methods:
+  - ui.job
+  domains:
+  - equipment
+- id: assign-job
+  kind: template
+  status: implemented
+  bridge_methods:
+  - ui.job
+  domains:
+  - work_jobs
+- id: strip-pawn
+  kind: template
+  status: implemented
+  bridge_methods:
+  - ui.designate
+  domains:
+  - combat
+  - equipment
+- id: set-plant
+  kind: template
+  status: implemented
+  bridge_methods:
+  - ui.zone
+  domains:
+  - growing
+- id: edit-storage
+  kind: template
+  status: implemented
+  bridge_methods:
+  - ui.storage
+  domains:
+  - storage_zones
+- id: save-game
+  kind: template
+  status: implemented
+  bridge_methods:
+  - game.save
+  domains:
+  - checkpoints
+- id: load-game
+  kind: template
+  status: implemented
+  bridge_methods:
+  - game.load
+  domains:
+  - checkpoints
+- id: spawn-incident
+  kind: template
+  status: implemented
+  bridge_methods:
+  - dev.incident
+  domains:
+  - testing_dev
+- id: spawn-hostile
+  kind: template
+  status: implemented
+  bridge_methods:
+  - dev.spawn_pawn
+  domains:
+  - testing_dev
+  - combat
+- id: draft-pawn
+  kind: template
+  status: implemented
+  bridge_methods:
+  - ui.draft
+  domains:
+  - combat
+- id: attack-target
+  kind: template
+  status: implemented
+  bridge_methods:
+  - ui.attack
+  domains:
+  - combat
+- id: answer-dialog
+  kind: template
+  status: implemented
+  bridge_methods:
+  - ui.dialog
+  domains:
+  - ui_control
+- id: heal-pawn
+  kind: template
+  status: implemented
+  bridge_methods:
+  - dev.heal
+  domains:
+  - health_medical
+  - testing_dev
+- id: roof-rect
+  kind: template
+  status: implemented
+  bridge_methods:
+  - ui.area
+  domains:
+  - construction
+- id: rescue
+  kind: template
+  status: implemented
+  bridge_methods:
+  - ui.job
+  domains:
+  - health_medical
+  - work_jobs
+- id: firefight
+  kind: template
+  status: implemented
+  bridge_methods:
+  - ui.job
+  domains:
+  - combat
+  - health_medical
+- id: set-research
+  kind: template
+  status: implemented
+  bridge_methods:
+  - ui.set_research
+  domains:
+  - research
+- id: queue-research
+  kind: template
+  status: implemented
+  bridge_methods:
+  - steward.research
+  domains:
+  - research
+  - steward_component
+- id: answer-letter
+  kind: template
+  status: implemented
+  bridge_methods:
+  - ui.letter
+  domains:
+  - ui_control
+  - quests_incidents
+- id: set-stock-target
+  kind: template
+  status: implemented
+  bridge_methods:
+  - steward.stock.set
+  domains:
+  - steward_component
+  - work_priorities
+- id: run-stock-job
+  kind: template
+  status: implemented
+  bridge_methods:
+  - steward.stock.run
+  domains:
+  - steward_component
+  - work_jobs
+- id: lay-floor
+  kind: template
+  status: implemented
+  bridge_methods:
+  - ui.build
+  domains:
+  - construction
+- id: clear-vegetation
+  kind: template
+  status: implemented
+  bridge_methods:
+  - ui.designate
+  domains:
+  - construction
+  - growing
+- id: colonists
+  kind: selector
+  status: implemented
+  bridge_methods:
+  - state.pawns
+  domains:
+  - pawns
+- id: hostiles
+  kind: selector
+  status: implemented
+  bridge_methods:
+  - state.threats
+  domains:
+  - combat
+- id: living_hostiles
+  kind: selector
+  status: implemented
+  bridge_methods:
+  - state.threats
+  domains:
+  - combat
+- id: downed_hostiles
+  kind: selector
+  status: implemented
+  bridge_methods:
+  - state.threats
+  domains:
+  - combat
+- id: fleeing_hostiles
+  kind: selector
+  status: implemented
+  bridge_methods:
+  - state.threats
+  domains:
+  - combat
+- id: unarmed_colonists
+  kind: selector
+  status: implemented
+  bridge_methods:
+  - state.pawns
+  domains:
+  - equipment
+- id: items
+  kind: selector
+  status: implemented
+  bridge_methods:
+  - map.find
+  domains:
+  - items_hauling
+- id: forbidden_items
+  kind: selector
+  status: implemented
+  bridge_methods:
+  - map.find
+  domains:
+  - items_hauling
+- id: add
+  kind: fn
+  status: implemented
+  bridge_methods: []
+  domains:
+  - math
+- id: anchor
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - anchor.list
+  domains:
+  - navigation
+- id: arm_pawn
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.pawns
+  - map.find
+  domains:
+  - equipment
+- id: arm_pending
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.pawns
+  - map.find
+  domains:
+  - equipment
+- id: arm_weapon
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - map.find
+  domains:
+  - equipment
+- id: armed_count
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.pawns
+  domains:
+  - equipment
+- id: armor_ids
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - map.find
+  domains:
+  - equipment
+- id: best
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.pawns
+  domains:
+  - pawns
+- id: blueprints
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - map.find
+  domains:
+  - construction
+- id: blueprints_pending
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - map.find
+  domains:
+  - construction
+- id: blueprints_in
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - map.find
+  domains:
+  - construction
+- id: buildable_at
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - ui.build
+  domains:
+  - construction
+- id: cell
+  kind: fn
+  status: implemented
+  bridge_methods: []
+  domains:
+  - geometry
+- id: colonist_ids
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.pawns
+  domains:
+  - pawns
+- id: colonists
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.pawns
+  domains:
+  - pawns
+- id: count
+  kind: fn
+  status: implemented
+  bridge_methods: []
+  domains:
+  - collections
+- id: checker_cells
+  kind: fn
+  status: implemented
+  bridge_methods: []
+  domains:
+  - geometry
+- id: downed_ids
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.threats
+  domains:
+  - combat
+- id: armed_ids
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.pawns
+  - state.pawn
+  domains:
+  - combat
+- id: drafted_ids
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.pawns
+  - state.pawn
+  domains:
+  - combat
+- id: nearest_hostile
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.threats
+  domains:
+  - combat
+- id: nearest_engaged
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.threats
+  - state.areas
+  - steward.status
+  domains:
+  - combat
+- id: first_def
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - defs.get
+  domains:
+  - construction
+  - defs_meta
+- id: targetable_hostiles
+  kind: selector
+  status: implemented
+  bridge_methods:
+  - state.threats
+  domains:
+  - combat
+- id: dialogs
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.dialogs
+  domains:
+  - observation
+  - ui_control
+- id: bed_demand
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.pawns
+  - state.pawn
+  - state.rooms
+  domains:
+  - construction
+  - housing
+  notes: "feature 020: residents − couples − usable private-bedroom beds (T018); couples from state.pawn partner/spouse fields, per-poll detail cache shared with pawns_wounded/pawns_with_thought"
+- id: def_stats
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - defs.get
+  domains:
+  - defs_metadata
+  - construction
+  notes: "feature 020 (T006): defs.get wrapper exposing size/cost/beauty/linkable_range/cover when present; per-poll cache"
+- id: enclosed_at
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.rooms
+  domains:
+  - construction
+- id: equip_pending
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.pawns
+  - map.find
+  domains:
+  - equipment
+- id: fdiv
+  kind: fn
+  status: implemented
+  bridge_methods: []
+  domains:
+  - math
+- id: fertile
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - map.cell
+  domains:
+  - growing
+- id: find_def
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - map.find
+  domains:
+  - items_hauling
+- id: find_kind
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - map.find
+  domains:
+  - items_hauling
+- id: first
+  kind: fn
+  status: implemented
+  bridge_methods: []
+  domains:
+  - collections
+- id: fleeing_ids
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.threats
+  domains:
+  - combat
+- id: forbidden_ids
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - map.find
+  domains:
+  - items_hauling
+- id: free_cell
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - ui.build
+  domains:
+  - construction
+- id: home
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.threats
+  domains:
+  - navigation
+- id: hostile_faction
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.factions
+  domains:
+  - combat
+- id: ids
+  kind: fn
+  status: implemented
+  bridge_methods: []
+  domains:
+  - collections
+- id: letters
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.letters
+  domains:
+  - observation
+  - quests_incidents
+- id: living_hostiles
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.threats
+  domains:
+  - combat
+- id: loose_count
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - map.find
+  domains:
+  - items_hauling
+- id: loose_id
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - map.find
+  domains:
+  - items_hauling
+- id: loose_ids
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - map.find
+  domains:
+  - items_hauling
+- id: stack_of
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - map.find
+  domains:
+  - items_hauling
+- id: max
+  kind: fn
+  status: implemented
+  bridge_methods: []
+  domains:
+  - math
+- id: min
+  kind: fn
+  status: implemented
+  bridge_methods: []
+  domains:
+  - math
+- id: mod
+  kind: fn
+  status: implemented
+  bridge_methods: []
+  domains:
+  - math
+- id: mul
+  kind: fn
+  status: implemented
+  bridge_methods: []
+  domains:
+  - math
+- id: near_home
+  kind: fn
+  status: implemented
+  bridge_methods: []
+  domains:
+  - navigation
+- id: nth
+  kind: fn
+  status: implemented
+  bridge_methods: []
+  domains:
+  - collections
+- id: quests
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.quests
+  domains:
+  - quests_incidents
+  - observation
+- id: rank_site
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - map.cell
+  - map.find
+  domains:
+  - construction
+- id: rect
+  kind: fn
+  status: implemented
+  bridge_methods: []
+  domains:
+  - geometry
+- id: research
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.research
+  domains:
+  - research
+  - observation
+- id: research_available
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.research
+  domains:
+  - research
+  - observation
+- id: research_current
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.research
+  domains:
+  - research
+  - observation
+- id: roofed
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - map.find
+  domains:
+  - construction
+- id: stuff
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - map.find
+  - state.stocks
+  domains:
+  - construction
+- id: sub
+  kind: fn
+  status: implemented
+  bridge_methods: []
+  domains:
+  - math
+- id: unarmed
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.pawns
+  domains:
+  - equipment
+- id: upgrade_armor
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.pawns
+  - map.find
+  domains:
+  - equipment
+- id: upgrade_armor_pawn
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.pawns
+  - map.find
+  domains:
+  - equipment
+- id: upgrade_pawn
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.pawns
+  - map.find
+  domains:
+  - equipment
+- id: upgrade_weapon
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.pawns
+  - map.find
+  domains:
+  - equipment
+- id: weapons_avail
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - map.find
+  domains:
+  - equipment
+- id: zone_named
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.storage
+  domains:
+  - storage_zones
+- id: pawns_wounded
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.pawns
+  - state.pawn
+  domains:
+  - hospital
+  - pawns
+  notes: "feature 020 (T036): colonists with bleeding/unhealed/incapacitating conditions or downed — hospital need gate; per-poll pawn-detail cache"
+- id: pawns_with_thought
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.pawns
+  - state.pawn
+  domains:
+  - housing
+  - pawns
+  notes: "feature 020 (T026): colonists holding a thought def (AteWithoutTable etc.) — need triggers; per-poll pawn-detail cache"
+- id: plan_room
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - defs.get
+  - map.cell
+  - state.rooms
+  - ui.build_many
+  domains:
+  - construction
+  notes: "feature 020 (T013): compile a room archetype over a site rect to build-layout ops — deterministic, null on unfit rect, existing-structure aware"
+- id: room_at
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.rooms
+  domains:
+  - construction
+  - observation
+- id: room_count
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.rooms
+  - state.base
+  domains:
+  - construction
+- id: room_role_at
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.rooms
+  domains:
+  - construction
+  - observation
+- id: room_stat
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.rooms
+  domains:
+  - construction
+  - observation
+  notes: "feature 020: impressiveness/beauty/cleanliness/temp from a room row, cell, or room id"
+- id: rooms_matching
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.rooms
+  domains:
+  - construction
+  - observation
+  notes: "feature 020: rows matching {role, min_cells, min_impressiveness}; problem/outdoor rows never count"
+- id: space_score
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - map.cell
+  domains:
+  - construction
+  - observation
+  notes: "feature 020 (T011): 1.4·standable + 0.5·passable − 0.9/furnishing over map.cell rows; the bridge does not expose room space"
+- id: space_target
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - defs.get
+  - map.cell
+  domains:
+  - construction
+  notes: "feature 020 (T022): minScore for a tier under the resolved profile (live scoreStages → cfg → vanilla)"
+- id: space_tier
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - defs.get
+  - map.cell
+  domains:
+  - construction
+  notes: "feature 020 (T022): tier label for a space score under the resolved profile"
+- id: idle_count
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.pawns
+  domains:
+  - pawns
+  - work_jobs
+- id: steward_stock
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - steward.status
+  domains:
+  - steward_component
+- id: find_defs
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - map.find
+  domains:
+  - observation
+- id: find_defs_in
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - map.find
+  domains:
+  - observation
+- id: pos
+  kind: fn
+  status: implemented
+  bridge_methods: []
+  domains:
+  - geometry
+- id: wind_path
+  kind: fn
+  status: implemented
+  bridge_methods: []
+  domains:
+  - geometry
+  - power
+- id: obstructions
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - map.find
+  domains:
+  - observation
+  - construction
+- id: wind_obstructions
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - map.find
+  domains:
+  - observation
+  - power
+- id: turbine_site
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - ui.build
+  - map.find
+  domains:
+  - construction
+  - power
+- id: turbine_site_blocked
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - ui.build
+  - map.find
+  domains:
+  - construction
+  - power
+- id: terrain_at
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - map.cell
+  domains:
+  - observation
+  - construction
+- id: zone_at
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - map.cell
+  domains:
+  - observation
+  - storage_zones
+- id: cap.game.list_saves
+  kind: capability
+  status: implemented
+  bridge_methods:
+  - game.list_saves
+  domains:
+  - checkpoints
+  notes: runtime-internal control
+- id: cap.game.pause
+  kind: capability
+  status: implemented
+  bridge_methods:
+  - game.pause
+  domains:
+  - runtime_control
+  notes: runtime-internal control
+- id: cap.game.speed
+  kind: capability
+  status: implemented
+  bridge_methods:
+  - game.speed
+  domains:
+  - runtime_control
+  notes: runtime-internal control
+- id: cap.game.status
+  kind: capability
+  status: implemented
+  bridge_methods:
+  - game.status
+  domains:
+  - runtime_control
+  notes: runtime-internal control
+- id: cap.state.bills
+  kind: capability
+  status: implemented
+  bridge_methods:
+  - state.bills
+  domains:
+  - food_cooking
+  notes: runtime-internal control
+- id: cap.anchor.delete
+  kind: capability
+  status: gap
+  bridge_methods:
+  - anchor.delete
+  domains:
+  - navigation
+- id: cap.bridge.methods
+  kind: capability
+  status: gap
+  bridge_methods:
+  - bridge.methods
+  domains:
+  - diagnostics
+- id: cap.defs.buildable
+  kind: capability
+  status: gap
+  bridge_methods:
+  - defs.buildable
+  domains:
+  - defs_metadata
+- id: cap.defs.get
+  kind: capability
+  status: implemented
+  bridge_methods:
+  - defs.get
+  domains:
+  - defs_metadata
+  notes: "feature 020: consumed by def_stats (T006) and the tier-profile resolver (T007, defs.get(Space).scoreStages)"
+- id: cap.defs.search
+  kind: capability
+  status: gap
+  bridge_methods:
+  - defs.search
+  domains:
+  - defs_metadata
+- id: cap.defs.work_types
+  kind: capability
+  status: gap
+  bridge_methods:
+  - defs.work_types
+  domains:
+  - defs_metadata
+- id: cap.dev.damage
+  kind: capability
+  status: gap
+  bridge_methods:
+  - dev.damage
+  domains:
+  - testing_dev
+- id: cap.dev.destroy
+  kind: capability
+  status: gap
+  bridge_methods:
+  - dev.destroy
+  domains:
+  - testing_dev
+- id: cap.dev.finish_research
+  kind: capability
+  status: gap
+  bridge_methods:
+  - dev.finish_research
+  domains:
+  - testing_dev
+- id: cap.dev.god_mode
+  kind: capability
+  status: gap
+  bridge_methods:
+  - dev.god_mode
+  domains:
+  - testing_dev
+- id: cap.dev.kill_hostiles
+  kind: capability
+  status: gap
+  bridge_methods:
+  - dev.kill_hostiles
+  domains:
+  - testing_dev
+- id: cap.dev.reveal_map
+  kind: capability
+  status: gap
+  bridge_methods:
+  - dev.reveal_map
+  domains:
+  - testing_dev
+- id: cap.dev.set_need
+  kind: capability
+  status: gap
+  bridge_methods:
+  - dev.set_need
+  domains:
+  - testing_dev
+- id: cap.dev.spawn
+  kind: capability
+  status: gap
+  bridge_methods:
+  - dev.spawn
+  domains:
+  - testing_dev
+- id: cap.dev.unlock_all_research
+  kind: capability
+  status: gap
+  bridge_methods:
+  - dev.unlock_all_research
+  domains:
+  - testing_dev
+- id: cap.dev.weather
+  kind: capability
+  status: gap
+  bridge_methods:
+  - dev.weather
+  domains:
+  - environment
+  sources:
+  - https://rimworldwiki.com/wiki/Weather
+- id: cap.engine.call
+  kind: capability
+  status: gap
+  bridge_methods:
+  - engine.call
+  domains:
+  - engine_escape
+- id: cap.engine.get
+  kind: capability
+  status: gap
+  bridge_methods:
+  - engine.get
+  domains:
+  - engine_escape
+- id: cap.engine.members
+  kind: capability
+  status: gap
+  bridge_methods:
+  - engine.members
+  domains:
+  - engine_escape
+- id: cap.engine.new
+  kind: capability
+  status: gap
+  bridge_methods:
+  - engine.new
+  domains:
+  - engine_escape
+- id: cap.engine.set
+  kind: capability
+  status: gap
+  bridge_methods:
+  - engine.set
+  domains:
+  - engine_escape
+- id: cap.engine.types
+  kind: capability
+  status: gap
+  bridge_methods:
+  - engine.types
+  domains:
+  - engine_escape
+- id: cap.game.dev_mode
+  kind: capability
+  status: gap
+  bridge_methods:
+  - game.dev_mode
+  domains:
+  - testing_dev
+- id: cap.game.log_tail
+  kind: capability
+  status: gap
+  bridge_methods:
+  - game.log_tail
+  domains:
+  - diagnostics
+- id: cap.game.new_game
+  kind: capability
+  status: gap
+  bridge_methods:
+  - game.new_game
+  domains:
+  - checkpoints
+- id: cap.game.quit_to_menu
+  kind: capability
+  status: gap
+  bridge_methods:
+  - game.quit_to_menu
+  domains:
+  - checkpoints
+- id: cap.map.detail
+  kind: capability
+  status: gap
+  bridge_methods:
+  - map.detail
+  domains:
+  - observation
+- id: cap.map.open_rects
+  kind: capability
+  status: gap
+  bridge_methods:
+  - map.open_rects
+  domains:
+  - observation
+- id: cap.map.overview
+  kind: capability
+  status: gap
+  bridge_methods:
+  - map.overview
+  domains:
+  - observation
+- id: cap.map.path
+  kind: capability
+  status: gap
+  bridge_methods:
+  - map.path
+  domains:
+  - navigation
+  sources:
+  - https://rimworldwiki.com/wiki/Pathfinding
+- id: cap.map.power
+  kind: capability
+  status: gap
+  bridge_methods:
+  - map.power
+  domains:
+  - power
+  sources:
+  - https://rimworldwiki.com/wiki/Power
+- id: cap.map.reachable
+  kind: capability
+  status: gap
+  bridge_methods:
+  - map.reachable
+  domains:
+  - navigation
+- id: cap.map.screenshot_bytes
+  kind: capability
+  status: gap
+  bridge_methods:
+  - map.screenshot_bytes
+  domains:
+  - diagnostics
+- id: cap.map.survey
+  kind: capability
+  status: gap
+  bridge_methods:
+  - map.survey
+  domains:
+  - observation
+  sources:
+  - https://rimworldwiki.com/wiki/Map
+- id: cap.map.terrain_stats
+  kind: capability
+  status: gap
+  bridge_methods:
+  - map.terrain_stats
+  domains:
+  - observation
+  sources:
+  - https://rimworldwiki.com/wiki/Terrain
+- id: cap.map.view
+  kind: capability
+  status: gap
+  bridge_methods:
+  - map.view
+  domains:
+  - observation
+- id: cap.state.alerts
+  kind: capability
+  status: gap
+  bridge_methods:
+  - state.alerts
+  domains:
+  - observation
+- id: cap.state.areas
+  kind: capability
+  status: gap
+  bridge_methods:
+  - state.areas
+  domains:
+  - observation
+- id: cap.state.base
+  kind: capability
+  status: implemented
+  bridge_methods:
+  - state.base
+  domains:
+  - observation
+  notes: "feature 020: base.rooms merged into the room-row reader shared by room_role_at/rooms_matching/room_stat; base.anchors feed site/rank_site"
+- id: cap.state.designations
+  kind: capability
+  status: gap
+  bridge_methods:
+  - state.designations
+  domains:
+  - observation
+- id: cap.state.dialogs
+  kind: capability
+  status: implemented
+  bridge_methods:
+  - state.dialogs
+  domains:
+  - observation
+- id: cap.state.factions
+  kind: capability
+  status: gap
+  bridge_methods:
+  - state.factions
+  domains:
+  - factions_social
+  sources:
+  - https://rimworldwiki.com/wiki/Factions
+- id: cap.state.letters
+  kind: capability
+  status: implemented
+  bridge_methods:
+  - state.letters
+  domains:
+  - observation
+- id: cap.state.pawn
+  kind: capability
+  status: gap
+  bridge_methods:
+  - state.pawn
+  domains:
+  - pawns
+  sources:
+  - https://rimworldwiki.com/wiki/Colonist
+- id: cap.state.policies
+  kind: capability
+  status: gap
+  bridge_methods:
+  - state.policies
+  domains:
+  - policies
+  sources:
+  - https://rimworldwiki.com/wiki/Assign
+- id: cap.state.power
+  kind: capability
+  status: gap
+  bridge_methods:
+  - state.power
+  domains:
+  - power
+  sources:
+  - https://rimworldwiki.com/wiki/Power
+- id: cap.state.quests
+  kind: capability
+  status: implemented
+  bridge_methods:
+  - state.quests
+  domains:
+  - quests_incidents
+  sources:
+  - https://rimworldwiki.com/wiki/Quests
+- id: cap.state.research
+  kind: capability
+  status: implemented
+  bridge_methods:
+  - state.research
+  domains:
+  - research
+  sources:
+  - https://rimworldwiki.com/wiki/Research
+- id: cap.state.rooms
+  kind: capability
+  status: implemented
+  bridge_methods:
+  - state.rooms
+  domains:
+  - construction
+  notes: "feature 020: role/cells/impressiveness/beauty/cleanliness/temp/owners are consumed via room_at/room_role_at/rooms_matching/room_stat; space and wealth are NOT exposed by the bridge — space_score(rect) estimates from map.cell, wealth remains a gap"
+- id: cap.state.summary
+  kind: capability
+  status: gap
+  bridge_methods:
+  - state.summary
+  domains:
+  - observation
+- id: cap.state.work_matrix
+  kind: capability
+  status: gap
+  bridge_methods:
+  - state.work_matrix
+  domains:
+  - work_priorities
+  sources:
+  - https://rimworldwiki.com/wiki/Work
+- id: cap.ui.animal
+  kind: capability
+  status: gap
+  bridge_methods:
+  - ui.animal
+  domains:
+  - animals
+  sources:
+  - https://rimworldwiki.com/wiki/Animals
+- id: cap.ui.area
+  kind: capability
+  status: gap
+  bridge_methods:
+  - ui.area
+  domains:
+  - construction
+- id: cap.ui.cancel_job
+  kind: capability
+  status: gap
+  bridge_methods:
+  - ui.cancel_job
+  domains:
+  - work_jobs
+- id: cap.ui.dialog
+  kind: capability
+  status: implemented
+  bridge_methods:
+  - ui.dialog
+  domains:
+  - ui_control
+- id: cap.ui.gizmos
+  kind: capability
+  status: gap
+  bridge_methods:
+  - ui.gizmos
+  domains:
+  - ui_control
+- id: cap.ui.goto
+  kind: capability
+  status: gap
+  bridge_methods:
+  - ui.goto
+  domains:
+  - navigation
+- id: cap.ui.letter
+  kind: capability
+  status: implemented
+  bridge_methods:
+  - ui.letter
+  domains:
+  - ui_control
+- id: cap.ui.order
+  kind: capability
+  status: gap
+  bridge_methods:
+  - ui.order
+  domains:
+  - ui_control
+- id: cap.ui.orders_at
+  kind: capability
+  status: gap
+  bridge_methods:
+  - ui.orders_at
+  domains:
+  - ui_control
+- id: cap.ui.press
+  kind: capability
+  status: gap
+  bridge_methods:
+  - ui.press
+  domains:
+  - ui_control
+- id: cap.ui.prisoner
+  kind: capability
+  status: gap
+  bridge_methods:
+  - ui.prisoner
+  domains:
+  - prisoners
+  sources:
+  - https://rimworldwiki.com/wiki/Prisoner
+- id: cap.ui.select
+  kind: capability
+  status: gap
+  bridge_methods:
+  - ui.select
+  domains:
+  - ui_control
+- id: cap.ui.set_policies
+  kind: capability
+  status: gap
+  bridge_methods:
+  - ui.set_policies
+  domains:
+  - policies
+  sources:
+  - https://rimworldwiki.com/wiki/Assign
+- id: cap.ui.set_research
+  kind: capability
+  status: implemented
+  bridge_methods:
+  - ui.set_research
+  domains:
+  - research
+  sources:
+  - https://rimworldwiki.com/wiki/Research
+- id: cap.ui.set_schedule
+  kind: capability
+  status: gap
+  bridge_methods:
+  - ui.set_schedule
+  domains:
+  - work_priorities
+  sources:
+  - https://rimworldwiki.com/wiki/Schedule
+- id: cap.ui.set_work
+  kind: capability
+  status: gap
+  bridge_methods:
+  - ui.set_work
+  domains:
+  - work_priorities
+  sources:
+  - https://rimworldwiki.com/wiki/Work
+- id: cap.ui.set_work_many
+  kind: capability
+  status: gap
+  bridge_methods:
+  - ui.set_work_many
+  domains:
+  - work_priorities
+  sources:
+  - https://rimworldwiki.com/wiki/Work
+- id: cap.ui.wire
+  kind: capability
+  status: gap
+  bridge_methods:
+  - ui.wire
+  domains:
+  - ui_control
+- id: cap.steward.enable
+  kind: capability
+  status: gap
+  bridge_methods:
+  - steward.enable
+  domains:
+  - steward_component
+  notes: owned by components/steward, not runtime
+- id: cap.steward.explain
+  kind: capability
+  status: gap
+  bridge_methods:
+  - steward.explain
+  domains:
+  - steward_component
+  notes: owned by components/steward, not runtime
+- id: cap.steward.orders
+  kind: capability
+  status: gap
+  bridge_methods:
+  - steward.orders
+  domains:
+  - steward_component
+  notes: owned by components/steward, not runtime
+- id: cap.steward.orders.explain
+  kind: capability
+  status: gap
+  bridge_methods:
+  - steward.orders.explain
+  domains:
+  - steward_component
+  notes: owned by components/steward, not runtime
+- id: cap.steward.orders.rally
+  kind: capability
+  status: gap
+  bridge_methods:
+  - steward.orders.rally
+  domains:
+  - steward_component
+  notes: owned by components/steward, not runtime
+- id: cap.steward.orders.release
+  kind: capability
+  status: gap
+  bridge_methods:
+  - steward.orders.release
+  domains:
+  - steward_component
+  notes: owned by components/steward, not runtime
+- id: cap.steward.orders.run
+  kind: capability
+  status: gap
+  bridge_methods:
+  - steward.orders.run
+  domains:
+  - steward_component
+  notes: owned by components/steward, not runtime
+- id: cap.steward.orders.set
+  kind: capability
+  status: gap
+  bridge_methods:
+  - steward.orders.set
+  domains:
+  - steward_component
+  notes: owned by components/steward, not runtime
+- id: cap.steward.pawn
+  kind: capability
+  status: gap
+  bridge_methods:
+  - steward.pawn
+  domains:
+  - steward_component
+  notes: owned by components/steward, not runtime
+- id: cap.steward.posture
+  kind: capability
+  status: gap
+  bridge_methods:
+  - steward.posture
+  domains:
+  - steward_component
+  notes: owned by components/steward, not runtime
+- id: cap.steward.research
+  kind: capability
+  status: implemented
+  bridge_methods:
+  - steward.research
+  domains:
+  - steward_component
+  notes: owned by components/steward, not runtime
+- id: cap.steward.settings
+  kind: capability
+  status: gap
+  bridge_methods:
+  - steward.settings
+  domains:
+  - steward_component
+  notes: owned by components/steward, not runtime
+- id: cap.steward.status
+  kind: capability
+  status: implemented
+  bridge_methods:
+  - steward.status
+  domains:
+  - steward_component
+  notes: owned by components/steward, not runtime
+- id: cap.steward.stock.add
+  kind: capability
+  status: gap
+  bridge_methods:
+  - steward.stock.add
+  domains:
+  - steward_component
+  notes: owned by components/steward, not runtime
+- id: cap.steward.stock.list
+  kind: capability
+  status: gap
+  bridge_methods:
+  - steward.stock.list
+  domains:
+  - steward_component
+  notes: owned by components/steward, not runtime
+- id: cap.steward.stock.remove
+  kind: capability
+  status: gap
+  bridge_methods:
+  - steward.stock.remove
+  domains:
+  - steward_component
+  notes: owned by components/steward, not runtime
+- id: cap.steward.stock.run
+  kind: capability
+  status: implemented
+  bridge_methods:
+  - steward.stock.run
+  domains:
+  - steward_component
+  notes: owned by components/steward, not runtime
+- id: cap.steward.stock.set
+  kind: capability
+  status: implemented
+  bridge_methods:
+  - steward.stock.set
+  domains:
+  - steward_component
+  notes: owned by components/steward, not runtime
+- id: move-pawn
+  kind: template
+  status: implemented
+  bridge_methods:
+  - ui.goto
+  domains:
+  - combat
+  - navigation
+- id: cancel-job
+  kind: template
+  status: gap
+  bridge_methods:
+  - ui.cancel_job
+  domains:
+  - work_jobs
+  - combat
+- id: set-area
+  kind: template
+  status: implemented
+  bridge_methods:
+  - ui.set_policies
+  domains:
+  - policies
+  - combat
+- id: set-hostility
+  kind: template
+  status: gap
+  bridge_methods:
+  - ui.set_policies
+  domains:
+  - policies
+  - combat
+- id: press-gizmo
+  kind: template
+  status: gap
+  bridge_methods:
+  - ui.press
+  domains:
+  - ui_control
+  - combat
+- id: order-pawn
+  kind: template
+  status: gap
+  bridge_methods:
+  - ui.order
+  domains:
+  - pawns
+  - combat
+- id: field-tend
+  kind: template
+  status: implemented
+  bridge_methods:
+  - ui.job
+  domains:
+  - health_medical
+  - combat
+- id: capture
+  kind: template
+  status: implemented
+  bridge_methods:
+  - ui.job
+  domains:
+  - prisoners
+  - combat
+- id: ingest-drug
+  kind: template
+  status: implemented
+  bridge_methods:
+  - ui.job
+  domains:
+  - health_medical
+  - combat
+- id: designate-hunt
+  kind: template
+  status: gap
+  bridge_methods:
+  - ui.designate
+  domains:
+  - combat
+  - work_jobs
+- id: animal-guard
+  kind: template
+  status: gap
+  bridge_methods:
+  - ui.animal
+  domains:
+  - animals
+  - combat
+- id: rally-set
+  kind: template
+  status: implemented
+  bridge_methods:
+  - steward.orders.rally
+  domains:
+  - combat
+  - steward_component
+- id: order-run
+  kind: template
+  status: implemented
+  bridge_methods:
+  - steward.orders.run
+  domains:
+  - combat
+  - steward_component
+- id: order-set
+  kind: template
+  status: implemented
+  bridge_methods:
+  - steward.orders.set
+  domains:
+  - combat
+  - steward_component
+- id: combat-release
+  kind: template
+  status: implemented
+  bridge_methods:
+  - steward.orders.set
+  domains:
+  - combat
+  - steward_component
+- id: engaged_hostiles
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.threats
+  - state.areas
+  - steward.status
+  domains:
+  - combat
+  - observation
+- id: watching_hostiles
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.threats
+  - state.areas
+  - steward.status
+  domains:
+  - combat
+  - observation
+- id: hostiles_in_home
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.threats
+  - state.areas
+  domains:
+  - combat
+  - observation
+- id: hostiles_within
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.threats
+  domains:
+  - combat
+  - observation
+- id: combat_mode
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.threats
+  - steward.status
+  domains:
+  - combat
+- id: ticks_since_hostile
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.threats
+  domains:
+  - combat
+  - observation
+- id: draftable
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.pawns
+  - state.pawn
+  - steward.orders.explain
+  domains:
+  - combat
+  - pawns
+- id: fighters
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.pawns
+  - state.pawn
+  - steward.orders.explain
+  domains:
+  - combat
+  - pawns
+- id: ranged_fighters
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.pawns
+  - state.pawn
+  - defs.get
+  - defs.search
+  - steward.orders.explain
+  domains:
+  - combat
+  - pawns
+- id: melee_fighters
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.pawns
+  - state.pawn
+  - defs.get
+  - defs.search
+  - steward.orders.explain
+  domains:
+  - combat
+  - pawns
+- id: fighter_engages
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.pawns
+  - state.pawn
+  - defs.get
+  - defs.search
+  domains:
+  - combat
+- id: melee_swarm
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.pawns
+  - state.pawn
+  - defs.get
+  - defs.search
+  domains:
+  - combat
+- id: squad_class
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.pawns
+  - state.pawn
+  - defs.get
+  - defs.search
+  domains:
+  - combat
+- id: focus_target
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.threats
+  domains:
+  - combat
+- id: order_state
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - steward.status
+  - steward.orders.explain
+  domains:
+  - combat
+  - steward_component
+- id: nearest_fleeing
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.threats
+  domains:
+  - combat
+- id: safe_cell
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.threats
+  - state.base
+  domains:
+  - combat
+  - navigation
+- id: kite_cell
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.threats
+  - defs.get
+  domains:
+  - combat
+  - navigation
+- id: block_cell
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.threats
+  domains:
+  - combat
+  - navigation
+- id: rally_cell
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - steward.status
+  - map.cell
+  - state.base
+  domains:
+  - combat
+  - geometry
+- id: skill_of
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.pawn
+  domains:
+  - pawns
+- id: health_of
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.pawn
+  domains:
+  - pawns
+  - health_medical
+- id: need_of
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.pawn
+  domains:
+  - pawns
+- id: speed_of
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.pawn
+  domains:
+  - pawns
+- id: weapon_stats
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - defs.get
+  domains:
+  - defs_metadata
+  - combat
+- id: outranges
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - defs.get
+  - state.threats
+  domains:
+  - combat
+- id: outranged_by
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - defs.get
+  - state.threats
+  domains:
+  - combat
+- id: outrun_by
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.pawn
+  - state.threats
+  domains:
+  - combat
+- id: in_range
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - defs.get
+  - state.threats
+  domains:
+  - combat
+- id: enemy_mix
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.threats
+  - defs.get
+  domains:
+  - combat
+  - observation
+- id: enemy_max_range
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.threats
+  - defs.get
+  domains:
+  - combat
+- id: threat_power
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.threats
+  domains:
+  - combat
+- id: manhunters
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.threats
+  domains:
+  - combat
+- id: free_beds
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.rooms
+  domains:
+  - health_medical
+  - prisoners
+- id: casualty_ids
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.pawns
+  domains:
+  - health_medical
+  - combat
+- id: pawns_needing_tend
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.pawn
+  domains:
+  - health_medical
+  - combat
+- id: rescuees
+  kind: selector
+  status: implemented
+  bridge_methods:
+  - state.pawns
+  domains:
+  - health_medical
+  - quests_incidents
+- id: carriers
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.pawns
+  domains:
+  - health_medical
+  - pawns
+- id: touched
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - steward.orders.explain
+  domains:
+  - combat
+  - steward_component
+- id: rally_rect
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - steward.orders.rally
+  - steward.status
+  domains:
+  - combat
+  - steward_component
+- id: dist_to
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.pawn
+  - state.threats
+  domains:
+  - combat
+  - observation
+- id: pos_of
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.pawn
+  - state.threats
+  domains:
+  - combat
+  - observation
+- id: label_of
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.pawns
+  - state.threats
+  domains:
+  - combat
+  - observation
+- id: range_class
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.pawn
+  - defs.get
+  - defs.search
+  domains:
+  - combat
+  - observation
+- id: combat_card
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.pawns
+  - state.pawn
+  - state.threats
+  - defs.get
+  - defs.search
+  - steward.orders.explain
+  domains:
+  - combat
+  - observation
+- id: hostile_cards
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.threats
+  - defs.get
+  - defs.search
+  domains:
+  - combat
+  - observation
+- id: squad_card
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.pawns
+  - state.threats
+  - state.areas
+  - steward.status
+  domains:
+  - combat
+  - observation
+- id: casualties
+  kind: selector
+  status: implemented
+  bridge_methods:
+  - state.pawns
+  domains:
+  - combat
+  - health_medical
+- id: hostile_free_polls
+  kind: fn
+  status: implemented
+  bridge_methods:
+  - state.threats
+  domains:
+  - combat
+  - observation

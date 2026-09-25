@@ -1,0 +1,120 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rimbrainagent.dev/schemas/runtime/endpoints.schema.json",
+  "title": "runtime/endpoints",
+  "description": "Endpoint registry file contract (feature 002, specs/002-model-endpoints; FR-001/FR-002, UR-MOD-011/012). Matches the live profiles/endpoints.yaml shape: a named list of nonsecret LLM endpoint entries shared by local servers (LM Studio, Ollama, vLLM, llama.cpp, Laya) and remote OpenAI-compatible APIs. Secrets are never inline: api_key_ref names an env var (env:NAME) or a config.local.yaml key (config:NAME) resolved at call time only. api is the adapter discriminator (openai-compat | systemone); systemone entries must declare decide_path (per-host route: /v1/systemone local, /api/alpha/decisions hosted). strict:true endpoints reject provider extension fields (extra_body, chat_template_kwargs) — clients must strip them (FR-011). schema_version is optional; absent means 0. YAML remains authoritative; UI writes this same file (SC-003).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["endpoints"],
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Contract revision; optional in v0 files (absent == 0). No maximum; strict consumers enforce their own ceiling per compatibility/VERSIONING.md."
+    },
+    "endpoints": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/endpoint" },
+      "description": "Named endpoint entries. ids must be unique (enforced by the registry layer; JSON Schema cannot express item-projection uniqueness)."
+    }
+  },
+  "$defs": {
+    "endpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "api", "base_url", "models", "capabilities"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$",
+          "description": "Stable registry id (e.g. openrouter, local-laya). Referenced by bindings.yaml."
+        },
+        "label": {
+          "type": "string",
+          "maxLength": 256,
+          "description": "Human label for UI lists."
+        },
+        "api": {
+          "enum": ["openai-compat", "systemone"],
+          "description": "Wire-shape discriminator driving the client adapter. openai-compat: /v1 chat/embeddings/models. systemone: typed state+questions decisions via decide_path."
+        },
+        "base_url": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "description": "Endpoint base URL. openai-compat entries include the version suffix (e.g. http://127.0.0.1:1234/v1); systemone entries are bare hosts (decide_path carries the route)."
+        },
+        "api_key_ref": {
+          "type": ["string", "null"],
+          "pattern": "^(env|config):[A-Za-z_][A-Za-z0-9_.]{0,127}$",
+          "description": "Secret reference only, never the secret: env:NAME reads os.environ at call time; config:NAME reads a key (dotted path, top-level, or under llm.) in upstream/rimagent/config.local.yaml. null = open endpoint."
+        },
+        "strict": {
+          "type": "boolean",
+          "description": "When true the client MUST NOT send provider extension fields (extra_body, chat_template_kwargs, ...) — verified: Gemini's compat shim 400s on chat_template_kwargs (FR-011)."
+        },
+        "decide_path": {
+          "type": "string",
+          "pattern": "^/",
+          "maxLength": 256,
+          "description": "systemone only: route for POST {state, questions} on base_url (e.g. /v1/systemone, /api/alpha/decisions)."
+        },
+        "models": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1, "maxLength": 256 },
+          "description": "Advertised/allowed model ids; probe re-verifies against the live list."
+        },
+        "capabilities": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": ["chat", "tool_calls", "reasoning", "typed_decisions", "embeddings", "vision"]
+          },
+          "description": "Declared capabilities for role gating (FR-006): select needs typed_decisions|tool_calls, embed needs embeddings, plan/review need chat."
+        },
+        "context": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Optional context-window hint in tokens."
+        },
+        "cost_hint": {
+          "type": "object",
+          "description": "Optional free-form cost annotations (per-1k prices, tier notes). Advisory only."
+        },
+        "notes": {
+          "type": "string",
+          "maxLength": 4096,
+          "description": "Operator notes (verification dates, quirks). Never secrets."
+        },
+        "serve": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["cmd"],
+          "properties": {
+            "cmd": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "type": "string", "minLength": 1 },
+              "description": "Argv that launches this endpoint's local server (e.g. laya.exe serve ...). cmd[0] is an executable path; presence + existence enables a Start control in the overlay."
+            },
+            "path_prepend": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 },
+              "description": "Directories prepended to PATH in the spawned server environment (e.g. CUDA wheel bin dirs)."
+            }
+          },
+          "description": "Optional local-server launch recipe. Only meaningful for endpoints this machine can start; absent = no Start control."
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "api": { "const": "systemone" } },
+            "required": ["api"]
+          },
+          "then": { "required": ["decide_path"] }
+        }
+      ]
+    }
+  }
+}

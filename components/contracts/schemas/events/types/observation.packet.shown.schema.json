@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rimbrainagent.dev/schemas/events/types/observation.packet.shown.schema.json",
+  "title": "events/types/observation.packet.shown",
+  "description": "Payload for event_type 'observation.packet.shown' (upstream kind 'situation'): {trigger, tracked, changes, day, hour, chars} — what the model was just shown.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["trigger", "tracked", "changes", "day", "hour", "chars"],
+  "properties": {
+    "trigger": { "type": "string", "maxLength": 65536 },
+    "tracked": { "type": "string", "maxLength": 65536 },
+    "changes": { "type": "string", "maxLength": 65536 },
+    "day": { "type": "integer", "minimum": 0 },
+    "hour": { "type": "number", "minimum": 0 },
+    "chars": { "type": "integer", "minimum": 0 }
+  }
+}
